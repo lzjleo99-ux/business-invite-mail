@@ -1,0 +1,1 @@
+{"cases":[{"id":1,"priority":"p0","description":"打开首页工作台，验证统计卡片、工具栏和表格布局正常显示"},{"id":2,"priority":"p0","description":"点击导航切换到项目资料页，验证页面结构正常"},{"id":3,"priority":"p0","description":"点击导航切换到模型设置页，验证表单字段全部显示"},{"id":4,"priority":"p0","description":"在项目资料页新建一个项目，验证项目出现在列表中"},{"id":5,"priority":"p1","description":"验证工作台的状态筛选下拉和搜索框可交互"}]}

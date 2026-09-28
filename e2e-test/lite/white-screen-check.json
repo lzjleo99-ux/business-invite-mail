@@ -1,0 +1,1 @@
+{"cases":[{"id":1,"priority":"p0","description":"打开首页，检查是否白屏、控制台是否有JS错误"},{"id":2,"priority":"p0","description":"进入项目工作台，检查列表是否加载、有无接口报错"}]}
