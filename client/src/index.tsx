@@ -7,8 +7,15 @@ import { Toaster } from '@client/src/components/ui/sonner';
 
 import RoutesComponent from '@client/src/app';
 import { I18nProvider } from '@client/src/i18n';
+import { axiosForBackend } from '@lark-apaas/client-toolkit/utils/getAxiosForBackend';
+import { installOfflineIfStatic } from '@client/src/offline/offlineAdapter';
 
 import '@client/src/index.css';
+
+// On static hosting (GitHub Pages) there is no NestJS backend; install a
+// localStorage-backed adapter so the demo stays interactive. No-op on the
+// real platform runtime.
+installOfflineIfStatic(axiosForBackend);
 
 // Vite injects BASE_URL from the configured `base` (defaults to '/').
 // For a GitHub project page build we set base=/<repo>/ and derive the
