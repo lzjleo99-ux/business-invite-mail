@@ -1,0 +1,17 @@
+[
+  {
+    "path": "/"
+  },
+  {
+    "path": "/projects"
+  },
+  {
+    "path": "/projects/:id"
+  },
+  {
+    "path": "/settings"
+  },
+  {
+    "path": "/compose/:companyId"
+  }
+]
