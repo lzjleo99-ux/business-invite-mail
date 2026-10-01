@@ -140,7 +140,7 @@ export class ProjectsService {
       .insert(projects)
       .values({
         name: data.name,
-        description: data.description,
+        description: data.description ?? '',
         sortOrder: nextSortOrder,
       })
       .returning();

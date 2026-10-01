@@ -40,8 +40,9 @@ class CreateProjectDto implements CreateProjectRequest {
   @MinLength(1)
   name!: string;
 
+  @IsOptional()
   @IsString()
-  description!: string;
+  description?: string;
 }
 
 class UpdateProjectDto implements UpdateProjectRequest {
