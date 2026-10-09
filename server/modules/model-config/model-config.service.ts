@@ -6,6 +6,7 @@ import { modelConfig } from '@server/database/schema';
 import type {
   ModelConfig,
   UpdateModelConfigRequest,
+  TestConnectionRequest,
   TestConnectionResponse,
 } from '@shared/api.interface';
 
@@ -70,62 +71,92 @@ export class ModelConfigService {
     return this.toResponse(updated[0]);
   }
 
-  async testConnection(): Promise<TestConnectionResponse> {
-    const config = await this.getConfig();
+  async testConnection(
+    dto: TestConnectionRequest = {},
+  ): Promise<TestConnectionResponse> {
+    // Read the saved row so we can fall back to it (esp. the API key, which
+    // the form leaves blank when it should stay unchanged).
+    const rows = await this.db.select().from(modelConfig).limit(1);
+    if (rows.length === 0) {
+      return { success: false, message: '配置不存在' };
+    }
+    const saved = rows[0];
 
-    if (!config.apiKeySet) {
+    const baseUrlRaw = (dto.apiBaseUrl ?? saved.apiBaseUrl ?? '').trim();
+    const model = (dto.modelName ?? saved.modelName ?? '').trim();
+    const apiKey = (dto.apiKey ?? '').trim() || saved.apiKey;
+    const temperature =
+      dto.temperature !== undefined && dto.temperature !== null
+        ? Number(dto.temperature)
+        : saved.temperature !== null
+          ? Number(saved.temperature)
+          : undefined;
+
+    if (!baseUrlRaw) {
+      return { success: false, message: 'API Base URL 不能为空' };
+    }
+    if (!model) {
+      return { success: false, message: '模型名称不能为空' };
+    }
+    if (!apiKey) {
       return { success: false, message: 'API Key 未设置' };
     }
 
-    const fullRow = await this.db
-      .select()
-      .from(modelConfig)
-      .where(eq(modelConfig.id, config.id))
-      .limit(1);
-
-    if (fullRow.length === 0) {
-      return { success: false, message: '配置不存在' };
-    }
-
-    const row = fullRow[0];
-    const baseUrl = row.apiBaseUrl.replace(/\/$/, '');
+    const baseUrl = baseUrlRaw.replace(/\/+$/, '');
     const url = `${baseUrl}/chat/completions`;
 
     try {
-      const temperature = row.temperature !== null
-        ? Number(row.temperature)
-        : undefined;
-
       const body: Record<string, unknown> = {
-        model: row.modelName,
+        model,
         messages: [{ role: 'user', content: 'hi' }],
         max_tokens: 5,
       };
-      if (temperature !== undefined) {
+      if (temperature !== undefined && !Number.isNaN(temperature)) {
         body.temperature = temperature;
       }
 
-      await axios.post(url, body, {
+      const response = await axios.post(url, body, {
         headers: {
           'Content-Type': 'application/json',
-          Authorization: `Bearer ${row.apiKey}`,
+          Authorization: `Bearer ${apiKey}`,
         },
         timeout: 15000,
+        validateStatus: () => true, // inspect status ourselves for clearer errors
       });
 
-      return { success: true, message: '连接成功' };
+      const status = response.status;
+      const data: any = response.data;
+      const serverMessage: string | undefined =
+        data?.error?.message || data?.message;
+
+      if (status < 200 || status >= 300) {
+        return {
+          success: false,
+          message: serverMessage
+            ? `HTTP ${status}: ${serverMessage}`
+            : `HTTP ${status} ${response.statusText ?? ''}`.trim(),
+        };
+      }
+
+      // Some gateways return 200 even when the model is unusable, carrying an
+      // error body or no choices — treat that as failure too.
+      if (data?.error) {
+        return {
+          success: false,
+          message: serverMessage ? `HTTP ${status}: ${serverMessage}` : '模型返回错误',
+        };
+      }
+      if (!data || (!Array.isArray(data.choices) && !data.id)) {
+        return { success: false, message: '模型未返回有效结果，请检查模型名称' };
+      }
+
+      return { success: true, message: `连接成功（模型：${model}）` };
     } catch (err: unknown) {
       this.logger.warn(`Model API test connection failed: ${String(err)}`);
       let message = '未知错误';
       if (err instanceof Error) {
         if (axios.isAxiosError(err)) {
-          const status = err.response?.status;
-          const respMessage = (err.response?.data as { error?: { message?: string } })?.error?.message;
-          if (status && respMessage) {
-            message = `HTTP ${status}: ${respMessage}`;
-          } else if (status) {
-            message = `HTTP ${status} ${err.response?.statusText ?? ''}`.trim();
-          } else if (err.code === 'ECONNABORTED') {
+          if (err.code === 'ECONNABORTED') {
             message = '请求超时（15秒）';
           } else {
             message = err.message;

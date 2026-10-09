@@ -5,6 +5,7 @@ import { ModelConfigService } from './model-config.service';
 import type {
   ModelConfig,
   UpdateModelConfigRequest,
+  TestConnectionRequest,
   TestConnectionResponse,
 } from '@shared/api.interface';
 
@@ -39,6 +40,28 @@ class UpdateModelConfigDto implements UpdateModelConfigRequest {
   senderSignature?: string;
 }
 
+class TestConnectionDto implements TestConnectionRequest {
+  @IsOptional()
+  @IsString()
+  apiBaseUrl?: string;
+
+  @IsOptional()
+  @IsString()
+  apiKey?: string;
+
+  @IsOptional()
+  @IsString()
+  modelName?: string;
+
+  @IsOptional()
+  @ValidateIf((_o, v) => v !== null)
+  @IsNumber()
+  @Type(() => Number)
+  @Min(0)
+  @Max(2)
+  temperature?: number | null;
+}
+
 @Controller('api/model-config')
 export class ModelConfigController {
   constructor(private readonly modelConfigService: ModelConfigService) {}
@@ -56,7 +79,9 @@ export class ModelConfigController {
   }
 
   @Post('test')
-  async testConnection(): Promise<TestConnectionResponse> {
-    return this.modelConfigService.testConnection();
+  async testConnection(
+    @Body() dto: TestConnectionDto,
+  ): Promise<TestConnectionResponse> {
+    return this.modelConfigService.testConnection(dto);
   }
 }

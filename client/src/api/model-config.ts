@@ -2,6 +2,7 @@ import { axiosForBackend } from '@lark-apaas/client-toolkit/utils/getAxiosForBac
 import type {
   ModelConfig,
   UpdateModelConfigRequest,
+  TestConnectionRequest,
   TestConnectionResponse,
   ImportSecretConfig,
   UpdateImportSecretRequest,
@@ -17,8 +18,10 @@ export async function updateModelConfig(data: UpdateModelConfigRequest): Promise
   return response.data;
 }
 
-export async function testConnection(): Promise<TestConnectionResponse> {
-  const response = await axiosForBackend.post('/api/model-config/test');
+export async function testConnection(
+  data: TestConnectionRequest,
+): Promise<TestConnectionResponse> {
+  const response = await axiosForBackend.post('/api/model-config/test', data);
   return response.data;
  }
 

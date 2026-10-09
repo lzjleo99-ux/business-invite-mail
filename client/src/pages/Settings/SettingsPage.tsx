@@ -126,7 +126,13 @@ const SettingsPage = () => {
     setTesting(true);
     setTestResult(null);
     try {
-      const result = await modelConfigApi.testConnection();
+      const values = modelForm.getValues();
+      const result = await modelConfigApi.testConnection({
+        apiBaseUrl: values.apiBaseUrl,
+        apiKey: values.apiKey ?? '',
+        modelName: values.modelName,
+        temperature: values.temperature,
+      });
       const msg = result.message ?? '';
       setTestResult({ success: result.success, message: msg });
       if (result.success) {

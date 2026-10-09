@@ -191,6 +191,13 @@ export interface UpdateModelConfigRequest {
   senderSignature?: string;
 }
 
+export interface TestConnectionRequest {
+  apiBaseUrl?: string;
+  apiKey?: string;
+  modelName?: string;
+  temperature?: number | null;
+}
+
 export interface TestConnectionResponse {
   success: boolean;
   message?: string;
