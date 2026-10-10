@@ -13,6 +13,7 @@ import {
 import { eq, sql, ilike, max, inArray } from 'drizzle-orm';
 import { modelConfig, projects, restaurants } from '@server/database/schema';
 import { RestaurantsService } from '../restaurants/restaurants.service';
+import type { UserContext } from '../restaurants/restaurants.service';
 import type {
   ImportSecretConfig,
   AutoImportLead,
@@ -262,7 +263,10 @@ export class AutoImportService {
       if (emailKey) seenBatchEmails.add(emailKey);
       if (websiteKey) seenBatchWebsites.add(websiteKey);
 
-      await this.restaurantsService.createLead(projectId, lead);
+      await this.restaurantsService.createLead(projectId, lead, {
+        userId: 'system_auto_import',
+        role: 'admin',
+      });
       imported += 1;
     }
 

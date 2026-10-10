@@ -89,9 +89,6 @@ const ProjectWorkbenchInner: React.FC = () => {
   const [analyzingId, setAnalyzingId] = useState<string | null>(null);
   const [generatingId, setGeneratingId] = useState<string | null>(null);
   const [generatingWhatsAppId, setGeneratingWhatsAppId] = useState<string | null>(null);
-  const [batchAnalyzing, setBatchAnalyzing] = useState(false);
-  const [batchGenerating, setBatchGenerating] = useState(false);
-  const [batchWhatsApping, setBatchWhatsApping] = useState(false);
 
   // Project detail
   const { data: project, isLoading: projectLoading } = useQuery({
@@ -369,54 +366,7 @@ const ProjectWorkbenchInner: React.FC = () => {
     }
   };
 
-  // --- Batch actions ---
-  const handleBatchAnalyze = async () => {
-    setBatchAnalyzing(true);
-    try {
-      const result = await websiteAnalyzerApi.batchAnalyze(id);
-      toast.success(
-        t('已启动批量分析，共 {n} 条，处理中请刷新查看进度', { n: result.total }),
-      );
-      refreshAll();
-    } catch (err: unknown) {
-      logger.error('批量分析失败', err);
-      toast.error(t('批量分析失败，请稍后重试'));
-    } finally {
-      setBatchAnalyzing(false);
-    }
-  };
-
-  const handleBatchGenerate = async () => {
-    setBatchGenerating(true);
-    try {
-      const result = await emailGeneratorApi.batchGenerate(id);
-      toast.success(
-        t('已启动批量生成，共 {n} 条，处理中请刷新查看进度', { n: result.total }),
-      );
-      refreshAll();
-    } catch (err: unknown) {
-      logger.error('批量生成失败', err);
-      toast.error(t('批量生成失败，请稍后重试'));
-    } finally {
-      setBatchGenerating(false);
-    }
-  };
-
-  const handleBatchWhatsApp = async () => {
-    setBatchWhatsApping(true);
-    try {
-      const result = await emailGeneratorApi.batchWhatsApp(id);
-      toast.success(
-        t('已启动批量 WhatsApp 准备，共 {n} 条，处理中请刷新查看进度', { n: result.total }),
-      );
-      refreshAll();
-    } catch (err: unknown) {
-      logger.error('批量WhatsApp失败', err);
-      toast.error(t('批量准备失败，请稍后重试'));
-    } finally {
-      setBatchWhatsApping(false);
-    }
-  };
+  // --- Batch actions moved to WorkbenchTab via useBatchOperation hook ---
 
   const handleGenerateWhatsApp = async (record: Company) => {
     setGeneratingWhatsAppId(record.id);
@@ -735,9 +685,6 @@ const ProjectWorkbenchInner: React.FC = () => {
             analyzingId={analyzingId}
             generatingId={generatingId}
             generatingWhatsAppId={generatingWhatsAppId}
-            batchAnalyzing={batchAnalyzing}
-            batchGenerating={batchGenerating}
-            batchWhatsApping={batchWhatsApping}
             editingEmail={editingEmail}
             editingEmailLanguage={editingEmailLanguage}
             savingEmailId={savingEmailId}
@@ -754,9 +701,7 @@ const ProjectWorkbenchInner: React.FC = () => {
             onDelete={(r) => setDeletingCompany(r)}
             onSaveEmail={(r) => void saveEmailEdit(r)}
             onRegenerateEmail={(r) => void regenerateEmail(r)}
-            onBatchAnalyze={() => void handleBatchAnalyze()}
-            onBatchGenerate={() => void handleBatchGenerate()}
-            onBatchWhatsApp={() => void handleBatchWhatsApp()}
+            projectId={id}
             onGenerateWhatsApp={(r) => void handleGenerateWhatsApp(r)}
             onStatClick={handleStatClick}
             onToggleStar={(r) => void handleToggleStar(r)}

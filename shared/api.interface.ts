@@ -66,6 +66,7 @@ export interface Company {
   normalizedPhone: string | null;
   phoneType: 'mobile' | 'landline' | 'unknown' | null;
   normalizedWhatsappPhone: string | null;
+  viberPhone: string | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -335,3 +336,52 @@ export type Restaurant = Company;
 export type RestaurantListParams = CompanyListParams;
 export type RestaurantListResponse = CompanyListResponse;
 export type RestaurantStatsResponse = CompanyStatsResponse;
+
+// --- Auth ---
+
+export interface AuthUser {
+  id: string;
+  email: string;
+  displayName: string;
+  role: 'admin' | 'user';
+  isActive: boolean;
+}
+
+export interface RegisterRequest {
+  email: string;
+  password: string;
+  displayName: string;
+}
+
+export interface LoginRequest {
+  email: string;
+  password: string;
+}
+
+export interface AuthResponse {
+  user: AuthUser;
+  token: string;
+}
+
+export interface ChangePasswordRequest {
+  oldPassword: string;
+  newPassword: string;
+}
+
+export interface AdminUser extends AuthUser {
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface AdminUserListResponse {
+  items: AdminUser[];
+  total: number;
+}
+
+export interface UpdateUserRoleRequest {
+  role: 'admin' | 'user';
+}
+
+export interface UpdateUserActiveRequest {
+  isActive: boolean;
+}

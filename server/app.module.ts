@@ -14,6 +14,8 @@ import { EmailGeneratorModule } from './modules/email-generator/email-generator.
 import { SenderConfigModule } from './modules/sender-config/sender-config.module';
 import { AutoImportModule } from './modules/auto-import/auto-import.module';
 import { EmailThreadsModule } from './modules/email-threads/email-threads.module';
+import { AuthModule } from './modules/auth/auth.module';
+import { AdminModule } from './modules/admin/admin.module';
 
 @Module({
   imports: [
@@ -27,6 +29,8 @@ import { EmailThreadsModule } from './modules/email-threads/email-threads.module
     SenderConfigModule,
     AutoImportModule,
     EmailThreadsModule,
+    AuthModule,
+    AdminModule,
     // ====== @route-section: business-modules END ======
 
     ViewModule,

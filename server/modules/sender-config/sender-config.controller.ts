@@ -1,4 +1,5 @@
-import { Controller, Get, Patch, Body } from '@nestjs/common';
+import { Controller, Get, Patch, Body, UseGuards } from '@nestjs/common';
+import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { IsOptional, IsString } from 'class-validator';
 import { SenderConfigService } from './sender-config.service';
 import type {
@@ -20,6 +21,7 @@ class UpdateSenderConfigDto implements UpdateSenderConfigRequest {
   personalStory?: string;
 }
 
+@UseGuards(JwtAuthGuard)
 @Controller('api/sender-config')
 export class SenderConfigController {
   constructor(private readonly senderConfigService: SenderConfigService) {}

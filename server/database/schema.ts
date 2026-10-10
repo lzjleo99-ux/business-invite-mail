@@ -1,7 +1,7 @@
 /* eslint-disable */
 /** auto generated, do not edit */
 import { sql } from 'drizzle-orm';
-import { boolean, date, foreignKey, index, integer, jsonb, numeric, pgTable, text, uuid, varchar, customType } from "drizzle-orm/pg-core"
+import { boolean, date, foreignKey, index, integer, jsonb, numeric, pgTable, text, uniqueIndex, uuid, varchar, customType } from "drizzle-orm/pg-core"
 
 export const customTimestamptz = customType<{
   data: Date;
@@ -116,6 +116,21 @@ export const fileAttachmentArray = customType<{
     });
   },
 });
+
+export const appUsers = pgTable("app_users", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  email: varchar("email", { length: 255 }).notNull().unique(),
+  passwordHash: varchar("password_hash", { length: 255 }).notNull(),
+  displayName: varchar("display_name", { length: 255 }).notNull(),
+  role: varchar("role", { length: 20 }).notNull().default('user'),
+  isActive: boolean("is_active").notNull().default(true),
+  // System field: Creation time (auto-filled, do not modify)
+  createdAt: customTimestamptz("_created_at", { precision: 3 }).notNull().default(sql`CURRENT_TIMESTAMP`),
+  // System field: Update time (auto-filled, do not modify)
+  updatedAt: customTimestamptz("_updated_at", { precision: 3 }).notNull().default(sql`CURRENT_TIMESTAMP`),
+}, (table) => [
+  uniqueIndex("app_users_email_key").on(table.email),
+]);
 
 export const emailThreads = pgTable("email_threads", {
   id: uuid("id").primaryKey().defaultRandom(),
@@ -236,6 +251,7 @@ export const projects = pgTable("projects", {
   name: varchar("name", { length: 500 }).notNull(),
   description: text("description").notNull(),
   sortOrder: integer("sort_order").notNull().default(0),
+  ownerId: uuid("owner_id"),
   // System field: Creation time (auto-filled, do not modify)
   createdAt: customTimestamptz("_created_at", { precision: 3 }).notNull().default(sql`CURRENT_TIMESTAMP`),
   // System field: Creator (auto-filled, do not modify)
@@ -246,7 +262,14 @@ export const projects = pgTable("projects", {
   // System field: Updater (auto-filled, do not modify)
   updatedBy: userProfile("_updated_by").default(sql`CASE
     WHEN (current_setting('app.user_id'::text, true) = ''::text) THEN NULL`),
-});
+}, (table) => [
+  index("idx_projects_owner_id").on(table.ownerId),
+  foreignKey({
+    columns: [table.ownerId],
+    foreignColumns: [appUsers.id],
+    name: "fk_projects_owner",
+  }).onDelete("set null"),
+]);
 
 export const restaurants = pgTable("restaurants", {
   id: uuid("id").primaryKey().defaultRandom(),
@@ -312,6 +335,7 @@ export const restaurants = pgTable("restaurants", {
 ]);
 
 // table aliases
+export const appUsersTable = appUsers;
 export const emailThreadsTable = emailThreads;
 export const modelConfigTable = modelConfig;
 export const projectImagesTable = projectImages;

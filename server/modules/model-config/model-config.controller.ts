@@ -1,13 +1,36 @@
-import { Controller, Get, Patch, Post, Body } from '@nestjs/common';
+import { Controller, Get, Patch, Post, Body, UseGuards } from '@nestjs/common';
+import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { IsString, IsOptional, IsNumber, IsIn, Min, Max, ValidateIf } from 'class-validator';
 import { Type } from 'class-transformer';
 import { ModelConfigService } from './model-config.service';
 import type {
   ModelConfig,
   UpdateModelConfigRequest,
-  TestConnectionRequest,
   TestConnectionResponse,
+  TestConnectionRequest,
 } from '@shared/api.interface';
+
+class TestConnectionDto implements TestConnectionRequest {
+  @IsOptional()
+  @IsString()
+  apiBaseUrl?: string;
+
+  @IsOptional()
+  @IsString()
+  apiKey?: string;
+
+  @IsOptional()
+  @IsString()
+  modelName?: string;
+
+  @IsOptional()
+  @ValidateIf((_o, v) => v !== null)
+  @IsNumber()
+  @Type(() => Number)
+  @Min(0)
+  @Max(2)
+  temperature?: number | null;
+}
 
 class UpdateModelConfigDto implements UpdateModelConfigRequest {
   @IsOptional()
@@ -40,28 +63,7 @@ class UpdateModelConfigDto implements UpdateModelConfigRequest {
   senderSignature?: string;
 }
 
-class TestConnectionDto implements TestConnectionRequest {
-  @IsOptional()
-  @IsString()
-  apiBaseUrl?: string;
-
-  @IsOptional()
-  @IsString()
-  apiKey?: string;
-
-  @IsOptional()
-  @IsString()
-  modelName?: string;
-
-  @IsOptional()
-  @ValidateIf((_o, v) => v !== null)
-  @IsNumber()
-  @Type(() => Number)
-  @Min(0)
-  @Max(2)
-  temperature?: number | null;
-}
-
+@UseGuards(JwtAuthGuard)
 @Controller('api/model-config')
 export class ModelConfigController {
   constructor(private readonly modelConfigService: ModelConfigService) {}

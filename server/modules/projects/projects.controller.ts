@@ -10,6 +10,7 @@ import {
   UploadedFile,
   BadRequestException,
   Logger,
+  UseGuards,
 } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { IsString, IsOptional, MinLength } from 'class-validator';
@@ -18,6 +19,9 @@ import * as mammoth from 'mammoth';
 import * as XLSX from 'xlsx';
 import { spawn } from 'child_process';
 import { ProjectsService } from './projects.service';
+import { JwtAuthGuard } from '../auth/jwt-auth.guard';
+import { CurrentUser } from '../auth/current-user.decorator';
+import type { JwtPayload } from '../auth/jwt-auth.guard';
 
 // eslint-disable-next-line @typescript-eslint/no-require-imports, @typescript-eslint/no-var-requires
 const tesseract = require('tesseract.js');
@@ -42,7 +46,7 @@ class CreateProjectDto implements CreateProjectRequest {
 
   @IsOptional()
   @IsString()
-  description?: string;
+  description!: string;
 }
 
 class UpdateProjectDto implements UpdateProjectRequest {
@@ -67,6 +71,7 @@ class UploadMaterialByBase64Dto {
   contentBase64!: string;
 }
 
+@UseGuards(JwtAuthGuard)
 @Controller('api/projects')
 export class ProjectsController {
   private readonly logger = new Logger(ProjectsController.name);
@@ -77,31 +82,41 @@ export class ProjectsController {
   ) {}
 
   @Get()
-  async findAll(): Promise<Project[]> {
-    return this.projectsService.findAll();
+  async findAll(@CurrentUser() user: JwtPayload): Promise<Project[]> {
+    return this.projectsService.findAll({ userId: user.userId, role: user.role });
   }
 
   @Get(':id')
-  async findOne(@Param('id') id: string): Promise<Project> {
-    return this.projectsService.findOne(id);
+  async findOne(
+    @Param('id') id: string,
+    @CurrentUser() user: JwtPayload,
+  ): Promise<Project> {
+    return this.projectsService.findOne(id, { userId: user.userId, role: user.role });
   }
 
   @Post()
-  async create(@Body() dto: CreateProjectDto): Promise<Project> {
-    return this.projectsService.create(dto);
+  async create(
+    @Body() dto: CreateProjectDto,
+    @CurrentUser() user: JwtPayload,
+  ): Promise<Project> {
+    return this.projectsService.create(dto, { userId: user.userId, role: user.role });
   }
 
   @Patch(':id')
   async update(
     @Param('id') id: string,
     @Body() dto: UpdateProjectDto,
+    @CurrentUser() user: JwtPayload,
   ): Promise<Project> {
-    return this.projectsService.update(id, dto);
+    return this.projectsService.update(id, dto, { userId: user.userId, role: user.role });
   }
 
   @Delete(':id')
-  async remove(@Param('id') id: string): Promise<void> {
-    await this.projectsService.remove(id);
+  async remove(
+    @Param('id') id: string,
+    @CurrentUser() user: JwtPayload,
+  ): Promise<void> {
+    await this.projectsService.remove(id, { userId: user.userId, role: user.role });
   }
 
   @Post(':id/materials')
@@ -109,6 +124,7 @@ export class ProjectsController {
   async addMaterial(
     @Param('id') id: string,
     @UploadedFile() file: FileUpload,
+    @CurrentUser() user: JwtPayload,
   ): Promise<ProjectMaterial> {
     if (!file) {
       throw new BadRequestException('缺少文件');
@@ -146,6 +162,7 @@ export class ProjectsController {
       filePath,
       contentSummary,
       parsedContent,
+      { userId: user.userId, role: user.role },
     );
   }
 
@@ -153,14 +170,16 @@ export class ProjectsController {
   async removeMaterial(
     @Param('id') id: string,
     @Param('materialId') materialId: string,
+    @CurrentUser() user: JwtPayload,
   ): Promise<void> {
-    await this.projectsService.removeMaterial(id, materialId);
+    await this.projectsService.removeMaterial(id, materialId, { userId: user.userId, role: user.role });
   }
 
   @Post(':id/materials-base64')
   async addMaterialByBase64(
     @Param('id') id: string,
     @Body() dto: UploadMaterialByBase64Dto,
+    @CurrentUser() user: JwtPayload,
   ): Promise<ProjectMaterial> {
     if (!dto.contentBase64) {
       throw new BadRequestException('缺少文件内容');
@@ -211,12 +230,16 @@ export class ProjectsController {
       filePath,
       contentSummary,
       parsedContent,
+      { userId: user.userId, role: user.role },
     );
   }
 
   @Get(':id/materials')
-  async listMaterials(@Param('id') id: string): Promise<ProjectMaterial[]> {
-    return this.projectsService.listMaterials(id);
+  async listMaterials(
+    @Param('id') id: string,
+    @CurrentUser() user: JwtPayload,
+  ): Promise<ProjectMaterial[]> {
+    return this.projectsService.listMaterials(id, { userId: user.userId, role: user.role });
   }
 
   private detectFileType(mimetype: string, fileName: string): string {

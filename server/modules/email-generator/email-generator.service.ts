@@ -1129,6 +1129,7 @@ Would you be open to a quick chat about it? No pressure at all. Thanks!`;
       phoneType:
         (row.phoneType as 'mobile' | 'landline' | 'unknown' | null) ?? null,
       normalizedWhatsappPhone: row.normalizedWhatsappPhone ?? null,
+      viberPhone: row.normalizedPhone ?? null,
       createdAt: row.createdAt.toISOString(),
       updatedAt: row.updatedAt.toISOString(),
     };

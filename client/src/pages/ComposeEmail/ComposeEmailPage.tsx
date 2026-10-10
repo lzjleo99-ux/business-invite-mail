@@ -268,8 +268,11 @@ const ComposeEmailPage: React.FC = () => {
    * (company.whatsappMessage*) — never the email body. Both channels are
    * independent; WhatsApp prefills via wa.me, Viber opens viber.me (matching
    * the novascan-web contact page) and the script is copied for pasting.
+   *
+   * IMPORTANT: window.open / openExternal must happen in the synchronous
+   * click stack (before any await) to avoid popup blockers.
    */
-  const handleOpenChat = async (channel: ChatChannel) => {
+  const handleOpenChat = (channel: ChatChannel) => {
     if (!company || !chatPhone) {
       toast.error(t('无可用手机号'));
       return;
@@ -281,24 +284,27 @@ const ComposeEmailPage: React.FC = () => {
         : company.whatsappMessage || company.whatsappMessageLocal || '';
     const channelName = channel === 'whatsapp' ? 'WhatsApp' : 'Viber';
 
-    if (message) {
-      const ok = await copyToClipboard(message);
-      if (ok) {
-        toast.success(
-          t('话术已复制，正在外部浏览器打开 {channel}', { channel: channelName }),
-        );
-      } else {
-        toast.error(t('复制失败'));
-      }
-    } else {
-      toast.info(t('正在外部浏览器打开 {channel}', { channel: channelName }));
-    }
-
+    // Open the window FIRST — inside the synchronous click handler — so
+    // popup blockers do not suppress it. Then copy the script afterward.
     const url =
       channel === 'whatsapp'
         ? buildWhatsAppUrl(digits, message)
         : buildViberUrl(digits);
     openExternal(url);
+
+    if (message) {
+      void copyToClipboard(message).then((ok: boolean) => {
+        if (ok) {
+          toast.success(
+            t('话术已复制，正在外部浏览器打开 {channel}', { channel: channelName }),
+          );
+        } else {
+          toast.error(t('复制失败'));
+        }
+      });
+    } else {
+      toast.info(t('正在外部浏览器打开 {channel}', { channel: channelName }));
+    }
   };
 
   const handleAddThread = () => {

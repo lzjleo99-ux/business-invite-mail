@@ -1,4 +1,4 @@
-import { normalizeSerbianPhone } from '@client/common/utils/phone-normalizer';
+import { normalizeSerbianPhone } from '@client/src/utils/phone-normalizer';
 import type { Company } from '@shared/api.interface';
 
 export type ChatChannel = 'whatsapp' | 'viber';
@@ -20,7 +20,7 @@ export function isWeComWebview(): boolean {
  */
 export function openExternal(url: string): void {
   if (isWeComWebview()) {
-    window.location.href = `wxlink://open?url=${encodeURIComponent(url)}`;
+    location.assign(`wxlink://open?url=${encodeURIComponent(url)}`);
   } else {
     window.open(url, '_blank', 'noopener,noreferrer');
   }
@@ -60,6 +60,26 @@ export function bestChatPhone(record: Company): string {
   return (
     record.normalizedWhatsappPhone ||
     record.normalizedPhone ||
+    record.viberPhone ||
+    normalizeSerbianPhone(record.websiteContactPhone || record.phone || '', record.country || '')
+  );
+}
+
+/** Best number for WhatsApp (must be mobile). */
+export function bestWhatsAppPhone(record: Company): string {
+  return (
+    record.normalizedWhatsappPhone ||
+    (record.phoneType === 'mobile' ? record.normalizedPhone : '') ||
+    ''
+  );
+}
+
+/** Best number for Viber (works with mobile or landline). */
+export function bestViberPhone(record: Company): string {
+  return (
+    record.viberPhone ||
+    record.normalizedPhone ||
+    record.normalizedWhatsappPhone ||
     normalizeSerbianPhone(record.websiteContactPhone || record.phone || '', record.country || '')
   );
 }
@@ -102,4 +122,36 @@ export async function copyToClipboard(text: string): Promise<boolean> {
   } catch {
     return false;
   }
+}
+
+/**
+ * Open a chat link synchronously (in the click handler stack) so that the
+ * browser does not block the popup. The message text is copied to the
+ * clipboard afterwards; the function itself returns void (no Promise) so
+ * callers can use it directly in onClick without awaiting.
+ */
+export function openChatSync(
+  channel: ChatChannel,
+  phoneDigits: string,
+  message: string,
+): void {
+  const url = buildChatUrl(channel, phoneDigits, message);
+  openExternal(url);
+
+  if (message) {
+    void copyToClipboard(message).catch(() => {
+      /* clipboard failure is non-fatal; the window is already open */
+    });
+  }
+}
+
+/** Whether the company has a phone number usable for the given channel. */
+export function hasChatPhone(
+  record: Company,
+  channel: ChatChannel,
+): boolean {
+  if (channel === 'whatsapp') {
+    return !!bestWhatsAppPhone(record);
+  }
+  return !!bestViberPhone(record);
 }

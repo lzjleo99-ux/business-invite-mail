@@ -3,6 +3,7 @@ import {
   Inject,
   Logger,
   NotFoundException,
+  ForbiddenException,
 } from '@nestjs/common';
 import {
   DRIZZLE_DATABASE,
@@ -16,6 +17,11 @@ import type {
   CreateProjectRequest,
   UpdateProjectRequest,
 } from '@shared/api.interface';
+
+export interface UserContext {
+  userId: string;
+  role: 'admin' | 'user';
+}
 
 interface ProjectStatsRow {
   projectId: string;
@@ -31,11 +37,26 @@ export class ProjectsService {
     @Inject(DRIZZLE_DATABASE) private readonly db: PostgresJsDatabase,
   ) {}
 
-  async findAll(): Promise<Project[]> {
-    const projectRows = await this.db
-      .select()
-      .from(projects)
-      .orderBy(asc(projects.sortOrder));
+  private isAdmin(user: UserContext): boolean {
+    return user.role === 'admin';
+  }
+
+  private ownerCondition(user: UserContext) {
+    if (this.isAdmin(user)) return undefined;
+    return eq(projects.ownerId, user.userId);
+  }
+
+  async findAll(user: UserContext): Promise<Project[]> {
+    const ownerCond = this.ownerCondition(user);
+    const whereClause = ownerCond ? ownerCond : undefined;
+
+    const baseQuery = whereClause
+      ? this.db.select().from(projects).where(whereClause)
+      : this.db.select().from(projects);
+
+    const projectRows = await baseQuery.orderBy(asc(projects.sortOrder));
+
+    const projectIds: string[] = projectRows.map((p) => p.id);
 
     // 批量统计每个项目的公司数和已生成数
     const statsRows = await this.db
@@ -45,7 +66,17 @@ export class ProjectsService {
         generatedCount: sql<number>`count(*) filter (where ${restaurants.status} = 'generated')`,
       })
       .from(restaurants)
-      .where(isNotNull(restaurants.projectId))
+      .where(
+        and(
+          isNotNull(restaurants.projectId),
+          projectIds.length > 0
+            ? sql`${restaurants.projectId} = ANY(ARRAY[${sql.join(
+                projectIds.map((id: string) => sql`${id}::uuid`),
+                sql`, `,
+              )}])`
+            : sql`false`,
+        ),
+      )
       .groupBy(restaurants.projectId);
 
     const statsByProject = new Map<string, { companyCount: number; generatedCount: number }>();
@@ -76,11 +107,16 @@ export class ProjectsService {
     return result;
   }
 
-  async findOne(id: string): Promise<Project> {
+  async findOne(id: string, user: UserContext): Promise<Project> {
+    const ownerCond = this.ownerCondition(user);
+    const whereClause = ownerCond
+      ? and(eq(projects.id, id), ownerCond)
+      : eq(projects.id, id);
+
     const projectRows = await this.db
       .select()
       .from(projects)
-      .where(eq(projects.id, id));
+      .where(whereClause);
 
     if (projectRows.length === 0) {
       throw new NotFoundException('项目不存在');
@@ -130,7 +166,7 @@ export class ProjectsService {
     };
   }
 
-  async create(data: CreateProjectRequest): Promise<Project> {
+  async create(data: CreateProjectRequest, user: UserContext): Promise<Project> {
     const maxOrderResult = await this.db
       .select({ max: max(projects.sortOrder) })
       .from(projects);
@@ -142,6 +178,7 @@ export class ProjectsService {
         name: data.name,
         description: data.description ?? '',
         sortOrder: nextSortOrder,
+        ownerId: user.userId,
       })
       .returning();
 
@@ -159,36 +196,65 @@ export class ProjectsService {
     };
   }
 
-  async update(id: string, data: UpdateProjectRequest): Promise<Project> {
+  async update(
+    id: string,
+    data: UpdateProjectRequest,
+    user: UserContext,
+  ): Promise<Project> {
     const patch: Partial<typeof projects.$inferInsert> = {};
     if (data.name !== undefined) patch.name = data.name;
     if (data.description !== undefined) patch.description = data.description;
 
     if (Object.keys(patch).length === 0) {
-      return this.findOne(id);
+      return this.findOne(id, user);
     }
+
+    const ownerCond = this.ownerCondition(user);
+    const whereClause = ownerCond
+      ? and(eq(projects.id, id), ownerCond)
+      : eq(projects.id, id);
 
     const updated = await this.db
       .update(projects)
       .set(patch)
-      .where(eq(projects.id, id))
+      .where(whereClause)
       .returning({ id: projects.id });
 
     if (updated.length === 0) {
-      throw new NotFoundException('项目不存在');
+      // 区分不存在和无权限
+      const existing = await this.db
+        .select({ id: projects.id })
+        .from(projects)
+        .where(eq(projects.id, id));
+      if (existing.length === 0) {
+        throw new NotFoundException('项目不存在');
+      }
+      throw new ForbiddenException('无权操作该项目');
     }
 
-    return this.findOne(id);
+    return this.findOne(id, user);
   }
 
-  async remove(id: string): Promise<void> {
+  async remove(id: string, user: UserContext): Promise<void> {
+    const ownerCond = this.ownerCondition(user);
+    const whereClause = ownerCond
+      ? and(eq(projects.id, id), ownerCond)
+      : eq(projects.id, id);
+
     const projectRows = await this.db
       .select({ id: projects.id })
       .from(projects)
-      .where(eq(projects.id, id));
+      .where(whereClause);
 
     if (projectRows.length === 0) {
-      throw new NotFoundException('项目不存在');
+      const existing = await this.db
+        .select({ id: projects.id })
+        .from(projects)
+        .where(eq(projects.id, id));
+      if (existing.length === 0) {
+        throw new NotFoundException('项目不存在');
+      }
+      throw new ForbiddenException('无权操作该项目');
     }
 
     // 删除关联的餐厅
@@ -206,8 +272,9 @@ export class ProjectsService {
     filePath: string,
     contentSummary: string | null,
     parsedContent: string | null,
+    user: UserContext,
   ): Promise<ProjectMaterial> {
-    await this.ensureProjectExists(projectId);
+    await this.ensureProjectAccess(projectId, user);
 
     const maxOrderResult = await this.db
       .select({ max: max(projectMaterials.sortOrder) })
@@ -242,8 +309,12 @@ export class ProjectsService {
     };
   }
 
-  async removeMaterial(projectId: string, materialId: string): Promise<void> {
-    await this.ensureProjectExists(projectId);
+  async removeMaterial(
+    projectId: string,
+    materialId: string,
+    user: UserContext,
+  ): Promise<void> {
+    await this.ensureProjectAccess(projectId, user);
 
     const materialRows = await this.db
       .select({ id: projectMaterials.id })
@@ -265,8 +336,11 @@ export class ProjectsService {
       .where(eq(projectMaterials.id, materialId));
   }
 
-  async listMaterials(projectId: string): Promise<ProjectMaterial[]> {
-    await this.ensureProjectExists(projectId);
+  async listMaterials(
+    projectId: string,
+    user: UserContext,
+  ): Promise<ProjectMaterial[]> {
+    await this.ensureProjectAccess(projectId, user);
 
     const rows = await this.db
       .select()
@@ -286,13 +360,28 @@ export class ProjectsService {
     }));
   }
 
-  private async ensureProjectExists(id: string): Promise<void> {
+  private async ensureProjectAccess(
+    id: string,
+    user: UserContext,
+  ): Promise<void> {
+    const ownerCond = this.ownerCondition(user);
+    const whereClause = ownerCond
+      ? and(eq(projects.id, id), ownerCond)
+      : eq(projects.id, id);
+
     const rows = await this.db
       .select({ id: projects.id })
       .from(projects)
-      .where(eq(projects.id, id));
+      .where(whereClause);
     if (rows.length === 0) {
-      throw new NotFoundException('项目不存在');
+      const existing = await this.db
+        .select({ id: projects.id })
+        .from(projects)
+        .where(eq(projects.id, id));
+      if (existing.length === 0) {
+        throw new NotFoundException('项目不存在');
+      }
+      throw new ForbiddenException('无权操作该项目');
     }
   }
 }

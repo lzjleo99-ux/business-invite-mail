@@ -32,6 +32,7 @@ import type {
   ModelConfig,
   SenderConfig,
   UpdateSenderConfigRequest,
+  TestConnectionRequest,
 } from '@shared/api.interface';
 
 const SettingsPage = () => {
@@ -126,13 +127,14 @@ const SettingsPage = () => {
     setTesting(true);
     setTestResult(null);
     try {
-      const values = modelForm.getValues();
-      const result = await modelConfigApi.testConnection({
-        apiBaseUrl: values.apiBaseUrl,
-        apiKey: values.apiKey ?? '',
-        modelName: values.modelName,
-        temperature: values.temperature,
-      });
+      const formValues = modelForm.getValues();
+      const payload: TestConnectionRequest = {
+        apiBaseUrl: formValues.apiBaseUrl,
+        apiKey: formValues.apiKey || undefined,
+        modelName: formValues.modelName,
+        temperature: formValues.temperature,
+      };
+      const result = await modelConfigApi.testConnection(payload);
       const msg = result.message ?? '';
       setTestResult({ success: result.success, message: msg });
       if (result.success) {

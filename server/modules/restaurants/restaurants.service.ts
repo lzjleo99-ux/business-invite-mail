@@ -4,13 +4,14 @@ import {
   Logger,
   NotFoundException,
   BadRequestException,
+  ForbiddenException,
 } from '@nestjs/common';
 import {
   DRIZZLE_DATABASE,
   type PostgresJsDatabase,
 } from '@lark-apaas/fullstack-nestjs-core';
 import { eq, and, count, desc, ilike, sql, inArray, or, isNull, isNotNull, ne } from 'drizzle-orm';
-import { restaurants } from '@server/database/schema';
+import { restaurants, projects } from '@server/database/schema';
 import type {
   Company,
   CompanyStatus,
@@ -25,12 +26,16 @@ import type {
   StatsFilterKey,
 } from '@shared/api.interface';
 import { normalizePhone } from '../../common/utils/phone-normalizer';
-
 import { execFile } from 'child_process';
 import { promisify } from 'util';
 import * as fs from 'fs';
 import * as path from 'path';
 import { tmpdir } from 'os';
+
+export interface UserContext {
+  userId: string;
+  role: 'admin' | 'user';
+}
 
 const execFileAsync = promisify(execFile);
 
@@ -140,13 +145,48 @@ export class RestaurantsService {
     @Inject(DRIZZLE_DATABASE) private readonly db: PostgresJsDatabase,
   ) {}
 
-  async findAll(params: CompanyListParams): Promise<CompanyListResponse> {
+  private isAdmin(user: UserContext): boolean {
+    return user.role === 'admin';
+  }
+
+  private async ensureProjectAccess(
+    projectId: string,
+    user: UserContext,
+  ): Promise<void> {
+    if (this.isAdmin(user)) return;
+    const rows = await this.db
+      .select({ id: projects.id })
+      .from(projects)
+      .where(and(eq(projects.id, projectId), eq(projects.ownerId, user.userId)));
+    if (rows.length === 0) {
+      const existing = await this.db
+        .select({ id: projects.id })
+        .from(projects)
+        .where(eq(projects.id, projectId));
+      if (existing.length === 0) {
+        throw new NotFoundException('项目不存在');
+      }
+      throw new ForbiddenException('无权操作该项目');
+    }
+  }
+
+  private projectOwnerWhere(projectId: string, user: UserContext) {
+    if (this.isAdmin(user)) return eq(restaurants.projectId, projectId);
+    return sql`${restaurants.projectId} IN (
+      SELECT ${projects.id} FROM ${projects}
+      WHERE ${projects.id} = ${projectId} AND ${projects.ownerId} = ${user.userId}
+    )`;
+  }
+
+  async findAll(params: CompanyListParams, user: UserContext): Promise<CompanyListResponse> {
     const page = params.page && params.page > 0 ? params.page : 1;
     const pageSize =
       params.pageSize && params.pageSize > 0 ? params.pageSize : 20;
     const offset = (page - 1) * pageSize;
 
-    const conditions = [eq(restaurants.projectId, params.projectId)];
+    const conditions: (ReturnType<typeof eq> | typeof sql)[] = [
+      this.projectOwnerWhere(params.projectId, user),
+    ];
     if (params.status) {
       conditions.push(eq(restaurants.status, params.status));
     }
@@ -168,7 +208,7 @@ export class RestaurantsService {
       }
     }
 
-    const whereClause = and(...conditions);
+    const whereClause = and(...(conditions as Parameters<typeof and>));
 
     const [countResult, rows] = await Promise.all([
       this.db
@@ -194,7 +234,24 @@ export class RestaurantsService {
     };
   }
 
-  async getStats(projectId: string): Promise<CompanyStatsResponse> {
+  async getStats(projectId: string, user: UserContext): Promise<CompanyStatsResponse> {
+    const projectCheck = await this.db
+      .select({ id: projects.id })
+      .from(projects)
+      .where(eq(projects.id, projectId));
+    if (projectCheck.length === 0) {
+      throw new NotFoundException('项目不存在');
+    }
+    if (!this.isAdmin(user)) {
+      const ownerCheck = await this.db
+        .select({ id: projects.id })
+        .from(projects)
+        .where(and(eq(projects.id, projectId), eq(projects.ownerId, user.userId)));
+      if (ownerCheck.length === 0) {
+        throw new ForbiddenException('无权操作该项目');
+      }
+    }
+
     const result = await this.db.execute(sql<{
       total: number;
       analyzed: number;
@@ -264,7 +321,9 @@ export class RestaurantsService {
     };
   }
 
-  async toggleStar(id: string, isStarred: boolean): Promise<Company> {
+  async toggleStar(id: string, isStarred: boolean, user: UserContext): Promise<Company> {
+    await this.ensureRestaurantAccess(id, user);
+
     const updated = await this.db
       .update(restaurants)
       .set({ isStarred })
@@ -275,14 +334,17 @@ export class RestaurantsService {
       throw new NotFoundException('公司不存在');
     }
 
-    return this.findOne(id);
+    return this.findOne(id, user);
   }
 
   async updateContactStatus(
     id: string,
     type: 'whatsapp' | 'viber' | 'email',
     contacted: boolean,
+    user: UserContext,
   ): Promise<Company> {
+    await this.ensureRestaurantAccess(id, user);
+
     const existing = await this.db
       .select({ id: restaurants.id, contactStatus: restaurants.contactStatus })
       .from(restaurants)
@@ -310,10 +372,15 @@ export class RestaurantsService {
       .set({ contactStatus: newStatus as unknown as Record<string, unknown> })
       .where(eq(restaurants.id, id));
 
-    return this.findOne(id);
+    return this.findOne(id, user);
   }
 
-  async normalizePhonesByProject(projectId: string): Promise<{ processed: number }> {
+  async normalizePhonesByProject(
+    projectId: string,
+    user: UserContext,
+  ): Promise<{ processed: number }> {
+    await this.ensureProjectAccess(projectId, user);
+
     const rows = await this.db
       .select({ id: restaurants.id, phone: restaurants.phone, country: restaurants.country })
       .from(restaurants)
@@ -358,7 +425,10 @@ export class RestaurantsService {
     }
   }
 
-  async findOne(id: string): Promise<Company> {
+  async findOne(id: string, user?: UserContext): Promise<Company> {
+    if (user) {
+      await this.ensureRestaurantAccess(id, user);
+    }
     const rows = await this.db
       .select()
       .from(restaurants)
@@ -371,12 +441,37 @@ export class RestaurantsService {
     return this.mapRowToCompany(rows[0]);
   }
 
+  private async ensureRestaurantAccess(
+    id: string,
+    user: UserContext,
+  ): Promise<void> {
+    if (this.isAdmin(user)) return;
+    const rows = await this.db
+      .select({ id: restaurants.id })
+      .from(restaurants)
+      .innerJoin(projects, eq(restaurants.projectId, projects.id))
+      .where(and(eq(restaurants.id, id), eq(projects.ownerId, user.userId)));
+    if (rows.length === 0) {
+      const existing = await this.db
+        .select({ id: restaurants.id })
+        .from(restaurants)
+        .where(eq(restaurants.id, id));
+      if (existing.length === 0) {
+        throw new NotFoundException('公司不存在');
+      }
+      throw new ForbiddenException('无权操作该餐厅');
+    }
+  }
+
   async importFromExcel(
     fileBuffer: Buffer,
     mode: 'append' | 'overwrite',
     projectId: string,
     fileName: string,
+    user: UserContext,
   ): Promise<ImportResult> {
+    await this.ensureProjectAccess(projectId, user);
+
     if (mode !== 'append' && mode !== 'overwrite') {
       throw new BadRequestException('mode 必须是 append 或 overwrite');
     }
@@ -513,7 +608,10 @@ export class RestaurantsService {
   async updateEmail(
     id: string,
     data: UpdateEmailRequest,
+    user: UserContext,
   ): Promise<Company> {
+    await this.ensureRestaurantAccess(id, user);
+
     const updated = await this.db
       .update(restaurants)
       .set({
@@ -527,10 +625,12 @@ export class RestaurantsService {
       throw new NotFoundException('公司不存在');
     }
 
-    return this.findOne(id);
+    return this.findOne(id, user);
   }
 
-  async remove(id: string): Promise<void> {
+  async remove(id: string, user: UserContext): Promise<void> {
+    await this.ensureRestaurantAccess(id, user);
+
     const deleted = await this.db
       .delete(restaurants)
       .where(eq(restaurants.id, id))
@@ -541,11 +641,18 @@ export class RestaurantsService {
     }
   }
 
-  async clearByProject(projectId: string): Promise<void> {
+  async clearByProject(projectId: string, user: UserContext): Promise<void> {
+    await this.ensureProjectAccess(projectId, user);
+
     await this.db.delete(restaurants).where(eq(restaurants.projectId, projectId));
   }
 
-  async findDuplicates(projectId: string): Promise<DuplicateGroup[]> {
+  async findDuplicates(
+    projectId: string,
+    user: UserContext,
+  ): Promise<DuplicateGroup[]> {
+    await this.ensureProjectAccess(projectId, user);
+
     const allRows = await this.db
       .select()
       .from(restaurants)
@@ -677,7 +784,10 @@ export class RestaurantsService {
   async createLead(
     projectId: string,
     leadData: AutoImportLead,
+    user: UserContext,
   ): Promise<Company> {
+    await this.ensureProjectAccess(projectId, user);
+
     const insertValue: typeof restaurants.$inferInsert = {
       projectId,
       status: 'pending',
@@ -705,6 +815,7 @@ export class RestaurantsService {
       insertValue.normalizedPhone = normResult.normalizedPhone;
       insertValue.phoneType = normResult.phoneType;
       insertValue.normalizedWhatsappPhone = normResult.whatsappPhone;
+      // Viber supports landlines too; normalizedPhone is the viber number
     }
 
     const inserted = await this.db
@@ -727,7 +838,13 @@ export class RestaurantsService {
     };
   }
 
-  async batchDelete(projectId: string, ids: string[]): Promise<number> {
+  async batchDelete(
+    projectId: string,
+    ids: string[],
+    user: UserContext,
+  ): Promise<number> {
+    await this.ensureProjectAccess(projectId, user);
+
     if (!ids || ids.length === 0) {
       return 0;
     }
@@ -835,6 +952,7 @@ export class RestaurantsService {
       result.normalizedPhone = normResult.normalizedPhone;
       result.phoneType = normResult.phoneType;
       result.normalizedWhatsappPhone = normResult.whatsappPhone;
+      // Viber works with any valid phone (including landlines)
     }
 
     return result as typeof restaurants.$inferInsert;
@@ -897,6 +1015,7 @@ export class RestaurantsService {
       phoneType:
         (row.phoneType as 'mobile' | 'landline' | 'unknown' | null) ?? null,
       normalizedWhatsappPhone: row.normalizedWhatsappPhone ?? null,
+      viberPhone: row.normalizedPhone ?? null,
       createdAt: row.createdAt.toISOString(),
       updatedAt: row.updatedAt.toISOString(),
     };

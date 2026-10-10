@@ -8,11 +8,12 @@ import {
   Query,
   BadRequestException,
   Res,
+  UseGuards,
 } from '@nestjs/common';
 import { IsArray, IsOptional, IsString } from 'class-validator';
 import { Type } from 'class-transformer';
-import { NeedLogin } from '@lark-apaas/fullstack-nestjs-core';
 import type { Response } from 'express';
+import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { EmailGeneratorService } from './email-generator.service';
 import type {
   GeneratedEmail,
@@ -57,6 +58,7 @@ class ComposeSaveDto {
   language!: string;
 }
 
+@UseGuards(JwtAuthGuard)
 @Controller('api/email-generator')
 export class EmailGeneratorController {
   constructor(
@@ -121,7 +123,6 @@ export class EmailGeneratorController {
     return this.emailGeneratorService.batchPrepareWhatsApp(dto.projectId);
   }
 
-  @NeedLogin()
   @Get('compose/:companyId')
   async getCompose(
     @Param('companyId') companyId: string,
@@ -140,7 +141,6 @@ export class EmailGeneratorController {
     return this.emailGeneratorService.getCompose(companyId);
   }
 
-  @NeedLogin()
   @Patch('compose/:companyId')
   async saveCompose(
     @Param('companyId') companyId: string,

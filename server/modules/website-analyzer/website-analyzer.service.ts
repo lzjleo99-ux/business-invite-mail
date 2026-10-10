@@ -678,6 +678,7 @@ ${content}`;
       normalizedPhone: ((row as Record<string, unknown>).normalizedPhone as string | null) ?? null,
       phoneType: ((row as Record<string, unknown>).phoneType as 'mobile' | 'landline' | 'unknown' | null) ?? null,
       normalizedWhatsappPhone: ((row as Record<string, unknown>).normalizedWhatsappPhone as string | null) ?? null,
+      viberPhone: ((row as Record<string, unknown>).normalizedPhone as string | null) ?? null,
       createdAt: row.createdAt.toISOString(),
       updatedAt: row.updatedAt.toISOString(),
     };

@@ -27,6 +27,8 @@ import type { Company } from '@shared/api.interface';
 import { useI18n } from '@client/src/i18n';
 import {
   bestChatPhone,
+  bestViberPhone,
+  bestWhatsAppPhone,
   buildViberUrl,
   buildWhatsAppUrl,
   copyToClipboard,
@@ -48,7 +50,6 @@ const SendEmailDropdown: React.FC<SendEmailDropdownProps> = ({
 }) => {
   const { t } = useI18n();
   const [open, setOpen] = useState(false);
-  const [preparing, setPreparing] = useState<ChatChannel | null>(null);
 
   const email = record.websiteContactEmail || record.email || '';
   const subject =
@@ -93,58 +94,66 @@ const SendEmailDropdown: React.FC<SendEmailDropdownProps> = ({
     const params = new URLSearchParams();
     if (subject) params.set('subject', subject);
     if (body) params.set('body', body);
-    window.location.href = `mailto:${email}?${params.toString()}`;
+    location.assign(`mailto:${email}?${params.toString()}`);
   };
 
   /**
    * Open WhatsApp or Viber. Both channels are independently available.
    * WhatsApp prefills the script via wa.me; Viber opens viber.me (the script
    * is copied to the clipboard because viber.me cannot prefill text).
+   *
+   * IMPORTANT: window.open / openExternal must happen in the synchronous
+   * click stack (before any await) to avoid popup blockers.
    */
-  const handleOpenChat = async (channel: ChatChannel) => {
+  const handleOpenChat = (channel: ChatChannel) => {
     if (!chatPhone) {
       toast.error(t('该公司没有可用电话号码'));
       return;
     }
-    setPreparing(channel);
-    try {
-      let message =
-        displayLang === 'local'
-          ? waInfo?.messageTextLocal || waInfo?.messageText || ''
-          : waInfo?.messageText || waInfo?.messageTextLocal || '';
-      // Fall back to any stored script on the record.
-      if (!message) {
-        message =
-          displayLang === 'local'
-            ? record.whatsappMessageLocal || record.whatsappMessage || ''
-            : record.whatsappMessage || record.whatsappMessageLocal || '';
-      }
+    const phone = channel === 'whatsapp'
+      ? bestWhatsAppPhone(record) || chatPhone
+      : bestViberPhone(record) || chatPhone;
+    if (!phone) {
+      toast.error(t('该公司没有可用电话号码'));
+      return;
+    }
 
-      const digits = toDigits(chatPhone);
-      const channelName = channel === 'whatsapp' ? 'WhatsApp' : 'Viber';
-      if (message) {
-        const ok = await copyToClipboard(message);
+    const digits = toDigits(phone);
+    let message =
+      displayLang === 'local'
+        ? waInfo?.messageTextLocal || waInfo?.messageText || ''
+        : waInfo?.messageText || waInfo?.messageTextLocal || '';
+    // Fall back to any stored script on the record.
+    if (!message) {
+      message =
+        displayLang === 'local'
+          ? record.whatsappMessageLocal || record.whatsappMessage || ''
+          : record.whatsappMessage || record.whatsappMessageLocal || '';
+    }
+
+    const channelName = channel === 'whatsapp' ? 'WhatsApp' : 'Viber';
+
+    // Open the window FIRST — inside the synchronous click handler — so
+    // popup blockers do not suppress it. Then copy the script afterward.
+    const url =
+      channel === 'whatsapp'
+        ? buildWhatsAppUrl(digits, message)
+        : buildViberUrl(digits);
+    openExternal(url);
+
+    if (message) {
+      void copyToClipboard(message).then((ok: boolean) => {
         if (ok) {
           toast.success(
             t('话术已复制，正在外部浏览器打开 {channel}', { channel: channelName }),
           );
         }
-      } else {
-        toast.info(t('正在外部浏览器打开 {channel}', { channel: channelName }));
-      }
-
-      const url =
-        channel === 'whatsapp'
-          ? buildWhatsAppUrl(digits, message)
-          : buildViberUrl(digits);
-      openExternal(url);
-    } catch (err: unknown) {
-      logger.error('打开聊天失败', err);
-      toast.error(t('打开失败，请重试'));
-    } finally {
-      setPreparing(null);
-      setOpen(false);
+      });
+    } else {
+      toast.info(t('正在外部浏览器打开 {channel}', { channel: channelName }));
     }
+
+    setOpen(false);
   };
 
   const hasEmailContent = !!(subject || body);
@@ -194,11 +203,10 @@ const SendEmailDropdown: React.FC<SendEmailDropdownProps> = ({
             {email && <DropdownMenuSeparator />}
             <DropdownMenuLabel>{t('即时消息')}</DropdownMenuLabel>
             <DropdownMenuItem
-              onClick={() => void handleOpenChat('whatsapp')}
+              onClick={() => handleOpenChat('whatsapp')}
               className="gap-2 text-green-600 focus:text-green-700 focus:bg-green-50"
-              disabled={preparing !== null}
             >
-              {preparing === 'whatsapp' || (waLoading && preparing === null) ? (
+              {waLoading ? (
                 <Loader2 size={14} className="animate-spin" />
               ) : (
                 <MessageCircle size={14} />
@@ -206,15 +214,10 @@ const SendEmailDropdown: React.FC<SendEmailDropdownProps> = ({
               {t('打开 WhatsApp')}
             </DropdownMenuItem>
             <DropdownMenuItem
-              onClick={() => void handleOpenChat('viber')}
+              onClick={() => handleOpenChat('viber')}
               className="gap-2 text-purple-600 focus:text-purple-700 focus:bg-purple-50"
-              disabled={preparing !== null}
             >
-              {preparing === 'viber' ? (
-                <Loader2 size={14} className="animate-spin" />
-              ) : (
-                <Phone size={14} />
-              )}
+              <Phone size={14} />
               {t('打开 Viber')}
             </DropdownMenuItem>
           </>

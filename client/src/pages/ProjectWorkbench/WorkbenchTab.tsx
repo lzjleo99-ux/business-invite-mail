@@ -3,6 +3,7 @@ import { Table, TableProps } from '@lark-apaas/client-toolkit/antd-table';
 import { toast } from 'sonner';
 import { logger } from '@lark-apaas/client-toolkit/logger';
 import { useNavigate } from 'react-router-dom';
+import { useQueryClient } from '@tanstack/react-query';
 import {
   Upload,
   Search,
@@ -26,6 +27,7 @@ import {
   Send,
 } from 'lucide-react';
 
+import * as websiteAnalyzerApi from '@client/src/api/website-analyzer';
 import * as emailGeneratorApi from '@client/src/api/email-generator';
 import { Button } from '@client/src/components/ui/button';
 import { Input } from '@client/src/components/ui/input';
@@ -63,14 +65,18 @@ import { UniversalLink } from '@lark-apaas/client-toolkit/components/UniversalLi
 import { useI18n } from '@client/src/i18n';
 import {
   bestChatPhone,
-  buildViberUrl,
+  bestWhatsAppPhone,
+  bestViberPhone,
   buildWhatsAppUrl,
-  copyToClipboard as copyTextUtil,
-  isLikelyLandline,
-  openExternal,
+  buildViberUrl,
   toDigits,
+  copyToClipboard as copyTextUtil,
+  isWeComWebview,
+  openExternal,
+  isLikelyLandline,
   type ChatChannel,
 } from '@client/src/utils/chat-links';
+import { useBatchOperation, type BatchItemStatus } from '@client/src/hooks/useBatchOperation';
 
 type StatusFilterValue = CompanyStatus | 'all';
 
@@ -107,9 +113,6 @@ export interface WorkbenchTabProps {
   analyzingId: string | null;
   generatingId: string | null;
   generatingWhatsAppId: string | null;
-  batchAnalyzing: boolean;
-  batchGenerating: boolean;
-  batchWhatsApping: boolean;
   editingEmail: { subject: string; body: string; subjectLocal: string; bodyLocal: string } | null;
   editingEmailLanguage: 'local' | 'en';
   savingEmailId: string | null;
@@ -126,9 +129,7 @@ export interface WorkbenchTabProps {
   onDelete: (record: Company) => void;
   onSaveEmail: (record: Company) => void;
   onRegenerateEmail: (record: Company) => void;
-  onBatchAnalyze: () => void;
-  onBatchGenerate: () => void;
-  onBatchWhatsApp: () => void;
+  projectId: string;
   onGenerateWhatsApp: (record: Company) => void;
   onStatClick: (statKey: StatsFilterKey) => void;
   onToggleStar: (record: Company) => void;
@@ -149,12 +150,10 @@ const WorkbenchTab: React.FC<WorkbenchTabProps> = ({
   noEmailFilter,
   filterKey,
   searchInput,
+  projectId,
   analyzingId,
   generatingId,
   generatingWhatsAppId,
-  batchAnalyzing,
-  batchGenerating,
-  batchWhatsApping,
   editingEmail,
   editingEmailLanguage,
   savingEmailId,
@@ -171,9 +170,6 @@ const WorkbenchTab: React.FC<WorkbenchTabProps> = ({
   onDelete,
   onSaveEmail,
   onRegenerateEmail,
-  onBatchAnalyze,
-  onBatchGenerate,
-  onBatchWhatsApp,
   onGenerateWhatsApp,
   onStatClick,
   onToggleStar,
@@ -181,6 +177,118 @@ const WorkbenchTab: React.FC<WorkbenchTabProps> = ({
 }) => {
   const navigate = useNavigate();
   const { t } = useI18n();
+  const qc = useQueryClient();
+
+  const items = listData?.items || [];
+
+  // --- Batch analyze operation ---
+  const batchAnalyzeOp = useBatchOperation<Company>({
+    items,
+    getItemId: (item: Company) => item.id,
+    operation: async (item: Company) => {
+      await websiteAnalyzerApi.analyzeCompany(item.id);
+      void qc.invalidateQueries({ queryKey: ['companies'] });
+      void qc.invalidateQueries({ queryKey: ['company-stats'] });
+    },
+    concurrency: 2,
+    stageLabel: t('分析中...'),
+    onComplete: ({ success, failed }: { success: number; failed: number }) => {
+      void qc.invalidateQueries({ queryKey: ['companies'] });
+      void qc.invalidateQueries({ queryKey: ['company-stats'] });
+      if (failed > 0) {
+        toast.warning(
+          t('批量分析完成：成功 {s} 条，失败 {f} 条', { s: success, f: failed }),
+        );
+      } else {
+        toast.success(t('批量分析完成：共 {s} 条全部成功', { s: success }));
+      }
+    },
+  });
+
+  // --- Batch generate email operation ---
+  const batchGenerateOp = useBatchOperation<Company>({
+    items,
+    getItemId: (item: Company) => item.id,
+    operation: async (item: Company) => {
+      const result = await emailGeneratorApi.generateEmail(item.id);
+      void qc.setQueryData(
+        ['companies', projectId],
+        (old: { items: Company[] } | undefined) => {
+          if (!old) return old;
+          return {
+            ...old,
+            items: old.items.map((c: Company) =>
+              c.id === item.id
+                ? {
+                    ...c,
+                    status: 'generated' as CompanyStatus,
+                    emailSubject: result.subject,
+                    emailBody: result.body,
+                    emailSubjectLocal: result.subjectLocal,
+                    emailBodyLocal: result.bodyLocal,
+                    emailLanguage: result.languageCode,
+                    websiteSummary: result.summary,
+                  }
+                : c,
+            ),
+          };
+        },
+      );
+    },
+    concurrency: 2,
+    stageLabel: t('生成中...'),
+    onComplete: ({ success, failed }: { success: number; failed: number }) => {
+      void qc.invalidateQueries({ queryKey: ['companies'] });
+      void qc.invalidateQueries({ queryKey: ['company-stats'] });
+      if (failed > 0) {
+        toast.warning(
+          t('批量生成完成：成功 {s} 条，失败 {f} 条', { s: success, f: failed }),
+        );
+      } else {
+        toast.success(t('批量生成完成：共 {s} 条全部成功', { s: success }));
+      }
+    },
+  });
+
+  // --- Batch WhatsApp operation ---
+  const batchWhatsAppOp = useBatchOperation<Company>({
+    items,
+    getItemId: (item: Company) => item.id,
+    operation: async (item: Company) => {
+      const result = await emailGeneratorApi.generateWhatsApp(item.id);
+      void qc.setQueryData(
+        ['companies', projectId],
+        (old: { items: Company[] } | undefined) => {
+          if (!old) return old;
+          return {
+            ...old,
+            items: old.items.map((c: Company) =>
+              c.id === item.id
+                ? {
+                    ...c,
+                    whatsappPhone: result.internationalPhone,
+                    whatsappMessage: result.messageText,
+                    whatsappMessageLocal: result.messageTextLocal,
+                  }
+                : c,
+            ),
+          };
+        },
+      );
+    },
+    concurrency: 2,
+    stageLabel: t('准备IM话术中...'),
+    onComplete: ({ success, failed }: { success: number; failed: number }) => {
+      void qc.invalidateQueries({ queryKey: ['companies'] });
+      if (failed > 0) {
+        toast.warning(
+          t('批量准备 IM 话术完成：成功 {s} 条，失败 {f} 条', { s: success, f: failed }),
+        );
+      } else {
+        toast.success(t('批量准备 IM 话术完成：共 {s} 条全部成功', { s: success }));
+      }
+    },
+  });
 
   const STATUS_OPTIONS: { value: StatusFilterValue; label: string }[] = [
     { value: 'all', label: t('全部') },
@@ -271,13 +379,18 @@ const WorkbenchTab: React.FC<WorkbenchTabProps> = ({
    * chat script is used for both: WhatsApp prefills via wa.me, Viber opens
    * the viber.me chat (reference: novascan-web contact page) and the script
    * is copied to the clipboard so it can be pasted.
+   *
+   * IMPORTANT: window.open / openExternal must happen in the synchronous
+   * click stack (before any await) to avoid popup blockers.
    */
-  const openChat = async (
+  const openChat = (
     channel: ChatChannel,
     record: Company,
     lang: 'local' | 'en',
   ) => {
-    const phone = bestChatPhone(record);
+    const phone = channel === 'whatsapp'
+      ? bestWhatsAppPhone(record) || bestChatPhone(record)
+      : bestViberPhone(record) || bestChatPhone(record);
     if (!phone) {
       toast.error(t('该公司没有可用电话号码'));
       return;
@@ -291,24 +404,27 @@ const WorkbenchTab: React.FC<WorkbenchTabProps> = ({
       '';
     const channelName = channel === 'whatsapp' ? 'WhatsApp' : 'Viber';
 
-    if (message) {
-      const ok = await copyTextUtil(message);
-      if (ok) {
-        toast.success(
-          t('话术已复制，正在外部浏览器打开 {channel}', { channel: channelName }),
-        );
-      } else {
-        toast.error(t('复制失败'));
-      }
-    } else {
-      toast.info(t('正在外部浏览器打开 {channel}', { channel: channelName }));
-    }
-
+    // Open the window FIRST — inside the synchronous click handler — so
+    // popup blockers do not suppress it. Then copy the script afterward.
     const url =
       channel === 'whatsapp'
         ? buildWhatsAppUrl(digits, message)
         : buildViberUrl(digits);
     openExternal(url);
+
+    if (message) {
+      void copyTextUtil(message).then((ok: boolean) => {
+        if (ok) {
+          toast.success(
+            t('话术已复制，正在外部浏览器打开 {channel}', { channel: channelName }),
+          );
+        } else {
+          toast.error(t('复制失败'));
+        }
+      });
+    } else {
+      toast.info(t('正在外部浏览器打开 {channel}', { channel: channelName }));
+    }
   };
 
   // Per-row display language state for email detail
@@ -423,12 +539,53 @@ const WorkbenchTab: React.FC<WorkbenchTabProps> = ({
       title: t('状态'),
       dataIndex: 'status',
       key: 'status',
-      width: 100,
-      render: (_val: unknown, record: Company) => (
-        <Badge variant="secondary" className={getStatusBadgeStyle(record.status)}>
-          {statusLabel(record.status)}
-        </Badge>
-      ),
+      width: 160,
+      render: (_val: unknown, record: Company) => {
+        const analyzeStatus = batchAnalyzeOp.perItemStatus[record.id];
+        const generateStatus = batchGenerateOp.perItemStatus[record.id];
+        const whatsappStatus = batchWhatsAppOp.perItemStatus[record.id];
+
+        let batchStatus: BatchItemStatus | undefined;
+        let batchLabel = '';
+        if (analyzeStatus && analyzeStatus !== 'pending') {
+          batchStatus = analyzeStatus;
+          batchLabel = t('分析中...');
+        } else if (generateStatus && generateStatus !== 'pending') {
+          batchStatus = generateStatus;
+          batchLabel = t('生成中...');
+        } else if (whatsappStatus && whatsappStatus !== 'pending') {
+          batchStatus = whatsappStatus;
+          batchLabel = t('准备IM话术中...');
+        }
+
+        if (batchStatus === 'processing') {
+          return (
+            <div className="flex items-center gap-1.5 text-primary">
+              <Loader2 className="animate-spin" size={14} />
+              <span className="text-xs font-medium">{batchLabel}</span>
+            </div>
+          );
+        }
+        if (batchStatus === 'failed') {
+          return (
+            <Badge variant="secondary" className="bg-red-50 text-red-700 border-red-200">
+              {t('失败')}
+            </Badge>
+          );
+        }
+        if (batchStatus === 'success') {
+          return (
+            <Badge variant="secondary" className="bg-green-50 text-green-700 border-green-200">
+              {t('成功')}
+            </Badge>
+          );
+        }
+        return (
+          <Badge variant="secondary" className={getStatusBadgeStyle(record.status)}>
+            {statusLabel(record.status)}
+          </Badge>
+        );
+      },
     },
     {
       title: t('操作'),
@@ -440,7 +597,11 @@ const WorkbenchTab: React.FC<WorkbenchTabProps> = ({
         const effectivePhone = record.websiteContactPhone || record.phone || '';
         const hasEmail = !!effectiveEmail;
         const chatPhone = bestChatPhone(record);
-        const hasChat = !!chatPhone;
+        const waPhone = bestWhatsAppPhone(record);
+        const viberPhone = bestViberPhone(record);
+        const hasWhatsApp = !!waPhone;
+        const hasViber = !!viberPhone;
+        const hasChat = hasWhatsApp || hasViber;
         const hasPhone = !!effectivePhone;
         const canCompose = hasEmail || hasPhone;
         const landline = isLikelyLandline(record);
@@ -449,20 +610,27 @@ const WorkbenchTab: React.FC<WorkbenchTabProps> = ({
         const hasMap = mapUrl !== null;
         const waLang: 'local' | 'en' = record.whatsappMessageLocal ? 'local' : 'en';
 
+        const waMessage =
+          (waLang === 'local'
+            ? record.whatsappMessageLocal || record.whatsappMessage
+            : record.whatsappMessage) || record.whatsappMessage || '';
+        const waUrl = hasWhatsApp
+          ? buildWhatsAppUrl(toDigits(waPhone || waPhone), waMessage)
+          : '';
+        const viberUrl = hasViber ? buildViberUrl(toDigits(viberPhone)) : '';
+
         const handleMapClick = () => {
           if (!mapUrl) return;
           openExternal(mapUrl);
         };
 
-        const waTooltip = !hasChat
+        const waTooltip = !hasWhatsApp
           ? t('无可用 WhatsApp 号码')
+          : t('打开 WhatsApp');
+        const viberTooltip = !hasViber
+          ? t('无可用 Viber 号码')
           : landline
-            ? t('该号码疑似座机，WhatsApp 可能无法使用，仍可尝试')
-            : t('打开 WhatsApp');
-        const viberTooltip = !hasChat
-          ? t('无电话号码')
-          : landline
-            ? t('该号码疑似座机，Viber 可能无法使用，仍可尝试')
+            ? t('该号码为座机号，Viber 仍可使用')
             : t('打开 Viber');
 
         return (
@@ -487,35 +655,71 @@ const WorkbenchTab: React.FC<WorkbenchTabProps> = ({
             </Tooltip>
             <Tooltip>
               <TooltipTrigger asChild>
-                <span>
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={() => void openChat('whatsapp', record, waLang)}
-                    disabled={!hasChat}
-                    className="text-green-600 border-green-200 hover:bg-green-50 hover:text-green-700 disabled:opacity-50"
+                {hasWhatsApp ? (
+                  <UniversalLink
+                    to={waUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    onClick={(e) => {
+                      if (isWeComWebview()) {
+                        e.preventDefault();
+                        openExternal(waUrl);
+                      }
+                      if (waMessage) void copyTextUtil(waMessage);
+                    }}
+                    className="inline-flex items-center gap-1.5 h-8 px-3 text-xs font-medium rounded-md border transition-colors text-green-600 border-green-200 hover:bg-green-50 hover:text-green-700"
                   >
                     <MessageCircle size={14} />
                     WhatsApp
-                  </Button>
-                </span>
+                  </UniversalLink>
+                ) : (
+                  <span>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      disabled
+                      className="text-green-600 border-green-200 opacity-50"
+                    >
+                      <MessageCircle size={14} />
+                      WhatsApp
+                    </Button>
+                  </span>
+                )}
               </TooltipTrigger>
               <TooltipContent side="bottom">{waTooltip}</TooltipContent>
             </Tooltip>
             <Tooltip>
               <TooltipTrigger asChild>
-                <span>
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={() => void openChat('viber', record, waLang)}
-                    disabled={!hasChat}
-                    className="text-purple-600 border-purple-200 hover:bg-purple-50 hover:text-purple-700 disabled:opacity-50"
+                {hasViber ? (
+                  <UniversalLink
+                    to={viberUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    onClick={(e) => {
+                      if (isWeComWebview()) {
+                        e.preventDefault();
+                        openExternal(viberUrl);
+                      }
+                      if (waMessage) void copyTextUtil(waMessage);
+                    }}
+                    className="inline-flex items-center gap-1.5 h-8 px-3 text-xs font-medium rounded-md border transition-colors text-purple-600 border-purple-200 hover:bg-purple-50 hover:text-purple-700"
                   >
                     <Phone size={14} />
                     Viber
-                  </Button>
-                </span>
+                  </UniversalLink>
+                ) : (
+                  <span>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      disabled
+                      className="text-purple-600 border-purple-200 opacity-50"
+                    >
+                      <Phone size={14} />
+                      Viber
+                    </Button>
+                  </span>
+                )}
               </TooltipTrigger>
               <TooltipContent side="bottom">{viberTooltip}</TooltipContent>
             </Tooltip>
@@ -618,7 +822,11 @@ const WorkbenchTab: React.FC<WorkbenchTabProps> = ({
     const hasLocalEmail = !!(record.emailSubjectLocal || record.emailBodyLocal);
     const displayLang = getEmailDisplayLang(record);
     const chatPhone = bestChatPhone(record);
-    const hasChat = !!chatPhone;
+    const waPhone = bestWhatsAppPhone(record);
+    const viberPhone = bestViberPhone(record);
+    const hasWhatsApp = !!waPhone;
+    const hasViber = !!viberPhone;
+    const hasChat = hasWhatsApp || hasViber;
     const landline = isLikelyLandline(record);
     const hasWhatsAppMessage = !!record.whatsappMessage;
     const hasWhatsAppLocal = !!record.whatsappMessageLocal;
@@ -1066,8 +1274,8 @@ const WorkbenchTab: React.FC<WorkbenchTabProps> = ({
                    <Button
                      variant="default"
                      size="sm"
-                     onClick={() => void openChat('whatsapp', record, waLang)}
-                     disabled={!hasChat}
+                    onClick={() => void openChat('whatsapp', record, waLang)}
+                    disabled={!hasWhatsApp}
                      className="bg-green-600 hover:bg-green-700"
                    >
                      <Send size={14} />
@@ -1076,8 +1284,8 @@ const WorkbenchTab: React.FC<WorkbenchTabProps> = ({
                    <Button
                      variant="default"
                      size="sm"
-                     onClick={() => void openChat('viber', record, waLang)}
-                     disabled={!hasChat}
+                    onClick={() => void openChat('viber', record, waLang)}
+                    disabled={!hasViber}
                      className="bg-[#7360DF] hover:bg-[#5d4dcf] text-white"
                    >
                      <Send size={14} />
@@ -1207,46 +1415,109 @@ const WorkbenchTab: React.FC<WorkbenchTabProps> = ({
             </Button>
           </div>
 
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 flex-wrap">
             <Button
               variant="secondary"
-              onClick={onBatchAnalyze}
-              disabled={batchAnalyzing}
+              onClick={() => batchAnalyzeOp.start()}
+              disabled={batchAnalyzeOp.isRunning || items.length === 0 || batchGenerateOp.isRunning || batchWhatsAppOp.isRunning}
             >
-              {batchAnalyzing ? (
+              {batchAnalyzeOp.isRunning ? (
                 <Loader2 className="animate-spin" size={16} />
               ) : (
                 <Play size={16} />
               )}
-              {t('一键分析全部')}
+              {batchAnalyzeOp.isRunning
+                ? t('分析中 {p}/{t}（{percent}%）', {
+                    p: batchAnalyzeOp.processed + batchAnalyzeOp.failed,
+                    t: batchAnalyzeOp.total,
+                    percent: batchAnalyzeOp.progress,
+                  })
+                : t('一键分析全部')}
             </Button>
             <Button
               variant="default"
-              onClick={onBatchGenerate}
-              disabled={batchGenerating}
+              onClick={() => batchGenerateOp.start()}
+              disabled={batchGenerateOp.isRunning || items.length === 0 || batchAnalyzeOp.isRunning || batchWhatsAppOp.isRunning}
             >
-              {batchGenerating ? (
+              {batchGenerateOp.isRunning ? (
                 <Loader2 className="animate-spin" size={16} />
               ) : (
                 <Mail size={16} />
               )}
-              {t('一键生成全部')}
+              {batchGenerateOp.isRunning
+                ? t('生成中 {p}/{t}（{percent}%）', {
+                    p: batchGenerateOp.processed + batchGenerateOp.failed,
+                    t: batchGenerateOp.total,
+                    percent: batchGenerateOp.progress,
+                  })
+                : t('一键生成全部')}
             </Button>
             <Button
               variant="outline"
-              onClick={onBatchWhatsApp}
-              disabled={batchWhatsApping}
+              onClick={() => batchWhatsAppOp.start()}
+              disabled={batchWhatsAppOp.isRunning || items.length === 0 || batchAnalyzeOp.isRunning || batchGenerateOp.isRunning}
               className="text-green-600 border-green-200 hover:bg-green-50 hover:text-green-700"
             >
-              {batchWhatsApping ? (
+              {batchWhatsAppOp.isRunning ? (
                 <Loader2 className="animate-spin" size={16} />
               ) : (
                 <MessageCircle size={16} />
               )}
-              {t('一键准备 IM 话术')}
+              {batchWhatsAppOp.isRunning
+                ? t('准备中 {p}/{t}（{percent}%）', {
+                    p: batchWhatsAppOp.processed + batchWhatsAppOp.failed,
+                    t: batchWhatsAppOp.total,
+                    percent: batchWhatsAppOp.progress,
+                  })
+                : t('一键准备 IM 话术')}
             </Button>
           </div>
         </div>
+
+        {/* Batch progress bar */}
+        {(batchAnalyzeOp.isRunning || batchGenerateOp.isRunning || batchWhatsAppOp.isRunning) && (
+          <div className="mb-4">
+            <div className="h-1.5 w-full bg-slate-100 rounded-full overflow-hidden">
+              <div
+                className="h-full bg-primary transition-all duration-300"
+                style={{
+                  width: `${
+                    batchAnalyzeOp.isRunning
+                      ? batchAnalyzeOp.progress
+                      : batchGenerateOp.isRunning
+                      ? batchGenerateOp.progress
+                      : batchWhatsAppOp.progress
+                  }%`,
+                }}
+              />
+            </div>
+            <div className="flex items-center justify-between mt-1.5 text-xs text-slate-500">
+              <span>
+                {batchAnalyzeOp.isRunning
+                  ? t('正在分析网站...')
+                  : batchGenerateOp.isRunning
+                  ? t('正在生成邮件...')
+                  : t('正在准备 IM 话术...')}
+              </span>
+              <span>
+                {t('已处理 {p}/{t}（{percent}%）', {
+                  p:
+                    batchAnalyzeOp.processed + batchAnalyzeOp.failed ||
+                    batchGenerateOp.processed + batchGenerateOp.failed ||
+                    batchWhatsAppOp.processed + batchWhatsAppOp.failed,
+                  t:
+                    batchAnalyzeOp.total ||
+                    batchGenerateOp.total ||
+                    batchWhatsAppOp.total,
+                  percent:
+                    batchAnalyzeOp.progress ||
+                    batchGenerateOp.progress ||
+                    batchWhatsAppOp.progress,
+                })}
+              </span>
+            </div>
+          </div>
+        )}
 
         {/* Table */}
         <Table<Company>

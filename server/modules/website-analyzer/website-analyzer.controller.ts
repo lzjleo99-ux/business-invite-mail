@@ -4,7 +4,9 @@ import {
   Param,
   Body,
   BadRequestException,
+  UseGuards,
 } from '@nestjs/common';
+import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { IsArray, IsOptional, IsString } from 'class-validator';
 import { Type } from 'class-transformer';
 import { WebsiteAnalyzerService } from './website-analyzer.service';
@@ -21,6 +23,7 @@ class BatchAnalyzeDto implements BatchAnalyzeRequest {
   projectId?: string;
 }
 
+@UseGuards(JwtAuthGuard)
 @Controller('api/website-analyzer')
 export class WebsiteAnalyzerController {
   constructor(

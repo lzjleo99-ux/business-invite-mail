@@ -11,9 +11,12 @@ import {
   UploadedFile,
   BadRequestException,
   Req,
+  UseGuards,
 } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
-import { NeedLogin } from '@lark-apaas/fullstack-nestjs-core';
+import { JwtAuthGuard } from '../auth/jwt-auth.guard';
+import { CurrentUser } from '../auth/current-user.decorator';
+import type { JwtPayload } from '../auth/jwt-auth.guard';
 
 interface FileUpload {
   buffer: Buffer;
@@ -179,6 +182,7 @@ class ImportByBase64Dto {
   contentBase64!: string;
 }
 
+@UseGuards(JwtAuthGuard)
 @Controller('api/restaurants')
 export class RestaurantsController {
   constructor(private readonly restaurantsService: RestaurantsService) {}
@@ -186,15 +190,17 @@ export class RestaurantsController {
   @Get('stats')
   async getStats(
     @Query() query: StatsQueryDto,
+    @CurrentUser() user: JwtPayload,
   ): Promise<CompanyStatsResponse> {
-    return this.restaurantsService.getStats(query.projectId);
+    return this.restaurantsService.getStats(query.projectId, { userId: user.userId, role: user.role });
   }
 
   @Get('duplicates')
   async findDuplicates(
     @Query() query: DuplicatesQueryDto,
+    @CurrentUser() user: JwtPayload,
   ): Promise<DuplicateCheckResponse> {
-    const groups = await this.restaurantsService.findDuplicates(query.projectId);
+    const groups = await this.restaurantsService.findDuplicates(query.projectId, { userId: user.userId, role: user.role });
     const totalDuplicates = groups.reduce(
       (sum: number, g) => sum + g.companies.length,
       0,
@@ -205,6 +211,7 @@ export class RestaurantsController {
   @Get()
   async findAll(
     @Query() query: ListQueryDto,
+    @CurrentUser() user: JwtPayload,
   ): Promise<CompanyListResponse> {
     return this.restaurantsService.findAll({
       projectId: query.projectId,
@@ -215,12 +222,15 @@ export class RestaurantsController {
       noEmail: query.noEmail,
       isStarred: query.isStarred,
       filterKey: query.filterKey,
-    });
+    }, { userId: user.userId, role: user.role });
   }
 
   @Get(':id')
-  async findOne(@Param('id') id: string): Promise<Company> {
-    return this.restaurantsService.findOne(id);
+  async findOne(
+    @Param('id') id: string,
+    @CurrentUser() user: JwtPayload,
+  ): Promise<Company> {
+    return this.restaurantsService.findOne(id, { userId: user.userId, role: user.role });
   }
 
   @Post('import')
@@ -229,6 +239,7 @@ export class RestaurantsController {
     @UploadedFile() file: FileUpload,
     @Body('mode') mode: string,
     @Body('projectId') projectId: string,
+    @CurrentUser() user: JwtPayload,
   ): Promise<ImportResult> {
     if (!file) {
       throw new BadRequestException('未上传文件，请选择 Excel 文件后重试');
@@ -242,12 +253,14 @@ export class RestaurantsController {
       importMode,
       projectId,
       file.originalname || 'import.xlsx',
+      { userId: user.userId, role: user.role },
     );
   }
 
   @Post('import-base64')
   async importByBase64(
     @Body() dto: ImportByBase64Dto,
+    @CurrentUser() user: JwtPayload,
   ): Promise<ImportResult> {
     if (!dto.projectId) {
       throw new BadRequestException('缺少项目 ID');
@@ -276,6 +289,7 @@ export class RestaurantsController {
       importMode,
       dto.projectId,
       dto.fileName || 'import.xlsx',
+      { userId: user.userId, role: user.role },
     );
   }
 
@@ -283,57 +297,64 @@ export class RestaurantsController {
   async batchDelete(
     @Query() query: BatchDeleteQueryDto,
     @Body() body: BatchDeleteBodyDto,
+    @CurrentUser() user: JwtPayload,
   ): Promise<{ deleted: number }> {
     const deleted = await this.restaurantsService.batchDelete(
       query.projectId,
       body.ids,
+      { userId: user.userId, role: user.role },
     );
     return { deleted };
   }
 
-  @NeedLogin()
   @Patch(':id/star')
   async toggleStar(
     @Param('id') id: string,
     @Body() body: StarBodyDto,
+    @CurrentUser() user: JwtPayload,
   ): Promise<Company> {
-    return this.restaurantsService.toggleStar(id, body.isStarred);
+    return this.restaurantsService.toggleStar(id, body.isStarred, { userId: user.userId, role: user.role });
   }
 
-  @NeedLogin()
   @Patch(':id/contact-status')
   async updateContactStatus(
     @Param('id') id: string,
     @Body() body: ContactStatusBodyDto,
+    @CurrentUser() user: JwtPayload,
   ): Promise<Company> {
     return this.restaurantsService.updateContactStatus(
       id,
       body.type,
       body.contacted,
+      { userId: user.userId, role: user.role },
     );
   }
 
-  @NeedLogin()
   @Post('normalize-phones')
   async normalizePhones(
     @Body() body: NormalizePhonesBodyDto,
+    @CurrentUser() user: JwtPayload,
   ): Promise<{ processed: number }> {
     if (!body.projectId) {
       throw new BadRequestException('缺少 projectId');
     }
-    return this.restaurantsService.normalizePhonesByProject(body.projectId);
+    return this.restaurantsService.normalizePhonesByProject(body.projectId, { userId: user.userId, role: user.role });
   }
 
   @Patch(':id/email')
   async updateEmail(
     @Param('id') id: string,
     @Body() dto: UpdateEmailDto,
+    @CurrentUser() user: JwtPayload,
   ): Promise<Company> {
-    return this.restaurantsService.updateEmail(id, dto);
+    return this.restaurantsService.updateEmail(id, dto, { userId: user.userId, role: user.role });
   }
 
   @Delete(':id')
-  async remove(@Param('id') id: string): Promise<void> {
-    await this.restaurantsService.remove(id);
+  async remove(
+    @Param('id') id: string,
+    @CurrentUser() user: JwtPayload,
+  ): Promise<void> {
+    await this.restaurantsService.remove(id, { userId: user.userId, role: user.role });
   }
 }

@@ -17,17 +17,11 @@ function isSerbiaCountry(country: string | null | undefined): boolean {
   );
 }
 
-/**
- * Extract the first phone number from a string that may contain multiple
- * numbers separated by commas, semicolons, slashes, or newlines.
- */
 function extractFirstNumber(raw: string): string {
   const lines = raw.split(/[\n\r,;]/);
   for (const line of lines) {
     const trimmed = line.trim();
     if (trimmed && /\d/.test(trimmed)) {
-      // If the string starts with a known multi-number prefix indicator
-      // like "Tel:", "Mob:", etc., strip it first
       const cleaned = trimmed.replace(/^(tel|mob|mobile|phone|固定|手机|电话)[:：]\s*/i, '');
       return cleaned || trimmed;
     }
@@ -35,10 +29,6 @@ function extractFirstNumber(raw: string): string {
   return raw;
 }
 
-/**
- * Strip extension suffix: everything after "ext", "x:", "x " or "#" (when
- * preceded by a digit or whitespace) is dropped.
- */
 function stripExtension(raw: string): string {
   return (
     raw
@@ -79,23 +69,17 @@ export function normalizePhone(
     return empty;
   }
 
-  // Step 1: take only the first number from multi-number fields
   raw = extractFirstNumber(raw);
   if (!raw) return empty;
 
-  // Step 2: strip extension suffix
   raw = stripExtension(raw);
   if (!raw.trim()) return empty;
 
-  // Step 3: detect international prefix (+ or 00)
-  // Note: raw may have whitespace around "00", so we check the trimmed version
   const trimmedRaw: string = raw.trim();
   const hasPlusPrefix = trimmedRaw.startsWith('+');
   const hasDoubleZeroPrefix = /^00\d/.test(trimmedRaw);
   const isInternational = hasPlusPrefix || hasDoubleZeroPrefix;
 
-  // Step 4: strip all non-digit characters except leading + marker
-  // We keep the leading + for detection by hasPlusPrefix above
   let cleaned: string = raw;
   if (hasPlusPrefix) {
     cleaned = '+' + raw.slice(1).replace(/[^\d]/g, '');
@@ -103,13 +87,13 @@ export function normalizePhone(
     cleaned = raw.replace(/[^\d]/g, '');
   }
 
-  // Handle 00 prefix → strip it (we already have the flag)
+  // Strip international prefix (00... or +...) → leave just national digits with country code
   if (hasDoubleZeroPrefix && cleaned.startsWith('00')) {
     cleaned = cleaned.slice(2);
   } else if (cleaned.startsWith('+')) {
     cleaned = cleaned.slice(1);
   } else if (cleaned.startsWith('00')) {
-    // Fallback: in case whitespace around "00" broke the hasDoubleZeroPrefix check
+    // Fallback: in case the original had whitespace around "00" that broke the regex
     cleaned = cleaned.slice(2);
   }
 
@@ -155,7 +139,6 @@ export function normalizePhone(
     };
   }
 
-  // Generic / other countries
   if (isInternational && cleaned.length >= 7 && cleaned.length <= 15) {
     return {
       normalizedPhone: cleaned,
@@ -179,4 +162,18 @@ export function normalizePhone(
   }
 
   return empty;
+}
+
+/**
+ * Convenience wrapper used by the chat-link helpers: returns an E.164-style
+ * number prefixed with "+" (e.g. "+381641234567"), or '' when no usable
+ * number can be derived. Callers strip non-digits before building wa.me /
+ * viber.me links.
+ */
+export function normalizeSerbianPhone(
+  phone: string,
+  country?: string | null,
+): string {
+  const result = normalizePhone(phone, country);
+  return result.normalizedPhone ? `+${result.normalizedPhone}` : '';
 }
