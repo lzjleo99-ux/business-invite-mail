@@ -10,7 +10,10 @@
     try {
       window.__platform__ = JSON.parse('{{{__platform__}}}');
     } catch (e) {
-      console.error('Failed to parse __platform__', e);
+      // Static hosting (GitHub Pages): `{{{__platform__}}}` is never
+      // substituted and this throws. Intentionally leave __platform__
+      // undefined -- it is the flag the app uses to detect static hosting and
+      // switch to the localStorage-backed offline adapter.
     }
   </script>
 </head>
