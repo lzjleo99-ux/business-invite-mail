@@ -1,6 +1,7 @@
 import {
   Controller,
   Get,
+  Post,
   Patch,
   Param,
   Body,
@@ -8,10 +9,11 @@ import {
   UseGuards,
 } from '@nestjs/common';
 import { AdminService } from './admin.service';
+import { AuthService } from '@server/modules/auth/auth.service';
 import { JwtAuthGuard } from '@server/modules/auth/jwt-auth.guard';
 import { AdminGuard } from '@server/common/guards/admin.guard';
 import { CurrentUser } from '@server/modules/auth/current-user.decorator';
-import { IsString, IsBoolean, IsIn, IsOptional } from 'class-validator';
+import { IsString, IsBoolean, IsIn, IsOptional, MinLength, IsEmail } from 'class-validator';
 import type {
   AdminUser,
   AdminUserListResponse,
@@ -30,10 +32,42 @@ class UpdateUserActiveDto implements UpdateUserActiveRequest {
   isActive!: boolean;
 }
 
+class CreateUserDto {
+  @IsEmail()
+  email!: string;
+
+  @IsString()
+  @MinLength(8)
+  password!: string;
+
+  @IsString()
+  displayName!: string;
+}
+
 @UseGuards(JwtAuthGuard, AdminGuard)
 @Controller('api/admin')
 export class AdminController {
-  constructor(private readonly adminService: AdminService) {}
+  constructor(
+    private readonly adminService: AdminService,
+    private readonly authService: AuthService,
+  ) {}
+
+  /** 管理员创建账号（公开注册已关闭，账号统一由这里发放） */
+  @Post('users')
+  async createUser(@Body() dto: CreateUserDto): Promise<{
+    id: string;
+    email: string;
+    displayName: string;
+    role: 'admin' | 'user';
+    isActive: boolean;
+  }> {
+    const { user } = await this.authService.createUserByAdmin(
+      dto.email,
+      dto.password,
+      dto.displayName,
+    );
+    return user;
+  }
 
   @Get('users')
   async listUsers(

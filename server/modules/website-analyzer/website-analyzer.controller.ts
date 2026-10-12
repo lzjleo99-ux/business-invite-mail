@@ -6,8 +6,8 @@ import {
   BadRequestException,
   UseGuards,
 } from '@nestjs/common';
-import { JwtAuthGuard } from '../auth/jwt-auth.guard';
-import { AdminGuard } from '@server/common/guards/admin.guard';
+import { JwtAuthGuard, type JwtPayload } from '../auth/jwt-auth.guard';
+import { CurrentUser } from '../auth/current-user.decorator';
 import { IsArray, IsOptional, IsString } from 'class-validator';
 import { Type } from 'class-transformer';
 import { WebsiteAnalyzerService } from './website-analyzer.service';
@@ -31,25 +31,26 @@ export class WebsiteAnalyzerController {
     private readonly websiteAnalyzerService: WebsiteAnalyzerService,
   ) {}
 
-  @UseGuards(AdminGuard)
   @Post('analyze/:companyId')
   async analyze(
+    @CurrentUser() user: JwtPayload,
     @Param('companyId') companyId: string,
   ): Promise<Company> {
     if (!companyId) {
       throw new BadRequestException('companyId 不能为空');
     }
-    return this.websiteAnalyzerService.analyzeCompany(companyId);
+    return this.websiteAnalyzerService.analyzeCompany(companyId, user.userId);
   }
 
-  @UseGuards(AdminGuard)
   @Post('batch-analyze')
   async batchAnalyze(
+    @CurrentUser() user: JwtPayload,
     @Body() dto: BatchAnalyzeDto,
   ): Promise<{ total: number }> {
     return this.websiteAnalyzerService.batchAnalyze(
       dto.companyIds,
       dto.projectId,
+      user.userId,
     );
   }
 }

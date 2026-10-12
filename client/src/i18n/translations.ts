@@ -476,4 +476,16 @@ export const enMessages: Record<string, string> = {
     'No companies yet — import a company list first',
   '所有公司都缺少经纬度，无法在地图上标注。导入时请包含「纬度 Lat」「经度 Lng」。':
     'All companies are missing latitude/longitude and cannot be plotted. Include the "Lat" and "Lng" columns when importing.',
+
+  // ---- Admin: create user ----
+  '创建用户': 'Create user',
+  '为团队成员创建账号，对方登录后在设置里填自己的 API Key。': 'Create an account for a team member; they enter their own API key in Settings after logging in.',
+  '初始密码': 'Initial password',
+  '至少 8 位，含字母和数字': 'At least 8 characters, letters and digits',
+  '创建中...': 'Creating...',
+  '账号已创建': 'Account created',
+  '创建失败': 'Failed to create',
+  '请填写邮箱和密码': 'Please fill in email and password',
+  '显示名称': 'Display name',
+  '公开注册已关闭，请联系管理员创建账号': 'Public registration is closed. Please ask an administrator to create an account.',
 };

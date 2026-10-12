@@ -1,6 +1,6 @@
 import { Controller, Get, Patch, Post, Body, UseGuards } from '@nestjs/common';
-import { JwtAuthGuard } from '../auth/jwt-auth.guard';
-import { AdminGuard } from '@server/common/guards/admin.guard';
+import { JwtAuthGuard, type JwtPayload } from '../auth/jwt-auth.guard';
+import { CurrentUser } from '../auth/current-user.decorator';
 import { IsString, IsOptional, IsNumber, IsIn, Min, Max, ValidateIf } from 'class-validator';
 import { Type } from 'class-transformer';
 import { ModelConfigService } from './model-config.service';
@@ -70,23 +70,23 @@ export class ModelConfigController {
   constructor(private readonly modelConfigService: ModelConfigService) {}
 
   @Get()
-  async getConfig(): Promise<ModelConfig> {
-    return this.modelConfigService.getConfig();
+  async getConfig(@CurrentUser() user: JwtPayload): Promise<ModelConfig> {
+    return this.modelConfigService.getConfig(user.userId);
   }
 
-  @UseGuards(AdminGuard)
   @Patch()
   async updateConfig(
+    @CurrentUser() user: JwtPayload,
     @Body() dto: UpdateModelConfigDto,
   ): Promise<ModelConfig> {
-    return this.modelConfigService.updateConfig(dto);
+    return this.modelConfigService.updateConfig(user.userId, dto);
   }
 
-  @UseGuards(AdminGuard)
   @Post('test')
   async testConnection(
+    @CurrentUser() user: JwtPayload,
     @Body() dto: TestConnectionDto,
   ): Promise<TestConnectionResponse> {
-    return this.modelConfigService.testConnection(dto);
+    return this.modelConfigService.testConnection(user.userId, dto);
   }
 }

@@ -1,6 +1,6 @@
 import { Injectable, Inject, Logger } from '@nestjs/common';
 import { DRIZZLE_DATABASE, type PostgresJsDatabase } from '@lark-apaas/fullstack-nestjs-core';
-import { eq } from 'drizzle-orm';
+import { eq, sql } from 'drizzle-orm';
 import axios from 'axios';
 import { modelConfig } from '@server/database/schema';
 import type {
@@ -23,11 +23,19 @@ export class ModelConfigService {
     @Inject(DRIZZLE_DATABASE) private readonly db: PostgresJsDatabase,
   ) {}
 
-  async getConfig(): Promise<ModelConfig> {
-    const rows = await this.db.select().from(modelConfig).limit(1);
+  /**
+   * 取当前用户的 AI 配置行；不存在则用默认值建一行。
+   * 每个用户一行（用 _created_by.user_id 归属），互不影响——各人填各人的 API Key、各自计费。
+   */
+  async getUserRow(userId: string): Promise<typeof modelConfig.$inferSelect> {
+    const rows = await this.db
+      .select()
+      .from(modelConfig)
+      .where(sql`(${modelConfig.createdBy}).user_id = ${userId}`)
+      .limit(1);
 
     if (rows.length > 0) {
-      return this.toResponse(rows[0]);
+      return rows[0];
     }
 
     const inserted = await this.db
@@ -39,14 +47,19 @@ export class ModelConfigService {
         temperature: null,
         emailLanguage: DEFAULT_EMAIL_LANGUAGE,
         senderSignature: DEFAULT_SENDER_SIGNATURE,
+        createdBy: sql`ROW(${userId}::text)`,
       })
       .returning();
 
-    return this.toResponse(inserted[0]);
+    return inserted[0];
   }
 
-  async updateConfig(data: UpdateModelConfigRequest): Promise<ModelConfig> {
-    const existing = await this.getConfig();
+  async getConfig(userId: string): Promise<ModelConfig> {
+    return this.toResponse(await this.getUserRow(userId));
+  }
+
+  async updateConfig(userId: string, data: UpdateModelConfigRequest): Promise<ModelConfig> {
+    const existing = await this.getUserRow(userId);
 
     const patch: Record<string, unknown> = {};
     if (data.apiBaseUrl !== undefined) patch.apiBaseUrl = data.apiBaseUrl;
@@ -59,7 +72,7 @@ export class ModelConfigService {
     if (data.senderSignature !== undefined) patch.senderSignature = data.senderSignature;
 
     if (Object.keys(patch).length === 0) {
-      return existing;
+      return this.toResponse(existing);
     }
 
     const updated = await this.db
@@ -72,20 +85,10 @@ export class ModelConfigService {
   }
 
   async testConnection(
+    userId: string,
     dto: TestConnectionRequest = {},
   ): Promise<TestConnectionResponse> {
-    const config = await this.getConfig();
-    const fullRow = await this.db
-      .select()
-      .from(modelConfig)
-      .where(eq(modelConfig.id, config.id))
-      .limit(1);
-
-    if (fullRow.length === 0) {
-      return { success: false, message: '配置不存在' };
-    }
-
-    const row = fullRow[0];
+    const row = await this.getUserRow(userId);
 
     const baseUrl = (dto.apiBaseUrl ?? row.apiBaseUrl).trim();
     const model = (dto.modelName ?? row.modelName).trim();

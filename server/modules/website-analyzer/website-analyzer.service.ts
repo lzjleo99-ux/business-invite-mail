@@ -3,7 +3,7 @@ import {
   DRIZZLE_DATABASE,
   type PostgresJsDatabase,
 } from '@lark-apaas/fullstack-nestjs-core';
-import { eq, and, inArray } from 'drizzle-orm';
+import { eq, and, inArray, sql } from 'drizzle-orm';
 import axios, { type AxiosInstance } from 'axios';
 import { execFile } from 'child_process';
 import { promisify } from 'util';
@@ -67,7 +67,7 @@ export class WebsiteAnalyzerService {
     });
   }
 
-  async analyzeCompany(companyId: string): Promise<Company> {
+  async analyzeCompany(companyId: string, userId: string): Promise<Company> {
     const [company] = await this.db
       .select()
       .from(restaurants)
@@ -103,11 +103,12 @@ export class WebsiteAnalyzerService {
       .where(eq(restaurants.id, companyId));
 
     try {
-      const fetchResult = await this.fetchWebsiteContent(company.website);
+      const fetchResult = await this.fetchWebsiteContent(company.website, userId);
       const extraction = await this.extractWithModel(
         fetchResult.content,
         company.name,
         fetchResult.method,
+        userId,
       );
 
       const updateData: Partial<typeof restaurants.$inferInsert> = {
@@ -177,8 +178,9 @@ export class WebsiteAnalyzerService {
   }
 
   async batchAnalyze(
-    companyIds?: string[],
-    projectId?: string,
+    companyIds: string[] | undefined,
+    projectId: string | undefined,
+    userId: string,
   ): Promise<{ total: number }> {
     let targetIds: string[];
 
@@ -208,16 +210,16 @@ export class WebsiteAnalyzerService {
     }
 
     const total = targetIds.length;
-    void this.processBatch(targetIds);
+    void this.processBatch(targetIds, userId);
     return { total };
   }
 
-  private async processBatch(ids: string[]): Promise<void> {
+  private async processBatch(ids: string[], userId: string): Promise<void> {
     for (let i = 0; i < ids.length; i += this.CONCURRENCY) {
       const chunk = ids.slice(i, i + this.CONCURRENCY);
       await Promise.all(
         chunk.map((id: string) =>
-          this.analyzeCompany(id).catch((err: unknown) => {
+          this.analyzeCompany(id, userId).catch((err: unknown) => {
             this.logger.error(
               `分析公司失败 ${id}`,
               err instanceof Error ? err.stack : String(err),
@@ -228,7 +230,7 @@ export class WebsiteAnalyzerService {
     }
   }
 
-  private async fetchWebsiteContent(website: string): Promise<FetchResult> {
+  private async fetchWebsiteContent(website: string, userId: string): Promise<FetchResult> {
     const baseUrl = this.normalizeUrl(website);
 
     // Step 1: HTTP 抓取
@@ -257,7 +259,7 @@ export class WebsiteAnalyzerService {
 
     // Step 3: 截图 + 视觉模型分析（用于纯前端渲染、403 反爬页面）
     try {
-      const content = await this.analyzeWithScreenshot(baseUrl);
+      const content = await this.analyzeWithScreenshot(baseUrl, userId);
       if (content && content.length > 100) {
         return { content, method: 'screenshot' };
       }
@@ -338,7 +340,7 @@ export class WebsiteAnalyzerService {
     return combined.slice(0, this.MAX_TEXT_LENGTH);
   }
 
-  private async analyzeWithScreenshot(baseUrl: string): Promise<string> {
+  private async analyzeWithScreenshot(baseUrl: string, userId: string): Promise<string> {
     const screenshotId = randomUUID();
     const screenshotPath = `/tmp/ws_snap_${screenshotId}.png`;
 
@@ -364,7 +366,7 @@ export class WebsiteAnalyzerService {
       }
 
       const imageBase64 = await fs.readFile(screenshotPath, { encoding: 'base64' });
-      const analysis = await this.extractFromScreenshot(imageBase64, baseUrl);
+      const analysis = await this.extractFromScreenshot(imageBase64, baseUrl, userId);
       return analysis;
     } finally {
       fs.unlink(screenshotPath).catch(() => {});
@@ -374,8 +376,9 @@ export class WebsiteAnalyzerService {
   private async extractFromScreenshot(
     imageBase64: string,
     baseUrl: string,
+    userId: string,
   ): Promise<string> {
-    const config = await this.getModelConfig();
+    const config = await this.getModelConfig(userId);
 
     const systemPrompt =
       'You are a web content analyzer. You are given a screenshot of a company website homepage. Describe what you see accurately and concisely. Focus on: company name, business type, products/services, contact info, visual quality, and overall impression.';
@@ -543,8 +546,9 @@ Return ONLY a valid JSON object with these fields.`;
     content: string,
     companyName: string,
     fetchMethod: string,
+    userId: string,
   ): Promise<WebsiteExtraction> {
-    const config = await this.getModelConfig();
+    const config = await this.getModelConfig(userId);
 
     const systemPrompt =
       'You are a web content analyzer. Extract structured information from a company or organization website. Respond only with valid JSON. Be concise and accurate.';
@@ -614,13 +618,17 @@ ${content}`;
     }
   }
 
-  private async getModelConfig(): Promise<{
+  private async getModelConfig(userId: string): Promise<{
     apiBaseUrl: string;
     apiKey: string;
     modelName: string;
     temperature: number | null;
   }> {
-    const rows = await this.db.select().from(modelConfig).limit(1);
+    const rows = await this.db
+      .select()
+      .from(modelConfig)
+      .where(sql`(${modelConfig.createdBy}).user_id = ${userId}`)
+      .limit(1);
     if (rows.length === 0) {
       throw new BadRequestException('请先在模型设置中配置 API');
     }
@@ -684,7 +692,7 @@ ${content}`;
     };
   }
 
-  analyzeRestaurant(id: string): Promise<Company> {
-    return this.analyzeCompany(id);
+  analyzeRestaurant(id: string, userId: string): Promise<Company> {
+    return this.analyzeCompany(id, userId);
   }
 }

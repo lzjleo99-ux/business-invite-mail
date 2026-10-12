@@ -50,7 +50,7 @@ export class EmailGeneratorService {
     @Inject(DRIZZLE_DATABASE) private readonly db: PostgresJsDatabase,
   ) {}
 
-  async generateEmail(companyId: string): Promise<GeneratedEmail> {
+  async generateEmail(companyId: string, userId: string): Promise<GeneratedEmail> {
     const company = await this.getCompanyById(companyId);
     if (!company) {
       throw new BadRequestException('公司不存在');
@@ -62,7 +62,7 @@ export class EmailGeneratorService {
       .where(eq(restaurants.id, companyId));
 
     try {
-      const config = await this.getModelConfig();
+      const config = await this.getModelConfig(userId);
       const sender = await this.getSenderConfig();
       const projectContext = await this.getProjectContext(company.projectId);
 
@@ -111,7 +111,11 @@ export class EmailGeneratorService {
     }
   }
 
-  async batchGenerate(companyIds?: string[], projectId?: string): Promise<{ total: number }> {
+  async batchGenerate(
+    companyIds: string[] | undefined,
+    projectId: string | undefined,
+    userId: string,
+  ): Promise<{ total: number }> {
     let targetIds: string[];
 
     if (companyIds && companyIds.length > 0) {
@@ -136,7 +140,7 @@ export class EmailGeneratorService {
     }
 
     const total = targetIds.length;
-    void this.processBatch(targetIds);
+    void this.processBatch(targetIds, userId);
     return { total };
   }
 
@@ -222,7 +226,7 @@ export class EmailGeneratorService {
     };
   }
 
-  async generateWhatsAppForCompany(companyId: string): Promise<WhatsAppInfo> {
+  async generateWhatsAppForCompany(companyId: string, userId: string): Promise<WhatsAppInfo> {
     const company = await this.getCompanyById(companyId);
     if (!company) {
       throw new BadRequestException('公司不存在');
@@ -238,7 +242,7 @@ export class EmailGeneratorService {
       throw new BadRequestException('电话号码无法格式化为国际号码');
     }
 
-    const config = await this.getModelConfig();
+    const config = await this.getModelConfig(userId);
     const sender = await this.getSenderConfig();
     const projectContext = await this.getProjectContext(company.projectId);
 
@@ -271,7 +275,7 @@ export class EmailGeneratorService {
     };
   }
 
-  async batchPrepareWhatsApp(projectId: string): Promise<{ total: number }> {
+  async batchPrepareWhatsApp(projectId: string, userId: string): Promise<{ total: number }> {
     const rows = await this.db
       .select({ id: restaurants.id })
       .from(restaurants)
@@ -283,7 +287,7 @@ export class EmailGeneratorService {
       );
     const targetIds = rows.map((r: { id: string }) => r.id);
     const total = targetIds.length;
-    void this.processBatchWhatsApp(targetIds);
+    void this.processBatchWhatsApp(targetIds, userId);
     return { total };
   }
 
@@ -342,12 +346,12 @@ export class EmailGeneratorService {
       .where(eq(restaurants.id, companyId));
   }
 
-  private async processBatchWhatsApp(ids: string[]): Promise<void> {
+  private async processBatchWhatsApp(ids: string[], userId: string): Promise<void> {
     for (let i = 0; i < ids.length; i += this.CONCURRENCY) {
       const chunk = ids.slice(i, i + this.CONCURRENCY);
       await Promise.all(
         chunk.map((id: string) =>
-          this.generateWhatsAppForCompany(id).catch((err: unknown) => {
+          this.generateWhatsAppForCompany(id, userId).catch((err: unknown) => {
             this.logger.error(
               `生成 WhatsApp 消息失败 ${id}`,
               err instanceof Error ? err.stack : String(err),
@@ -358,12 +362,12 @@ export class EmailGeneratorService {
     }
   }
 
-  private async processBatch(ids: string[]): Promise<void> {
+  private async processBatch(ids: string[], userId: string): Promise<void> {
     for (let i = 0; i < ids.length; i += this.CONCURRENCY) {
       const chunk = ids.slice(i, i + this.CONCURRENCY);
       await Promise.all(
         chunk.map((id: string) =>
-          this.generateEmail(id).catch((err: unknown) => {
+          this.generateEmail(id, userId).catch((err: unknown) => {
             this.logger.error(
               `生成邮件失败 ${id}`,
               err instanceof Error ? err.stack : String(err),
@@ -1060,7 +1064,7 @@ ${shortPitch}
 Would you be open to a quick chat about it? No pressure at all. Thanks!`;
   }
 
-  private async getModelConfig(): Promise<{
+  private async getModelConfig(userId: string): Promise<{
     apiBaseUrl: string;
     apiKey: string;
     modelName: string;
@@ -1068,9 +1072,13 @@ Would you be open to a quick chat about it? No pressure at all. Thanks!`;
     emailLanguage: string;
     senderSignature: string;
   }> {
-    const rows = await this.db.select().from(modelConfig).limit(1);
+    const rows = await this.db
+      .select()
+      .from(modelConfig)
+      .where(sql`(${modelConfig.createdBy}).user_id = ${userId}`)
+      .limit(1);
     if (rows.length === 0) {
-      throw new BadRequestException('请先在模型设置中配置 API');
+      throw new BadRequestException('请先在设置中配置你的 API Key');
     }
     const row = rows[0];
     return {

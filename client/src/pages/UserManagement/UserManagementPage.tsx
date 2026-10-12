@@ -3,6 +3,15 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { Search, Shield, UserX, UserCheck, Users } from 'lucide-react';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogFooter,
+  DialogDescription,
+} from '@/components/ui/dialog';
+import { Label } from '@/components/ui/label';
 import { Input } from '@/components/ui/input';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -27,6 +36,12 @@ const UserManagementPage: React.FC = () => {
   const [pageSize] = useState(20);
   const [search, setSearch] = useState('');
   const [searchInput, setSearchInput] = useState('');
+  // 创建账号（公开注册已关闭，账号统一由管理员发放）
+  const [createOpen, setCreateOpen] = useState(false);
+  const [newEmail, setNewEmail] = useState('');
+  const [newName, setNewName] = useState('');
+  const [newPassword, setNewPassword] = useState('');
+  const [creating, setCreating] = useState(false);
 
   const { data, isLoading } = useQuery({
     queryKey: ['admin-users', page, pageSize, search],
@@ -97,8 +112,93 @@ const UserManagementPage: React.FC = () => {
           <Button onClick={handleSearch} variant="default">
             {t('搜索')}
           </Button>
+          <Button onClick={() => setCreateOpen(true)}>
+            {t('创建用户')}
+          </Button>
         </div>
       </div>
+
+      <Dialog open={createOpen} onOpenChange={setCreateOpen}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>{t('创建用户')}</DialogTitle>
+            <DialogDescription>
+              {t('为团队成员创建账号，对方登录后在设置里填自己的 API Key。')}
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-3">
+            <div className="space-y-1">
+              <Label htmlFor="new-user-email">{t('邮箱')}</Label>
+              <Input
+                id="new-user-email"
+                type="email"
+                value={newEmail}
+                onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
+                  setNewEmail(e.target.value)
+                }
+                placeholder="name@company.com"
+              />
+            </div>
+            <div className="space-y-1">
+              <Label htmlFor="new-user-name">{t('显示名称')}</Label>
+              <Input
+                id="new-user-name"
+                value={newName}
+                onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
+                  setNewName(e.target.value)
+                }
+                placeholder={t('显示名称')}
+              />
+            </div>
+            <div className="space-y-1">
+              <Label htmlFor="new-user-password">{t('初始密码')}</Label>
+              <Input
+                id="new-user-password"
+                type="text"
+                value={newPassword}
+                onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
+                  setNewPassword(e.target.value)
+                }
+                placeholder={t('至少 8 位，含字母和数字')}
+              />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button
+              onClick={async () => {
+                if (!newEmail || !newPassword) {
+                  toast.error(t('请填写邮箱和密码'));
+                  return;
+                }
+                setCreating(true);
+                try {
+                  await adminApi.createUser({
+                    email: newEmail,
+                    password: newPassword,
+                    displayName: newName || newEmail.split('@')[0],
+                  });
+                  toast.success(t('账号已创建'));
+                  setCreateOpen(false);
+                  setNewEmail('');
+                  setNewName('');
+                  setNewPassword('');
+                  void queryClient.invalidateQueries({ queryKey: ['admin-users'] });
+                } catch (err: unknown) {
+                  toast.error(t('创建失败'), {
+                    description:
+                      err instanceof Error ? err.message : String(err),
+                  });
+                } finally {
+                  setCreating(false);
+                }
+              }}
+              disabled={creating}
+            >
+              {creating ? t('创建中...') : t('创建')}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       <Card>
         <CardHeader className="flex flex-row items-center justify-between pb-3">

@@ -31,3 +31,12 @@ export async function updateUserActive(
   );
   return response.data;
 }
+
+export async function createUser(params: {
+  email: string;
+  password: string;
+  displayName: string;
+}): Promise<AdminUser> {
+  const response = await axiosForBackend.post('/api/admin/users', params);
+  return response.data;
+}

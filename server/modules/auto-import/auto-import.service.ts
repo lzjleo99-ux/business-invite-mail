@@ -142,12 +142,18 @@ export class AutoImportService {
     private readonly restaurantsService: RestaurantsService,
   ) {}
 
+  /**
+   * 机器人导入密钥属于全局配置（所有用户共享），固定存放在 _created_by IS NULL 的那一行，
+   * 与各用户自己的 AI 配置行（_created_by.user_id = 用户）互不干扰。
+   */
   async getImportSecretConfig(): Promise<ImportSecretConfig> {
     try {
       const result = await this.db.execute(sql<{ import_secret: string | null }>`
-        SELECT import_secret FROM ${modelConfig} LIMIT 1
+        SELECT import_secret FROM ${modelConfig}
+        WHERE _created_by IS NULL
+        LIMIT 1
       `);
-      const row = result[0] as { import_secret: string | null } | undefined;
+      const row = (result[0] as { import_secret: string | null } | undefined) ?? null;
       const secret: string | null = row?.import_secret ?? null;
       return {
         importSecretSet: !!secret,
@@ -165,23 +171,25 @@ export class AutoImportService {
     }
     const trimmed: string = secret.trim();
 
-    // Check if any row exists
-    const existing = await this.db
-      .select({ id: modelConfig.id })
-      .from(modelConfig)
-      .limit(1);
-
-    if (existing.length === 0) {
-      throw new NotFoundException('model_config 不存在，请先完成模型设置');
-    }
-
     try {
-      const secretVal: string = trimmed;
-      await this.db.execute(sql`
-        UPDATE ${modelConfig}
-        SET import_secret = ${secretVal}
-        WHERE id = ${existing[0].id}
+      // 找全局行；没有就建一行（与各用户配置无关）
+      const existing = await this.db.execute(sql<{ id: string }>`
+        SELECT id FROM ${modelConfig} WHERE _created_by IS NULL LIMIT 1
       `);
+      const row = (existing[0] as { id: string } | undefined) ?? null;
+
+      if (!row) {
+        await this.db.execute(sql`
+          INSERT INTO ${modelConfig}
+            (api_base_url, api_key, model_name, email_language, sender_signature, import_secret)
+          VALUES
+            ('https://api.openai.com/v1', '', 'gpt-4o-mini', 'auto', 'Best regards,\nBD Team', ${trimmed})
+        `);
+      } else {
+        await this.db.execute(sql`
+          UPDATE ${modelConfig} SET import_secret = ${trimmed} WHERE id = ${row.id}
+        `);
+      }
     } catch (err) {
       this.logger.error(`Failed to update import_secret: ${String(err)}`);
       throw new BadRequestException(

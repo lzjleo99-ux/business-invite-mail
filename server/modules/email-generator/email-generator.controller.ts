@@ -13,8 +13,8 @@ import {
 import { IsArray, IsOptional, IsString } from 'class-validator';
 import { Type } from 'class-transformer';
 import type { Response } from 'express';
-import { JwtAuthGuard } from '../auth/jwt-auth.guard';
-import { AdminGuard } from '@server/common/guards/admin.guard';
+import { JwtAuthGuard, type JwtPayload } from '../auth/jwt-auth.guard';
+import { CurrentUser } from '../auth/current-user.decorator';
 import { EmailGeneratorService } from './email-generator.service';
 import type {
   GeneratedEmail,
@@ -66,25 +66,26 @@ export class EmailGeneratorController {
     private readonly emailGeneratorService: EmailGeneratorService,
   ) {}
 
-  @UseGuards(AdminGuard)
   @Post('generate/:companyId')
   async generate(
+    @CurrentUser() user: JwtPayload,
     @Param('companyId') companyId: string,
   ): Promise<GeneratedEmail> {
     if (!companyId) {
       throw new BadRequestException('companyId 不能为空');
     }
-    return this.emailGeneratorService.generateEmail(companyId);
+    return this.emailGeneratorService.generateEmail(companyId, user.userId);
   }
 
-  @UseGuards(AdminGuard)
   @Post('batch-generate')
   async batchGenerate(
+    @CurrentUser() user: JwtPayload,
     @Body() dto: BatchGenerateDto,
   ): Promise<{ total: number }> {
     return this.emailGeneratorService.batchGenerate(
       dto.companyIds,
       dto.projectId,
+      user.userId,
     );
   }
 
@@ -109,23 +110,23 @@ export class EmailGeneratorController {
     return this.emailGeneratorService.getWhatsAppInfo(companyId);
   }
 
-  @UseGuards(AdminGuard)
   @Post('whatsapp/:companyId')
   async generateWhatsApp(
+    @CurrentUser() user: JwtPayload,
     @Param('companyId') companyId: string,
   ): Promise<WhatsAppInfo> {
     if (!companyId) {
       throw new BadRequestException('companyId 不能为空');
     }
-    return this.emailGeneratorService.generateWhatsAppForCompany(companyId);
+    return this.emailGeneratorService.generateWhatsAppForCompany(companyId, user.userId);
   }
 
-  @UseGuards(AdminGuard)
   @Post('batch-whatsapp')
   async batchWhatsApp(
+    @CurrentUser() user: JwtPayload,
     @Body() dto: BatchWhatsAppDto,
   ): Promise<{ total: number }> {
-    return this.emailGeneratorService.batchPrepareWhatsApp(dto.projectId);
+    return this.emailGeneratorService.batchPrepareWhatsApp(dto.projectId, user.userId);
   }
 
   @Get('compose/:companyId')

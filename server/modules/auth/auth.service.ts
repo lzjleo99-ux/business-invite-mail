@@ -35,6 +35,32 @@ export class AuthService {
     password: string,
     displayName: string,
   ): Promise<AuthResponse> {
+    return this.createUser(email, password, displayName, null);
+  }
+
+  /** 管理员创建账号：角色固定为普通用户，不参与"首个账号=admin"的判定 */
+  async createUserByAdmin(
+    email: string,
+    password: string,
+    displayName: string,
+  ): Promise<AuthResponse> {
+    return this.createUser(email, password, displayName, 'user');
+  }
+
+  /** 是否还没有任何账号（用于首次部署时放行自注册以创建 admin） */
+  async hasAnyUser(): Promise<boolean> {
+    const [{ userCount }] = await this.db
+      .select({ userCount: count() })
+      .from(appUsers);
+    return userCount > 0;
+  }
+
+  private async createUser(
+    email: string,
+    password: string,
+    displayName: string,
+    forcedRole: 'admin' | 'user' | null,
+  ): Promise<AuthResponse> {
     const normalizedEmail = email.toLowerCase().trim();
 
     if (!EMAIL_REGEX.test(normalizedEmail)) {
@@ -61,7 +87,7 @@ export class AuthService {
       .select({ userCount: count() })
       .from(appUsers);
 
-    const role = userCount === 0 ? 'admin' : 'user';
+    const role = forcedRole ?? (userCount === 0 ? 'admin' : 'user');
     const passwordHash = await bcrypt.hash(password, BCRYPT_SALT_ROUNDS);
 
     const inserted = await this.db
