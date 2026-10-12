@@ -612,12 +612,22 @@ export class RestaurantsService {
   ): Promise<Company> {
     await this.ensureRestaurantAccess(id, user);
 
+    // The workbench editor can edit both language variants, so persist the
+    // localized copies too (null clears them, undefined leaves them as-is).
+    const patch: Partial<typeof restaurants.$inferInsert> = {
+      emailSubject: data.subject,
+      emailBody: data.body,
+    };
+    if (data.subjectLocal !== undefined) {
+      patch.emailSubjectLocal = data.subjectLocal;
+    }
+    if (data.bodyLocal !== undefined) {
+      patch.emailBodyLocal = data.bodyLocal;
+    }
+
     const updated = await this.db
       .update(restaurants)
-      .set({
-        emailSubject: data.subject,
-        emailBody: data.body,
-      })
+      .set(patch)
       .where(eq(restaurants.id, id))
       .returning({ id: restaurants.id });
 

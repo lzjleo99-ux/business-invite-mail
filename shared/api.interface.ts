@@ -253,6 +253,9 @@ export interface GeneratedEmail {
 export interface UpdateEmailRequest {
   subject: string;
   body: string;
+  /** Optional localized copies; omitted values are left untouched. */
+  subjectLocal?: string | null;
+  bodyLocal?: string | null;
 }
 
 export interface EmlDownloadResponse {

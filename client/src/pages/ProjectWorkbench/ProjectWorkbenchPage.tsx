@@ -1,11 +1,6 @@
 import React, { useState, useCallback, useRef, useEffect } from 'react';
 import { useParams, useSearchParams, Link } from 'react-router-dom';
-import {
-  QueryClient,
-  QueryClientProvider,
-  useQuery,
-  useQueryClient,
-} from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import { logger } from '@lark-apaas/client-toolkit/logger';
 import { Home, ChevronRight } from 'lucide-react';
@@ -39,8 +34,6 @@ import {
   EmailDialog,
   BatchDeleteConfirmDialog,
 } from './ProjectWorkbenchDialogs';
-
-const queryClient = new QueryClient();
 
 type StatusFilterValue = CompanyStatus | 'all';
 
@@ -405,9 +398,14 @@ const ProjectWorkbenchInner: React.FC = () => {
     if (!editingEmail) return;
     setSavingEmailId(record.id);
     try {
+      // Send both language variants: the expanded editor can switch between
+      // the English and local copy, and the API only persisted `subject`/
+      // `body` before, silently dropping the localized edits.
       await restaurantsApi.updateEmail(record.id, {
         subject: editingEmail.subject,
         body: editingEmail.body,
+        subjectLocal: editingEmail.subjectLocal,
+        bodyLocal: editingEmail.bodyLocal,
       });
       toast.success(t('邮件内容已保存'));
       setEditingEmail(null);
@@ -786,12 +784,8 @@ const ProjectWorkbenchInner: React.FC = () => {
   );
 };
 
-const ProjectWorkbenchPage: React.FC = () => {
-  return (
-    <QueryClientProvider client={queryClient}>
-      <ProjectWorkbenchInner />
-    </QueryClientProvider>
-  );
-};
-
-export default ProjectWorkbenchPage;
+// Reuse the app-level QueryClientProvider (see client/src/index.tsx) instead of
+// nesting a second one: a nested provider owns a separate cache, so
+// invalidations issued on the root client (login/logout, global refreshes)
+// never reached the workbench queries.
+export default ProjectWorkbenchInner;

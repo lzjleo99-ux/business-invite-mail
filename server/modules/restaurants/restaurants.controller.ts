@@ -142,6 +142,14 @@ class UpdateEmailDto implements UpdateEmailRequest {
 
   @IsString()
   body!: string;
+
+  @IsOptional()
+  @IsString()
+  subjectLocal?: string | null;
+
+  @IsOptional()
+  @IsString()
+  bodyLocal?: string | null;
 }
 
 class StarBodyDto {
