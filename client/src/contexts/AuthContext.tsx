@@ -4,6 +4,7 @@ import React, {
   useContext,
   useEffect,
   useMemo,
+  useRef,
   useState,
 } from 'react';
 import { useNavigate } from 'react-router-dom';
@@ -40,6 +41,15 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
   const [token, setToken] = useState<string | null>(null);
   const [user, setUser] = useState<AuthUser | null>(null);
   const [isLoading, setIsLoading] = useState(true);
+
+  // The request interceptor is registered once and reads the current token
+  // from this ref. React runs child effects (page data fetching) before the
+  // provider's own effect, so an interceptor re-registered on every token
+  // change would let the very first request after login/register go out
+  // without an Authorization header -- the API answers 401 and the user is
+  // bounced straight back to /login.
+  const tokenRef = useRef<string | null>(null);
+  tokenRef.current = token;
 
   useEffect(() => {
     try {
@@ -115,8 +125,17 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
   useEffect(() => {
     const requestInterceptor = axiosForBackend.interceptors.request.use(
       (config) => {
-        if (token && config.headers) {
-          config.headers.Authorization = `Bearer ${token}`;
+        const currentToken =
+          tokenRef.current ??
+          (() => {
+            try {
+              return window.localStorage.getItem(TOKEN_KEY);
+            } catch {
+              return null;
+            }
+          })();
+        if (currentToken && config.headers) {
+          config.headers.Authorization = `Bearer ${currentToken}`;
         }
         return config;
       },
@@ -137,7 +156,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
       axiosForBackend.interceptors.request.eject(requestInterceptor);
       axiosForBackend.interceptors.response.eject(responseInterceptor);
     };
-  }, [token, clearAuth, navigate]);
+  }, [clearAuth, navigate]);
 
   const value = useMemo<AuthContextValue>(
     () => ({ user, token, isLoading, login, register, logout, changePassword }),
