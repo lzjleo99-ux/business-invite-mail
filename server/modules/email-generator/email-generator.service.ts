@@ -1080,6 +1080,10 @@ Would you be open to a quick chat about it? No pressure at all. Thanks!`;
     if (rows.length === 0) {
       throw new BadRequestException('请先在设置中配置你的 API Key');
     }
+    // 空 key 直接给明确提示，避免把空 Bearer 发给模型服务换来一个看不懂的 401
+    if (!rows[0].apiKey || !rows[0].apiKey.trim()) {
+      throw new BadRequestException('请先在设置中配置你的 API Key');
+    }
     const row = rows[0];
     return {
       apiBaseUrl: row.apiBaseUrl,
