@@ -11,8 +11,11 @@ FROM node:20-bookworm AS build
 WORKDIR /app
 
 # 先拷贝依赖清单，利用 Docker 层缓存
+# --ignore-scripts：跳过生命周期钩子——package.json 的 postinstall 调用平台专用的
+# `fullstack-cli`（不在依赖里，任何自建容器都不存在），exit 127 直接弄挂构建。
+# 原生二进制（@swc/core/rolldown/oxide 等）走 optionalDependencies 平台包，不需要脚本。
 COPY package.json package-lock.json ./
-RUN npm install --no-audit --no-fund
+RUN npm install --no-audit --no-fund --ignore-scripts
 
 # 构建：服务端（nest/swc，linux-x64 原生绑定在容器内正常下载）+ 客户端（vite）
 COPY . .

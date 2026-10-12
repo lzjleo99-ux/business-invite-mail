@@ -42,7 +42,9 @@ function splitStatements(text) {
     .filter(s => s.length > 0 && !/^(BEGIN|COMMIT)$/i.test(s));
 }
 
-// 平台中间件按请求 SET LOCAL ROLE 切换的三个角色 + 授权
+// 平台中间件按请求 SET LOCAL ROLE 切换的三个角色 + 授权。
+// 最后一行把三角色授予"连接用户"成员身份——SET ROLE 需要成员资格，
+// 应用如用别的数据库用户连接，需对那个用户再执行一次 GRANT。
 const ROLES_SQL = `
 DO $$ BEGIN CREATE ROLE anon_ NOLOGIN; EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 DO $$ BEGIN CREATE ROLE authenticated_ NOLOGIN; EXCEPTION WHEN duplicate_object THEN NULL; END $$;
@@ -50,6 +52,7 @@ DO $$ BEGIN CREATE ROLE service_role_ NOLOGIN; EXCEPTION WHEN duplicate_object T
 GRANT ALL PRIVILEGES ON ALL TABLES IN SCHEMA public TO anon_, authenticated_, service_role_;
 GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO anon_, authenticated_, service_role_;
 ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL PRIVILEGES ON TABLES TO anon_, authenticated_, service_role_;
+GRANT anon_, authenticated_, service_role_ TO current_user;
 `;
 
 (async () => {
