@@ -28,6 +28,7 @@ import { useI18n } from '@client/src/i18n';
 import WorkbenchTab from './WorkbenchTab';
 import ProjectInfoTab from './ProjectInfoTab';
 import DuplicatesTab from './DuplicatesTab';
+import MapTab from './MapTab';
 import {
   ImportDialog,
   DeleteConfirmDialog,
@@ -667,6 +668,7 @@ const ProjectWorkbenchInner: React.FC = () => {
           <TabsTrigger value="workbench">{t('工作台')}</TabsTrigger>
           <TabsTrigger value="info">{t('项目资料')}</TabsTrigger>
           <TabsTrigger value="duplicates">{t('查重')}</TabsTrigger>
+          <TabsTrigger value="map">{t('地图')}</TabsTrigger>
         </TabsList>
 
         <TabsContent value="workbench" className="pt-4">
@@ -739,6 +741,10 @@ const ProjectWorkbenchInner: React.FC = () => {
             onGlobalBatchDelete={() => setBatchDeleteConfirmOpen(true)}
             isGroupAllSelected={isGroupAllSelected}
           />
+        </TabsContent>
+
+        <TabsContent value="map" className="pt-4">
+          <MapTab projectId={id} />
         </TabsContent>
       </Tabs>
 

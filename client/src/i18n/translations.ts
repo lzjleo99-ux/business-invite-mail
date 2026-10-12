@@ -467,4 +467,13 @@ export const enMessages: Record<string, string> = {
   '关闭菜单': 'Close menu',
   '当前不在企业微信内置浏览器中，已改用系统邮件客户端':
     'Not inside the WeCom browser — using the default mail client instead',
+
+  // ---- Workbench map tab ----
+  '已标注': 'Plotted',
+  '未标注（缺少经纬度）': 'Unplotted (missing coordinates)',
+  '加载地图数据失败，请刷新重试': 'Failed to load map data, please refresh and retry',
+  '暂无公司数据，请先导入公司名录':
+    'No companies yet — import a company list first',
+  '所有公司都缺少经纬度，无法在地图上标注。导入时请包含「纬度 Lat」「经度 Lng」。':
+    'All companies are missing latitude/longitude and cannot be plotted. Include the "Lat" and "Lng" columns when importing.',
 };
