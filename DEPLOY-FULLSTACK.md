@@ -3,6 +3,10 @@
 > 目标：让 `POST https://shanghaitrade.cn/openapi/auto-import/leads` 真实存在，
 > 使 sticky beans 机器人扒完地图后能自动把线索导入系统。
 > 当前 GitHub Pages 是纯静态站，没有后端，该接口返回 405 —— 必须先做本清单。
+>
+> **已选定 Oracle Cloud Always Free（永久免费 VPS）作为上线目标，逐步操作见
+> `DEPLOY-ORACLE.md`**（含已打好的 80MB 自包含部署包和一键初始化脚本）。
+> 本文件是通用契约与环境参考。
 
 ## 0. 前置条件
 

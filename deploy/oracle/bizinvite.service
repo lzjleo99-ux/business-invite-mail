@@ -1,0 +1,19 @@
+[Unit]
+Description=business-invite-mail (NestJS full stack)
+After=network.target postgresql.service
+Wants=postgresql.service
+
+[Service]
+Type=simple
+WorkingDirectory=/opt/bizinvite
+ExecStart=/usr/bin/node scripts/run-selfhosted.js
+Restart=always
+RestartSec=3
+# 环境变量从 /opt/bizinvite/.env 由平台 ConfigModule 加载；
+# 这里再显式注入一次，双保险。
+EnvironmentFile=-/opt/bizinvite/.env
+StandardOutput=append:/opt/bizinvite/logs/app.log
+StandardError=append:/opt/bizinvite/logs/app.log
+
+[Install]
+WantedBy=multi-user.target

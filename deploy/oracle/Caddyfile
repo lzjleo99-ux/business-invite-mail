@@ -1,0 +1,21 @@
+# business-invite-mail —— Caddy 反代（自动申请并续期 Let's Encrypt 证书）
+# bootstrap.sh 会把 __DOMAIN__ 替换成真实域名后安装到 /etc/caddy/Caddyfile
+
+__DOMAIN__, www.__DOMAIN__ {
+    encode zstd gzip
+    reverse_proxy 127.0.0.1:3000 {
+        # 机器人导入一批线索可能较久，放宽超时
+        transport http {
+            read_timeout 120s
+            write_timeout 120s
+        }
+    }
+    header {
+        Strict-Transport-Security "max-age=31536000;"
+        X-Content-Type-Options "nosniff"
+        X-Frame-Options "SAMEORIGIN"
+    }
+    log {
+        output file /var/log/caddy/bizinvite.access.log
+    }
+}
