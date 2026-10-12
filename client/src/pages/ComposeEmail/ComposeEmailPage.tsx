@@ -67,6 +67,7 @@ import {
   buildViberUrl,
   buildWhatsAppUrl,
   copyToClipboard,
+  isWeComWebview,
   openExternal,
   toDigits,
   type ChatChannel,
@@ -253,12 +254,28 @@ const ComposeEmailPage: React.FC = () => {
   };
 
   const handleDownloadEml = () => {
-    const url = emailGeneratorApi.getEmlUrl(companyId);
-    window.open(url, '_blank', 'noopener,noreferrer');
+    void emailGeneratorApi.downloadEml(companyId).catch((err: unknown) => {
+      logger.error('下载 .eml 失败', err);
+      toast.error(t('下载失败，请稍后重试'));
+    });
   };
 
   const handleOpenWxMail = () => {
     if (!hasEmail) return;
+    const search = new URLSearchParams();
+    if (activeSubject) search.set('subject', activeSubject);
+    if (activeBody) search.set('body', activeBody);
+
+    // wxmail:// only resolves inside the WeCom (企业微信) in-app browser;
+    // anywhere else navigating to it silently does nothing.
+    if (!isWeComWebview()) {
+      toast.info(t('当前不在企业微信内置浏览器中，已改用系统邮件客户端'));
+      window.location.assign(
+        `mailto:${encodeURIComponent(recipientEmail)}?${search.toString()}`,
+      );
+      return;
+    }
+
     const wxUrl = `wxmail://compose?to=${encodeURIComponent(recipientEmail)}&subject=${encodeURIComponent(activeSubject)}&body=${encodeURIComponent(activeBody)}`;
     window.location.assign(wxUrl);
   };

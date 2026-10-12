@@ -53,6 +53,46 @@ export function getEmlUrl(id: string): string {
   return `/api/email-generator/eml/${id}`;
 }
 
+/**
+ * Download the .eml file through the authenticated axios client.
+ *
+ * The endpoint sits behind the JWT guard, so opening `getEmlUrl()` with
+ * `window.open` would send a request without the Authorization header and
+ * always answer 401. Fetching here (auth header included) and saving the
+ * response as a Blob keeps the download working.
+ */
+export async function downloadEml(id: string): Promise<void> {
+  const response = await axiosForBackend.get(getEmlUrl(id), {
+    responseType: 'text',
+    transformResponse: [(data: unknown) => data],
+  });
+
+  const payload = response.data as unknown;
+  let content: string;
+  let fileName = 'email.eml';
+
+  if (typeof payload === 'string') {
+    content = payload;
+  } else {
+    const data = (payload ?? {}) as {
+      emlContent?: string | null;
+      fileName?: string | null;
+    };
+    content = data.emlContent ?? '';
+    if (data.fileName) fileName = data.fileName;
+  }
+
+  const blob = new Blob([content], { type: 'message/rfc822;charset=utf-8' });
+  const objectUrl = URL.createObjectURL(blob);
+  const anchor = document.createElement('a');
+  anchor.href = objectUrl;
+  anchor.download = fileName;
+  document.body.appendChild(anchor);
+  anchor.click();
+  document.body.removeChild(anchor);
+  URL.revokeObjectURL(objectUrl);
+}
+
 export async function getWhatsAppInfo(id: string): Promise<WhatsAppInfo> {
   const response = await axiosForBackend.get(`/api/email-generator/whatsapp/${id}`);
   return response.data;

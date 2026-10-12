@@ -462,4 +462,9 @@ export const enMessages: Record<string, string> = {
   '删除中...': 'Deleting...',
   '操作成功': 'Done',
   '操作失败，请稍后重试': 'Action failed, please try again later',
+  '下载失败，请稍后重试': 'Download failed, please try again later',
+  '菜单': 'Menu',
+  '关闭菜单': 'Close menu',
+  '当前不在企业微信内置浏览器中，已改用系统邮件客户端':
+    'Not inside the WeCom browser — using the default mail client instead',
 };

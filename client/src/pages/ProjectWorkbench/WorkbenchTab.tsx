@@ -290,6 +290,19 @@ const WorkbenchTab: React.FC<WorkbenchTabProps> = ({
     },
   });
 
+  // --- Active batch operation ---
+  // Only one batch job can run at a time; pick the running one explicitly. The
+  // previous `a || b || c` chain fell through whenever the running job had a
+  // zero counter and therefore displayed another job's numbers.
+  const activeBatchOp = batchAnalyzeOp.isRunning
+    ? batchAnalyzeOp
+    : batchGenerateOp.isRunning
+      ? batchGenerateOp
+      : batchWhatsAppOp;
+  const activeBatchProcessed = activeBatchOp.processed + activeBatchOp.failed;
+  const activeBatchTotal = activeBatchOp.total;
+  const activeBatchProgress = activeBatchOp.progress;
+
   const STATUS_OPTIONS: { value: StatusFilterValue; label: string }[] = [
     { value: 'all', label: t('全部') },
     { value: 'pending', label: t('待分析') },
@@ -615,7 +628,7 @@ const WorkbenchTab: React.FC<WorkbenchTabProps> = ({
             ? record.whatsappMessageLocal || record.whatsappMessage
             : record.whatsappMessage) || record.whatsappMessage || '';
         const waUrl = hasWhatsApp
-          ? buildWhatsAppUrl(toDigits(waPhone || waPhone), waMessage)
+          ? buildWhatsAppUrl(toDigits(waPhone), waMessage)
           : '';
         const viberUrl = hasViber ? buildViberUrl(toDigits(viberPhone)) : '';
 
@@ -780,8 +793,12 @@ const WorkbenchTab: React.FC<WorkbenchTabProps> = ({
                 <DropdownMenuItem
                   onClick={() => {
                     if (hasGeneratedEmail) {
-                      const url = emailGeneratorApi.getEmlUrl(record.id);
-                      window.open(url, '_blank', 'noopener,noreferrer');
+                      void emailGeneratorApi
+                        .downloadEml(record.id)
+                        .catch((err: unknown) => {
+                          logger.error('下载 .eml 失败', err);
+                          toast.error(t('下载失败，请稍后重试'));
+                        });
                     }
                   }}
                   className={hasGeneratedEmail ? 'gap-2' : 'gap-2 opacity-50 cursor-not-allowed pointer-events-none'}
@@ -1480,15 +1497,7 @@ const WorkbenchTab: React.FC<WorkbenchTabProps> = ({
             <div className="h-1.5 w-full bg-slate-100 rounded-full overflow-hidden">
               <div
                 className="h-full bg-primary transition-all duration-300"
-                style={{
-                  width: `${
-                    batchAnalyzeOp.isRunning
-                      ? batchAnalyzeOp.progress
-                      : batchGenerateOp.isRunning
-                      ? batchGenerateOp.progress
-                      : batchWhatsAppOp.progress
-                  }%`,
-                }}
+                style={{ width: `${activeBatchProgress}%` }}
               />
             </div>
             <div className="flex items-center justify-between mt-1.5 text-xs text-slate-500">
@@ -1501,18 +1510,9 @@ const WorkbenchTab: React.FC<WorkbenchTabProps> = ({
               </span>
               <span>
                 {t('已处理 {p}/{t}（{percent}%）', {
-                  p:
-                    batchAnalyzeOp.processed + batchAnalyzeOp.failed ||
-                    batchGenerateOp.processed + batchGenerateOp.failed ||
-                    batchWhatsAppOp.processed + batchWhatsAppOp.failed,
-                  t:
-                    batchAnalyzeOp.total ||
-                    batchGenerateOp.total ||
-                    batchWhatsAppOp.total,
-                  percent:
-                    batchAnalyzeOp.progress ||
-                    batchGenerateOp.progress ||
-                    batchWhatsAppOp.progress,
+                  p: activeBatchProcessed,
+                  t: activeBatchTotal,
+                  percent: activeBatchProgress,
                 })}
               </span>
             </div>

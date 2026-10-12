@@ -85,8 +85,11 @@ const SendEmailDropdown: React.FC<SendEmailDropdownProps> = ({
   };
 
   const handleDownloadEml = () => {
-    const url = emailGeneratorApi.getEmlUrl(record.id);
-    window.open(url, '_blank', 'noopener,noreferrer');
+    void emailGeneratorApi.downloadEml(record.id).catch((err: unknown) => {
+      logger.error('下载 .eml 失败', err);
+      toast.error(t('下载失败，请稍后重试'));
+    });
+    setOpen(false);
   };
 
   const handleMailto = () => {
