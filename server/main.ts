@@ -25,6 +25,11 @@ async function bootstrap() {
   app.setViewEngine('html');
   app.engine('html', hbsExpressEngine);
 
+  // 自托管：直接托管前端静态资源（平台环境由 CDN 提供，自建部署没有 CDN，
+  // 若不托管，/assets/* 会被 ViewController 的 '*' 兜底接住返回 index.html，
+  // 浏览器拿到的是 HTML 而不是 JS/CSS，页面一片空白）。
+  app.useStaticAssets(join(process.cwd(), 'dist/client'));
+
   await app.listen(port, host);
   logger.log(`Server running on ${host}:${port}`);
   logger.log(`API endpoints ready at http://${host}:${port}/api`);
