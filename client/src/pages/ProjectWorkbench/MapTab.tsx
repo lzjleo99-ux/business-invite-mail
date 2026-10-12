@@ -38,15 +38,16 @@ function hasCoords(c: Company): boolean {
   );
 }
 
-/** 拉取项目下全部公司：分页循环直到取满 total（服务端无 pageSize 上限） */
+/** 拉取项目下全部公司：服务端 DTO 限制 pageSize ≤ 100，用分页循环取满 total */
 async function fetchAllCompanies(projectId: string): Promise<Company[]> {
-  const first = await getCompanies({ projectId, page: 1, pageSize: 1000 });
+  const PAGE = 100;
+  const first = await getCompanies({ projectId, page: 1, pageSize: PAGE });
   const items: Company[] = [...(first.items ?? [])];
   const total = typeof first.total === 'number' ? first.total : items.length;
   let page = 1;
-  while (items.length < total && page < 100) {
+  while (items.length < total && page < 200) {
     page += 1;
-    const next = await getCompanies({ projectId, page, pageSize: 1000 });
+    const next = await getCompanies({ projectId, page, pageSize: PAGE });
     if (!next.items?.length) break;
     items.push(...next.items);
   }
