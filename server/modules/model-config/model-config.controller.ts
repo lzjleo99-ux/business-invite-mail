@@ -1,5 +1,6 @@
 import { Controller, Get, Patch, Post, Body, UseGuards } from '@nestjs/common';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
+import { AdminGuard } from '@server/common/guards/admin.guard';
 import { IsString, IsOptional, IsNumber, IsIn, Min, Max, ValidateIf } from 'class-validator';
 import { Type } from 'class-transformer';
 import { ModelConfigService } from './model-config.service';
@@ -73,6 +74,7 @@ export class ModelConfigController {
     return this.modelConfigService.getConfig();
   }
 
+  @UseGuards(AdminGuard)
   @Patch()
   async updateConfig(
     @Body() dto: UpdateModelConfigDto,
@@ -80,6 +82,7 @@ export class ModelConfigController {
     return this.modelConfigService.updateConfig(dto);
   }
 
+  @UseGuards(AdminGuard)
   @Post('test')
   async testConnection(
     @Body() dto: TestConnectionDto,

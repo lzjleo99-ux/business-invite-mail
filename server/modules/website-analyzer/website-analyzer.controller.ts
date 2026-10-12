@@ -7,6 +7,7 @@ import {
   UseGuards,
 } from '@nestjs/common';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
+import { AdminGuard } from '@server/common/guards/admin.guard';
 import { IsArray, IsOptional, IsString } from 'class-validator';
 import { Type } from 'class-transformer';
 import { WebsiteAnalyzerService } from './website-analyzer.service';
@@ -30,6 +31,7 @@ export class WebsiteAnalyzerController {
     private readonly websiteAnalyzerService: WebsiteAnalyzerService,
   ) {}
 
+  @UseGuards(AdminGuard)
   @Post('analyze/:companyId')
   async analyze(
     @Param('companyId') companyId: string,
@@ -40,6 +42,7 @@ export class WebsiteAnalyzerController {
     return this.websiteAnalyzerService.analyzeCompany(companyId);
   }
 
+  @UseGuards(AdminGuard)
   @Post('batch-analyze')
   async batchAnalyze(
     @Body() dto: BatchAnalyzeDto,

@@ -12,6 +12,7 @@ import {
 import { IsString, IsArray, MinLength } from 'class-validator';
 import { Type } from 'class-transformer';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
+import { AdminGuard } from '@server/common/guards/admin.guard';
 import { AutoImportService } from './auto-import.service';
 import type {
   ImportSecretConfig,
@@ -50,6 +51,7 @@ export class ImportSecretController {
   }
 
   @Post()
+  @UseGuards(AdminGuard)
   async setImportSecret(
     @Body() dto: UpdateImportSecretDto,
   ): Promise<ImportSecretConfig> {

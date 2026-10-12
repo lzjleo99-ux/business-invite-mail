@@ -14,6 +14,7 @@ import { IsArray, IsOptional, IsString } from 'class-validator';
 import { Type } from 'class-transformer';
 import type { Response } from 'express';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
+import { AdminGuard } from '@server/common/guards/admin.guard';
 import { EmailGeneratorService } from './email-generator.service';
 import type {
   GeneratedEmail,
@@ -65,6 +66,7 @@ export class EmailGeneratorController {
     private readonly emailGeneratorService: EmailGeneratorService,
   ) {}
 
+  @UseGuards(AdminGuard)
   @Post('generate/:companyId')
   async generate(
     @Param('companyId') companyId: string,
@@ -75,6 +77,7 @@ export class EmailGeneratorController {
     return this.emailGeneratorService.generateEmail(companyId);
   }
 
+  @UseGuards(AdminGuard)
   @Post('batch-generate')
   async batchGenerate(
     @Body() dto: BatchGenerateDto,
@@ -106,6 +109,7 @@ export class EmailGeneratorController {
     return this.emailGeneratorService.getWhatsAppInfo(companyId);
   }
 
+  @UseGuards(AdminGuard)
   @Post('whatsapp/:companyId')
   async generateWhatsApp(
     @Param('companyId') companyId: string,
@@ -116,6 +120,7 @@ export class EmailGeneratorController {
     return this.emailGeneratorService.generateWhatsAppForCompany(companyId);
   }
 
+  @UseGuards(AdminGuard)
   @Post('batch-whatsapp')
   async batchWhatsApp(
     @Body() dto: BatchWhatsAppDto,
