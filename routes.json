@@ -1,0 +1,26 @@
+[
+  {
+    "path": "/login"
+  },
+  {
+    "path": "/register"
+  },
+  {
+    "path": "/"
+  },
+  {
+    "path": "/projects"
+  },
+  {
+    "path": "/projects/:id"
+  },
+  {
+    "path": "/settings"
+  },
+  {
+    "path": "/compose/:companyId"
+  },
+  {
+    "path": "/admin/users"
+  }
+]
