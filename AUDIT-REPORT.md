@@ -144,3 +144,31 @@
 - `node_modules/.bin` 符号链接会丢失，需手动补齐。
 - 二进制要用 `node node_modules/<pkg>/bin/...` 调用，不要用 `npx`。
 - ESLint 输出须重定向到文件，直连管道会触发 broker EPIPE 假失败。
+
+---
+
+## 附录：全栈部署专项（2026-10-12 晚，企业微信机器人对接）
+
+为激活「设置 → 机器人对接」，在本地把全栈环境（NestJS + Postgres）完整跑通并验证了
+机器人调用全链路，期间发现并修复 3 个**只在全栈部署路径上出现**的问题（静态站走
+offlineAdapter，从未触发）：
+
+| # | 问题 | 根因 | 修复 |
+|---|------|------|------|
+| A | 全栈注册/登录必崩 `bcryptjs_1.default.hash is not a function` | `bcryptjs@3.x` 是 `type:module` 包，UMD 入口在 CJS `require()` 下返回空对象 | 降到 `^2.4.3` |
+| B | 导入密钥接口永远 401「未登录」，机器人无法激活 | `ImportSecretController` 用平台 `@NeedLogin()`，依赖平台会话 `userContext`，自建部署下永不满足 | 改用应用自己的 `JwtAuthGuard` |
+| C | 邮件会话接口同样 401，且 `userId` 取不到 | `EmailThreadsController` 同上，且从 `req.userContext` 取 userId | 同上；userId 改从 JWT payload 取 |
+
+**本地全链路验证结果**（NestJS + 本地 Postgres，`scripts/run-selfhosted.js` 启动）：
+注册 201（首账号 admin）→ 登录 201 → 模型配置 200 → 导入密钥 201（掩码 `Za****kT`）→
+机器人调用 **201** `{"projectId":"...","projectUrl":"/projects/...","imported":2,"duplicates":1}`
+（重复行正确去重、无邮箱行不崩、手机号归一化正确）→ 错误密钥 401 → 工作台接口返回 3 条、
+`createdAt DESC` 排序正确。`tsc --noEmit`（app + node）与 ESLint 均通过。
+
+**新增交付物**：`scripts/schema.sql`（8 张表 + 平台复合类型 + 角色授权说明）、
+`scripts/run-selfhosted.js`（自托管启动，注册路径别名）、`DEPLOY-FULLSTACK.md`
+（数据库初始化、环境变量、构建启动、域名切换、部署后验证、机器人配置、回滚的完整清单）。
+
+**仍未解决的前提**：线上 `shanghaitrade.cn` 是纯静态站（GitHub Pages），
+`POST /openapi/auto-import/leads` 返回 405。要真正激活机器人对接，需按
+`DEPLOY-FULLSTACK.md` 把全栈部署到公网主机并把域名指过去。
