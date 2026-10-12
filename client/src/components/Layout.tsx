@@ -8,6 +8,7 @@ import {
   LogOut,
   KeyRound,
   ChevronDown,
+  Menu,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { useForm } from 'react-hook-form';
@@ -39,6 +40,11 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
+import {
+  Sheet,
+  SheetContent,
+  SheetTrigger,
+} from '@/components/ui/sheet';
 import { useAuth } from '@/contexts/AuthContext';
 import { useI18n } from '@client/src/i18n';
 
@@ -48,6 +54,7 @@ const Layout: React.FC = () => {
   const navigate = useNavigate();
   const [passwordDialogOpen, setPasswordDialogOpen] = useState(false);
   const [passwordSubmitting, setPasswordSubmitting] = useState(false);
+  const [mobileNavOpen, setMobileNavOpen] = useState(false);
 
   const navItems = [
     { to: '/', label: t('项目列表'), icon: FolderKanban },
@@ -110,36 +117,47 @@ const Layout: React.FC = () => {
     ? user.displayName.charAt(0).toUpperCase()
     : '?';
 
-  return (
-    <div className="flex h-screen w-screen bg-slate-50">
-      <aside className="w-60 flex-shrink-0 border-r border-slate-200 bg-white flex flex-col">
-        <div className="flex h-16 items-center border-b border-slate-200 px-5">
-          <h1 className="text-lg font-bold text-slate-800">{t('BD 邮件助手')}</h1>
-        </div>
-        <nav className="flex flex-col gap-1 p-3">
-          {navItems.map(({ to, label, icon: Icon }) => (
-            <NavLink
-              key={to}
-              to={to}
-              end={to === '/'}
-              className={({ isActive }) =>
-                `flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium transition-colors ${
-                  isActive
-                    ? 'bg-primary text-white'
-                    : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900'
-                }`
-              }
-            >
-              <Icon size={18} />
-              {label}
-            </NavLink>
-          ))}
-        </nav>
+  const renderNav = (onNavigate?: () => void) => (
+    <nav className="flex flex-col gap-1 p-3">
+      {navItems.map(({ to, label, icon: Icon }) => (
+        <NavLink
+          key={to}
+          to={to}
+          end={to === '/'}
+          onClick={onNavigate}
+          className={({ isActive }) =>
+            `flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium transition-colors ${
+              isActive
+                ? 'bg-primary text-white'
+                : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900'
+            }`
+          }
+        >
+          <Icon size={18} />
+          {label}
+        </NavLink>
+      ))}
+    </nav>
+  );
 
-        <div className="mt-auto border-t border-slate-200">
-          {user && (
-            <div className="p-3">
-              <DropdownMenu>
+  const renderLangToggle = () => (
+    <button
+      type="button"
+      onClick={toggle}
+      className="flex w-full items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium text-slate-600 transition-colors hover:bg-slate-100 hover:text-slate-900"
+    >
+      <Languages size={18} />
+      <span>{lang === 'en' ? '中文 / English' : t('English')}</span>
+      <span className="ml-auto rounded bg-slate-100 px-1.5 py-0.5 text-[10px] font-semibold text-slate-500">
+        {lang === 'en' ? 'EN' : '中'}
+      </span>
+    </button>
+  );
+
+  const renderUserMenu = () =>
+    user ? (
+      <div className="p-3">
+        <DropdownMenu>
                 <DropdownMenuTrigger asChild>
                   <button
                     type="button"
@@ -192,28 +210,56 @@ const Layout: React.FC = () => {
                   </DropdownMenuItem>
                 </DropdownMenuContent>
               </DropdownMenu>
-            </div>
-          )}
-          <div className="p-3 pt-0">
-            <button
-              type="button"
-              onClick={toggle}
-              className="flex w-full items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium text-slate-600 transition-colors hover:bg-slate-100 hover:text-slate-900"
-            >
-              <Languages size={18} />
-              <span>{lang === 'en' ? '中文 / English' : t('English')}</span>
-              <span className="ml-auto rounded bg-slate-100 px-1.5 py-0.5 text-[10px] font-semibold text-slate-500">
-                {lang === 'en' ? 'EN' : '中'}
-              </span>
-            </button>
-          </div>
+      </div>
+    ) : null;
+
+  return (
+    <div className="flex h-screen w-screen bg-slate-50">
+      {/* Desktop sidebar */}
+      <aside className="hidden w-60 flex-shrink-0 border-r border-slate-200 bg-white lg:flex lg:flex-col">
+        <div className="flex h-16 items-center border-b border-slate-200 px-5">
+          <h1 className="text-lg font-bold text-slate-800">{t('BD 邮件助手')}</h1>
+        </div>
+        {renderNav()}
+        <div className="mt-auto border-t border-slate-200">
+          {renderUserMenu()}
+          <div className="p-3 pt-0">{renderLangToggle()}</div>
         </div>
       </aside>
-      <main className="flex-1 overflow-auto">
-        <div className="min-h-full p-6">
-          <Outlet />
-        </div>
-      </main>
+
+      <div className="flex min-w-0 flex-1 flex-col">
+        {/* Mobile top bar */}
+        <header className="flex h-16 flex-shrink-0 items-center gap-3 border-b border-slate-200 bg-white px-4 lg:hidden">
+          <Sheet open={mobileNavOpen} onOpenChange={setMobileNavOpen}>
+            <SheetTrigger asChild>
+              <Button variant="ghost" size="icon" aria-label={t('菜单')}>
+                <Menu size={20} />
+              </Button>
+            </SheetTrigger>
+            <SheetContent side="left" className="w-64 p-0">
+              <div className="flex h-16 items-center border-b border-slate-200 px-5">
+                <h1 className="text-lg font-bold text-slate-800">
+                  {t('BD 邮件助手')}
+                </h1>
+              </div>
+              {renderNav(() => setMobileNavOpen(false))}
+              <div className="border-t border-slate-200">
+                {renderUserMenu()}
+                <div className="p-3 pt-0">{renderLangToggle()}</div>
+              </div>
+            </SheetContent>
+          </Sheet>
+          <span className="text-base font-bold text-slate-800">
+            {t('BD 邮件助手')}
+          </span>
+        </header>
+
+        <main className="flex-1 overflow-auto">
+          <div className="min-h-full p-4 lg:p-6">
+            <Outlet />
+          </div>
+        </main>
+      </div>
 
       <Dialog open={passwordDialogOpen} onOpenChange={setPasswordDialogOpen}>
         <DialogContent className="sm:max-w-md">

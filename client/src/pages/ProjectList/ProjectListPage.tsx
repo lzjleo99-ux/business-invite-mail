@@ -1,12 +1,6 @@
 import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import {
-  useQuery,
-  useMutation,
-  useQueryClient,
-  QueryClient,
-  QueryClientProvider,
-} from '@tanstack/react-query';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import { logger } from '@lark-apaas/client-toolkit/logger';
 import {
@@ -48,8 +42,6 @@ import {
 } from '@client/src/components/ui/alert-dialog';
 import type { Project } from '@shared/api.interface';
 import { useI18n } from '@client/src/i18n';
-
-const queryClient = new QueryClient();
 
 function formatDate(iso: string): string {
   const d = new Date(iso);
@@ -129,7 +121,7 @@ const ProjectListPageInner: React.FC = () => {
 
   if (error && !projects) {
     return (
-      <div className="p-6 space-y-6">
+      <div className="space-y-6">
         <div className="flex items-center justify-between">
           <h1 className="text-2xl font-bold text-slate-800">{t('项目管理')}</h1>
         </div>
@@ -149,8 +141,10 @@ const ProjectListPageInner: React.FC = () => {
     );
   }
 
+  // Layout already applies p-4 / lg:p-6, so the page wrapper only needs the
+  // vertical rhythm -- adding padding here would double it.
   return (
-    <div className="p-6 space-y-6">
+    <div className="space-y-6">
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
@@ -346,12 +340,7 @@ const ProjectListPageInner: React.FC = () => {
   );
 };
 
-const ProjectListPage: React.FC = () => {
-  return (
-    <QueryClientProvider client={queryClient}>
-      <ProjectListPageInner />
-    </QueryClientProvider>
-  );
-};
-
-export default ProjectListPage;
+// The app-level QueryClientProvider (see client/src/index.tsx) is used on
+// purpose: a nested provider creates a second, isolated cache that never sees
+// invalidations issued on the root client (e.g. on login/logout).
+export default ProjectListPageInner;
