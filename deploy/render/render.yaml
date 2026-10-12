@@ -1,0 +1,33 @@
+# Render Blueprint —— business-invite-mail 全栈服务
+# 用法：Render 控制台 → New → Blueprint → 选此仓库（或 push 后在仪表盘认领）
+# 也可以在本地装 render CLI 部署。免费套餐：512MB 内存，15 分钟无请求会休眠。
+
+services:
+  - type: web
+    name: bizinvite
+    runtime: node
+    plan: free
+    region: frankfurt            # 离塞尔维亚/国内都较近；可选 singapore / oregon
+    buildCommand: npm install && npm run build:server && npm run build:client
+    startCommand: node scripts/run-selfhosted.js
+    # 不用 npm ci：仓库 lockfile 与 package.json 未同步（缺 bcryptjs 条目）
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: SERVER_HOST
+        value: 0.0.0.0           # Render 要求监听所有网卡；端口由 Render 注入 PORT
+      - key: SERVER_PORT
+        value: "10000"
+      - key: SUDA_DATABASE_URL
+        sync: false              # 在仪表盘填 Neon 连接串（含 ?sslmode=require）
+      - key: JWT_SECRET
+        generateValue: true      # Render 自动生成随机值
+      - key: FORCE_AUTHN_INNERAPI_DOMAIN
+        sync: false              # 填 https://shanghaitrade.cn
+      - key: FORCE_AUTHN_ACCESS_KEY
+        value: local
+      - key: FORCE_AUTHN_ACCESS_SECRET
+        value: local
+    autoDeploy:
+      branch: main
+      enabled: true

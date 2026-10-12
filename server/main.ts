@@ -15,8 +15,10 @@ async function bootstrap() {
     disableSwagger: true,
   });
   const logger = new Logger('Bootstrap');
+  // SERVER_HOST/SERVER_PORT 优先；PaaS（Render 等）只注入 PORT，
+  // 端口回落到它，监听地址仍在部署配置里显式设 0.0.0.0。
   const host = process.env.SERVER_HOST || 'localhost';
-  const port = Number(process.env.SERVER_PORT || '3000');
+  const port = Number(process.env.SERVER_PORT || process.env.PORT || '3000');
 
   // 注册视图引擎, 渲染 client 目录下的 html 文件
   app.setBaseViewsDir(join(process.cwd(), 'dist/client'));
