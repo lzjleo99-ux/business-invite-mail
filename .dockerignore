@@ -1,0 +1,18 @@
+# Docker 构建上下文裁剪（保持小镜像 + 避免把本地产物/密钥带进镜像）
+node_modules
+dist
+dist-bundle
+.git
+.gitignore
+.agent
+.agents
+.claude
+.spark
+.spark_project
+tmp
+*.log
+logs
+e2e-test
+.DS_Store
+.env
+.env.*
