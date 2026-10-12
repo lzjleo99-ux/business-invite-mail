@@ -7,10 +7,11 @@ import {
   Param,
   Query,
   Req,
+  UseGuards,
   BadRequestException,
 } from '@nestjs/common';
 import { IsString, IsOptional, IsIn } from 'class-validator';
-import { NeedLogin } from '@lark-apaas/fullstack-nestjs-core';
+import { JwtAuthGuard, type RequestWithUser } from '../auth/jwt-auth.guard';
 import { EmailThreadsService } from './email-threads.service';
 import type {
   EmailThread,
@@ -42,11 +43,13 @@ class CreateEmailThreadDto implements CreateEmailThreadRequest {
   direction?: 'inbound' | 'outbound' | 'note';
 }
 
+// 用应用自己的 JwtAuthGuard（与其余业务接口一致）。平台 @NeedLogin() 依赖
+// 平台会话 userContext，自建部署下永远 401；userId 改从 JWT payload 取。
+@UseGuards(JwtAuthGuard)
 @Controller('api/email-threads')
 export class EmailThreadsController {
   constructor(private readonly emailThreadsService: EmailThreadsService) {}
 
-  @NeedLogin()
   @Get()
   async findAll(
     @Query() query: ListQueryDto,
@@ -54,17 +57,15 @@ export class EmailThreadsController {
     return this.emailThreadsService.listByCompanyId(query.companyId);
   }
 
-  @NeedLogin()
   @Post()
   async create(
-    @Req() req: { userContext: { userId: string } },
+    @Req() req: RequestWithUser,
     @Body() dto: CreateEmailThreadDto,
   ): Promise<EmailThread> {
-    const { userId } = req.userContext;
+    const { userId } = req.user;
     return this.emailThreadsService.create(dto, userId);
   }
 
-  @NeedLogin()
   @Delete(':id')
   async remove(@Param('id') id: string): Promise<void> {
     if (!id) {

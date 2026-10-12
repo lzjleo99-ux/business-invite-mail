@@ -4,13 +4,14 @@ import {
   Post,
   Body,
   Headers,
+  UseGuards,
   BadRequestException,
   Logger,
   UnauthorizedException,
 } from '@nestjs/common';
-import { NeedLogin } from '@lark-apaas/fullstack-nestjs-core';
 import { IsString, IsArray, MinLength } from 'class-validator';
 import { Type } from 'class-transformer';
+import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { AutoImportService } from './auto-import.service';
 import type {
   ImportSecretConfig,
@@ -34,19 +35,20 @@ class AutoImportBodyDto {
   leads!: Array<Record<string, unknown>>;
 }
 
+// 用应用自己的 JwtAuthGuard（与其余业务接口一致）。平台 @NeedLogin() 依赖
+// 平台会话 userContext，自建部署下永远 401，机器人对接将无法激活。
+@UseGuards(JwtAuthGuard)
 @Controller('api/settings/import-secret')
 export class ImportSecretController {
   private readonly logger = new Logger(ImportSecretController.name);
 
   constructor(private readonly autoImportService: AutoImportService) {}
 
-  @NeedLogin()
   @Get()
   async getImportSecret(): Promise<ImportSecretConfig> {
     return this.autoImportService.getImportSecretConfig();
   }
 
-  @NeedLogin()
   @Post()
   async setImportSecret(
     @Body() dto: UpdateImportSecretDto,
