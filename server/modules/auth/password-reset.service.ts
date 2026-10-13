@@ -105,12 +105,23 @@ export class PasswordResetService {
     });
 
     const minutes = CODE_TTL_MINUTES;
-    await this.mailService.sendMail({
-      to: normalized,
-      subject: `重置密码验证码：${code}`,
-      text: `你的验证码是 ${code}，${minutes} 分钟内有效。如果不是本人操作，请忽略此邮件。`,
-      html: `<p>你的验证码是：</p><p style="font-size:24px;font-weight:600;letter-spacing:2px">${code}</p><p>${minutes} 分钟内有效。如果不是本人操作，请忽略此邮件。</p>`,
-    });
+    try {
+      await this.mailService.sendMail({
+        to: normalized,
+        subject: `重置密码验证码：${code}`,
+        text: `你的验证码是 ${code}，${minutes} 分钟内有效。如果不是本人操作，请忽略此邮件。`,
+        html: `<p>你的验证码是：</p><p style="font-size:24px;font-weight:600;letter-spacing:2px">${code}</p><p>${minutes} 分钟内有效。如果不是本人操作，请忽略此邮件。</p>`,
+      });
+    } catch (err: unknown) {
+      // 发信失败：作废刚生成的码，避免留下用户从未收到的有效验证码和冷却期
+      await this.db
+        .update(passwordResetCodes)
+        .set({ usedAt: new Date() })
+        .where(
+          and(eq(passwordResetCodes.email, normalized), isNull(passwordResetCodes.usedAt)),
+        );
+      throw err;
+    }
 
     return { sent: true, message: generic };
   }
