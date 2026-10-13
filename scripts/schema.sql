@@ -184,3 +184,30 @@ CREATE INDEX IF NOT EXISTS idx_email_threads_company_id ON email_threads (compan
 CREATE INDEX IF NOT EXISTS idx_email_threads_project_id ON email_threads (project_id);
 CREATE INDEX IF NOT EXISTS idx_email_threads_thread_date ON email_threads (thread_date);
 
+
+-- ---------- password_reset_codes（找回密码验证码） ----------
+CREATE TABLE IF NOT EXISTS password_reset_codes (
+  id           uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  email        varchar(255) NOT NULL,
+  code_hash    varchar(128) NOT NULL,
+  expires_at   timestamptz(3) NOT NULL,
+  attempts     integer      NOT NULL DEFAULT 0,
+  used_at      timestamptz(3),
+  _created_at  timestamptz(3) NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+CREATE INDEX IF NOT EXISTS idx_password_reset_codes_email ON password_reset_codes (email);
+CREATE INDEX IF NOT EXISTS idx_password_reset_codes_expires ON password_reset_codes (expires_at);
+
+-- ---------- smtp_config（发信服务配置，全局单行，密码只写） ----------
+CREATE TABLE IF NOT EXISTS smtp_config (
+  id           uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  host         varchar(255) NOT NULL,
+  port         integer      NOT NULL DEFAULT 465,
+  secure       boolean      NOT NULL DEFAULT true,
+  username     varchar(255),
+  password     varchar(255),
+  from_name    varchar(255),
+  from_email   varchar(255) NOT NULL,
+  _created_at  timestamptz(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  _updated_at  timestamptz(3) NOT NULL DEFAULT CURRENT_TIMESTAMP
+);

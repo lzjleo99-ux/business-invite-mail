@@ -10,6 +10,7 @@ import {
 } from '@nestjs/common';
 import { AdminService } from './admin.service';
 import { AuthService } from '@server/modules/auth/auth.service';
+import { MailService } from '@server/common/services/mail.service';
 import { JwtAuthGuard } from '@server/modules/auth/jwt-auth.guard';
 import { AdminGuard } from '@server/common/guards/admin.guard';
 import { CurrentUser } from '@server/modules/auth/current-user.decorator';
@@ -32,6 +33,39 @@ class UpdateUserActiveDto implements UpdateUserActiveRequest {
   isActive!: boolean;
 }
 
+class SaveSmtpConfigDto {
+  @IsString()
+  host!: string;
+
+  @IsOptional()
+  @IsString()
+  port?: string;
+
+  @IsOptional()
+  @IsBoolean()
+  secure?: boolean;
+
+  @IsOptional()
+  @IsString()
+  username?: string;
+
+  @IsOptional()
+  @IsString()
+  password?: string;
+
+  @IsOptional()
+  @IsString()
+  fromName?: string;
+
+  @IsString()
+  fromEmail!: string;
+}
+
+class SendTestMailDto {
+  @IsEmail()
+  to!: string;
+}
+
 class CreateUserDto {
   @IsEmail()
   email!: string;
@@ -50,7 +84,56 @@ export class AdminController {
   constructor(
     private readonly adminService: AdminService,
     private readonly authService: AuthService,
+    private readonly mailService: MailService,
   ) {}
+
+  /** 读取 SMTP 配置（密码只返回是否已设置） */
+  @Get('smtp-config')
+  async getSmtpConfig(): Promise<{
+    configured: boolean;
+    host?: string;
+    port?: number;
+    secure?: boolean;
+    username?: string | null;
+    passwordSet?: boolean;
+    fromName?: string | null;
+    fromEmail?: string;
+  }> {
+    const s = await this.mailService.getSettings();
+    if (!s) {
+      return { configured: false };
+    }
+    return {
+      configured: true,
+      host: s.host,
+      port: s.port,
+      secure: s.secure,
+      username: s.username,
+      passwordSet: !!s.password,
+      fromName: s.fromName,
+      fromEmail: s.fromEmail,
+    };
+  }
+
+  @Post('smtp-config')
+  async saveSmtpConfig(@Body() dto: SaveSmtpConfigDto): Promise<{ success: boolean }> {
+    await this.mailService.saveSettings({
+      host: dto.host,
+      port: dto.port ? parseInt(dto.port, 10) : 465,
+      secure: dto.secure !== false,
+      username: dto.username,
+      password: dto.password,
+      fromName: dto.fromName,
+      fromEmail: dto.fromEmail,
+    });
+    return { success: true };
+  }
+
+  @Post('smtp-test')
+  async testSmtp(@Body() dto: SendTestMailDto): Promise<{ success: boolean }> {
+    await this.mailService.sendTestMail(dto.to);
+    return { success: true };
+  }
 
   /** 管理员创建账号（公开注册已关闭，账号统一由这里发放） */
   @Post('users')

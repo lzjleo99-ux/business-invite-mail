@@ -1,10 +1,10 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useForm } from 'react-hook-form';
 import { z } from 'zod';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { toast } from 'sonner';
-import { Cpu, User, Bot, Copy, KeyRound } from 'lucide-react';
+import { Cpu, User, Bot, Copy, KeyRound, Mail } from 'lucide-react';
 import { resolveAppUrl } from '@lark-apaas/client-toolkit/utils/resolveAppUrl';
 import {
   Form,
@@ -27,6 +27,9 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import * as modelConfigApi from '@/api/model-config';
 import * as senderConfigApi from '@/api/sender-config';
+import * as adminApi from '@/api/admin';
+import { Label } from '@/components/ui/label';
+import { useAuth } from '@/contexts/AuthContext';
 import { useI18n } from '@/i18n';
 import type {
   ModelConfig,
@@ -38,7 +41,45 @@ import type {
 const SettingsPage = () => {
   const queryClient = useQueryClient();
   const { t } = useI18n();
-  const [activeTab, setActiveTab] = useState<'model' | 'sender' | 'robot'>('model');
+  const [activeTab, setActiveTab] = useState<'model' | 'sender' | 'robot' | 'mail'>('model');
+  const { user } = useAuth();
+  const isAdmin = user?.role === 'admin';
+  // SMTP 发信配置（仅管理员可见，服务端也仅管理员可写）
+  const [smtp, setSmtp] = useState({
+    host: '',
+    port: '465',
+    secure: true,
+    username: '',
+    password: '',
+    fromName: '',
+    fromEmail: '',
+    passwordSet: false,
+  });
+  const [smtpBusy, setSmtpBusy] = useState(false);
+
+  // 读取已保存的 SMTP 配置（密码不回显，只标记是否已设置）
+  useEffect(() => {
+    if (!isAdmin) return;
+    void adminApi
+      .getSmtpConfig()
+      .then((c) => {
+        if (!c.configured) return;
+        setSmtp((prev) => ({
+          ...prev,
+          host: c.host ?? '',
+          port: String(c.port ?? 465),
+          secure: c.secure !== false,
+          username: c.username ?? '',
+          fromName: c.fromName ?? '',
+          fromEmail: c.fromEmail ?? '',
+          passwordSet: !!c.passwordSet,
+        }));
+        setSmtpTestTo(c.fromEmail ?? '');
+      })
+      .catch(() => undefined);
+  }, [isAdmin]);
+  const [smtpTestTo, setSmtpTestTo] = useState('');
+
   const [testing, setTesting] = useState(false);
   const [testResult, setTestResult] = useState<{
     success: boolean;
@@ -313,6 +354,19 @@ const SettingsPage = () => {
             <Bot size={16} />
             {t('机器人对接')}
           </button>
+          {isAdmin && (
+            <button
+              onClick={() => setActiveTab('mail')}
+              className={`flex items-center gap-2 rounded-md px-4 py-2 text-sm font-medium transition-colors ${
+                activeTab === 'mail'
+                  ? 'bg-white text-slate-900 shadow-sm'
+                  : 'text-slate-600 hover:text-slate-900'
+              }`}
+            >
+              <Mail size={16} />
+              {t('发信服务')}
+            </button>
+          )}
         </div>
 
         {activeTab === 'model' && (
@@ -748,8 +802,156 @@ const SettingsPage = () => {
             </Card>
           </div>
         )}
-      </div>
-</>
+
+        {isAdmin && activeTab === 'mail' && (
+          <Card>
+            <CardContent className="space-y-4">
+              <div>
+                <h2 className="text-lg font-semibold text-slate-800">{t('发信服务（SMTP）')}</h2>
+                <p className="mt-1 text-sm text-slate-500">
+                  {t('用于「忘记密码」发送验证码。不配置的话用户无法自助重置密码。')}
+                </p>
+              </div>
+
+              <div className="grid gap-4 md:grid-cols-2">
+                <div className="space-y-1">
+                  <Label htmlFor="smtp-host">{t('SMTP 服务器')}</Label>
+                  <Input
+                    id="smtp-host"
+                    value={smtp.host}
+                    onChange={(e) => setSmtp({ ...smtp, host: e.target.value })}
+                    placeholder="smtp.exmail.qq.com"
+                  />
+                </div>
+                <div className="space-y-1">
+                  <Label htmlFor="smtp-port">{t('端口')}</Label>
+                  <Input
+                    id="smtp-port"
+                    value={smtp.port}
+                    onChange={(e) => setSmtp({ ...smtp, port: e.target.value })}
+                    placeholder="465"
+                  />
+                </div>
+                <div className="space-y-1">
+                  <Label htmlFor="smtp-username">{t('登录账号')}</Label>
+                  <Input
+                    id="smtp-username"
+                    value={smtp.username}
+                    onChange={(e) => setSmtp({ ...smtp, username: e.target.value })}
+                    placeholder="noreply@shanghaitrade.cn"
+                  />
+                </div>
+                <div className="space-y-1">
+                  <Label htmlFor="smtp-password">
+                    {t('授权码/密码')}
+                    {smtp.passwordSet && (
+                      <span className="ml-2 text-xs text-slate-400">
+                        {t('已设置，留空不修改')}
+                      </span>
+                    )}
+                  </Label>
+                  <Input
+                    id="smtp-password"
+                    type="password"
+                    value={smtp.password}
+                    onChange={(e) => setSmtp({ ...smtp, password: e.target.value })}
+                    placeholder={smtp.passwordSet ? '••••••••' : t('邮箱服务商的授权码')}
+                  />
+                </div>
+                <div className="space-y-1">
+                  <Label htmlFor="smtp-from-name">{t('发件人名称')}</Label>
+                  <Input
+                    id="smtp-from-name"
+                    value={smtp.fromName}
+                    onChange={(e) => setSmtp({ ...smtp, fromName: e.target.value })}
+                    placeholder="BD 邮件助手"
+                  />
+                </div>
+                <div className="space-y-1">
+                  <Label htmlFor="smtp-from-email">{t('发件人邮箱')}</Label>
+                  <Input
+                    id="smtp-from-email"
+                    type="email"
+                    value={smtp.fromEmail}
+                    onChange={(e) => setSmtp({ ...smtp, fromEmail: e.target.value })}
+                    placeholder="noreply@shanghaitrade.cn"
+                  />
+                </div>
+              </div>
+
+              <label className="flex items-center gap-2 text-sm text-slate-600">
+                <input
+                  type="checkbox"
+                  checked={smtp.secure}
+                  onChange={(e) => setSmtp({ ...smtp, secure: e.target.checked })}
+                />
+                {t('使用 SSL/TLS（465 端口一般勾选，587 端口不勾选）')}
+              </label>
+
+              <div className="flex flex-wrap gap-2">
+                <Button
+                  disabled={smtpBusy}
+                  onClick={async () => {
+                    setSmtpBusy(true);
+                    try {
+                      await adminApi.saveSmtpConfig({
+                        host: smtp.host,
+                        port: smtp.port,
+                        secure: smtp.secure,
+                        username: smtp.username,
+                        password: smtp.password || undefined,
+                        fromName: smtp.fromName,
+                        fromEmail: smtp.fromEmail,
+                      });
+                      setSmtp((prev) => ({ ...prev, password: '', passwordSet: true }));
+                      toast.success(t('发信服务已保存'));
+                    } catch (err: unknown) {
+                      toast.error(t('保存失败'), {
+                        description: err instanceof Error ? err.message : String(err),
+                      });
+                    } finally {
+                      setSmtpBusy(false);
+                    }
+                  }}
+                >
+                  {smtpBusy ? t('保存中...') : t('保存')}
+                </Button>
+
+                <div className="flex items-center gap-2">
+                  <Input
+                    className="w-56"
+                    type="email"
+                    value={smtpTestTo}
+                    onChange={(e) => setSmtpTestTo(e.target.value)}
+                    placeholder={t('测试收件邮箱')}
+                  />
+                  <Button
+                    variant="outline"
+                    disabled={smtpBusy || !smtpTestTo}
+                    onClick={async () => {
+                      setSmtpBusy(true);
+                      try {
+                        await adminApi.testSmtp(smtpTestTo);
+                        toast.success(t('测试邮件已发送'), {
+                          description: smtpTestTo,
+                        });
+                      } catch (err: unknown) {
+                        toast.error(t('测试发信失败'), {
+                          description: err instanceof Error ? err.message : String(err),
+                        });
+                      } finally {
+                        setSmtpBusy(false);
+                      }
+                    }}
+                  >
+                    {t('发送测试邮件')}
+                  </Button>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+        )}
+      </div></>
 );
 };
 

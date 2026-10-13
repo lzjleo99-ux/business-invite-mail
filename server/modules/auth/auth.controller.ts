@@ -8,6 +8,7 @@ import {
   ForbiddenException,
 } from '@nestjs/common';
 import { AuthService } from './auth.service';
+import { PasswordResetService } from './password-reset.service';
 import { JwtAuthGuard } from './jwt-auth.guard';
 import { CurrentUser } from './current-user.decorator';
 import {
@@ -45,6 +46,23 @@ class LoginDto implements LoginRequest {
   password!: string;
 }
 
+class ForgotPasswordDto {
+  @IsEmail()
+  email!: string;
+}
+
+class ResetPasswordDto {
+  @IsEmail()
+  email!: string;
+
+  @IsString()
+  code!: string;
+
+  @IsString()
+  @MinLength(8)
+  newPassword!: string;
+}
+
 class ChangePasswordDto implements ChangePasswordRequest {
   @IsString()
   oldPassword!: string;
@@ -56,7 +74,10 @@ class ChangePasswordDto implements ChangePasswordRequest {
 
 @Controller('api/auth')
 export class AuthController {
-  constructor(private readonly authService: AuthService) {}
+  constructor(
+    private readonly authService: AuthService,
+    private readonly passwordResetService: PasswordResetService,
+  ) {}
 
   /**
    * 公开注册默认关闭（账号由管理员在「用户管理」页创建）。
@@ -76,6 +97,26 @@ export class AuthController {
       dto.email,
       dto.password,
       dto.displayName || dto.email.split('@')[0],
+    );
+  }
+
+  /** 忘记密码：发验证码到邮箱（不暴露账号是否存在） */
+  @Post('forgot-password')
+  async forgotPassword(
+    @Body() dto: ForgotPasswordDto,
+  ): Promise<{ sent: boolean; message: string }> {
+    return this.passwordResetService.requestCode(dto.email);
+  }
+
+  /** 校验验证码并重置密码 */
+  @Post('reset-password')
+  async resetPassword(
+    @Body() dto: ResetPasswordDto,
+  ): Promise<{ success: boolean }> {
+    return this.passwordResetService.resetPassword(
+      dto.email,
+      dto.code,
+      dto.newPassword,
     );
   }
 

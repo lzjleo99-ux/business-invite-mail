@@ -337,6 +337,29 @@ export const restaurants = pgTable("restaurants", {
 // table aliases
 export const appUsersTable = appUsers;
 export const emailThreadsTable = emailThreads;
+export const passwordResetCodes = pgTable("password_reset_codes", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  email: varchar("email", { length: 255 }).notNull(),
+  codeHash: varchar("code_hash", { length: 128 }).notNull(),
+  expiresAt: customTimestamptz("expires_at", { precision: 3 }).notNull(),
+  attempts: integer("attempts").notNull().default(0),
+  usedAt: customTimestamptz("used_at", { precision: 3 }),
+  createdAt: customTimestamptz("_created_at", { precision: 3 }).notNull().default(sql`CURRENT_TIMESTAMP`),
+});
+
+export const smtpConfig = pgTable("smtp_config", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  host: varchar("host", { length: 255 }).notNull(),
+  port: integer("port").notNull().default(465),
+  secure: boolean("secure").notNull().default(true),
+  username: varchar("username", { length: 255 }),
+  password: varchar("password", { length: 255 }),
+  fromName: varchar("from_name", { length: 255 }),
+  fromEmail: varchar("from_email", { length: 255 }).notNull(),
+  createdAt: customTimestamptz("_created_at", { precision: 3 }).notNull().default(sql`CURRENT_TIMESTAMP`),
+  updatedAt: customTimestamptz("_updated_at", { precision: 3 }).notNull().default(sql`CURRENT_TIMESTAMP`),
+});
+
 export const modelConfigTable = modelConfig;
 export const projectImagesTable = projectImages;
 export const projectMaterialsTable = projectMaterials;
