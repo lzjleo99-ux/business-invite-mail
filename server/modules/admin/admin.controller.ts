@@ -169,6 +169,26 @@ export class AdminController {
       'old-novtb': ['--headless=old', ...base, '--user-data-dir=/tmp/nc4', '--dump-dom'],
     };
     const out: Record<string, unknown> = { bin };
+    // 基本 sanity：--version
+    try {
+      const { stdout } = await execFileAsync(bin, ['--version'], { timeout: 10000 });
+      out['version'] = stdout.trim().slice(0, 80);
+    } catch (err: unknown) {
+      out['version'] = 'ERR: ' + (err instanceof Error ? err.message : String(err)).slice(0, 150);
+    }
+    // 受限容器经典解法：单进程、无 zygote
+    try {
+      const { stdout } = await execFileAsync(
+        bin,
+        ['--headless=new', '--no-sandbox', '--single-process', '--no-zygote',
+         '--disable-dev-shm-usage', '--user-data-dir=/tmp/nc8', '--no-first-run',
+         '--disable-gpu', '--dump-dom', url],
+        { timeout: 20000, maxBuffer: 4 * 1024 * 1024 },
+      );
+      out['single-process'] = { stdoutLen: stdout.length, head: stdout.slice(0, 80) };
+    } catch (err: unknown) {
+      out['single-process'] = { error: (err instanceof Error ? err.message : String(err)).slice(0, 160) };
+    }
     for (const [name, flags] of Object.entries(variants)) {
       try {
         const { stdout, stderr } = await execFileAsync(bin, [...flags, url], {
