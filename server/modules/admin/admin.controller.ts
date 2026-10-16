@@ -186,19 +186,26 @@ export class AdminController {
         };
       }
     }
-    // data: URL 本地渲染：不依赖网络，用来区分"渲染坏了"还是"网络不通"
-    try {
-      const { stdout } = await execFileAsync(
-        bin,
-        [...base, '--user-data-dir=/tmp/nc5', '--headless=new', '--dump-dom',
-         'data:text/html,<h1>hello</h1><p>local render test</p>'],
-        { timeout: 20000, maxBuffer: 1024 * 1024 },
-      );
-      out['data-url'] = { stdoutLen: stdout.length, head: stdout.slice(0, 80) };
-    } catch (err: unknown) {
-      out['data-url'] = {
-        error: (err instanceof Error ? err.message : String(err)).slice(0, 200),
-      };
+    // 文件输出类：--dump-dom 在新版 chromium 已不可用，改验证 screenshot / print-to-pdf
+    const { stat } = await import('fs/promises');
+    const fileVariants: Record<string, { flags: string[]; file: string }> = {
+      'screenshot': {
+        flags: ['--headless=new', ...base, '--user-data-dir=/tmp/nc6', '--hide-scrollbars', '--window-size=1280,900', '--screenshot=/tmp/nc-shot.png'],
+        file: '/tmp/nc-shot.png',
+      },
+      'pdf': {
+        flags: ['--headless=new', ...base, '--user-data-dir=/tmp/nc7', '--print-to-pdf=/tmp/nc-page.pdf'],
+        file: '/tmp/nc-page.pdf',
+      },
+    };
+    for (const [name, { flags, file }] of Object.entries(fileVariants)) {
+      try {
+        await execFileAsync(bin, [...flags, url], { timeout: 25000, maxBuffer: 1024 * 1024 });
+        const st = await stat(file);
+        out[name] = { fileBytes: st.size };
+      } catch (err: unknown) {
+        out[name] = { error: (err instanceof Error ? err.message : String(err)).slice(0, 200) };
+      }
     }
     return out;
   }
