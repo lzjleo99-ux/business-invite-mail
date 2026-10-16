@@ -43,6 +43,7 @@ export class WebsiteAnalyzerService {
   private readonly logger = new Logger(WebsiteAnalyzerService.name);
   private readonly httpClient: AxiosInstance;
   private readonly MAX_TEXT_LENGTH = 10000;
+  private readonly chromeProfileDir = `/tmp/chrome-profile-${process.pid}`;
   private readonly CONCURRENCY = 5;
 
   constructor(
@@ -346,6 +347,12 @@ export class WebsiteAnalyzerService {
             '--headless=new',
             '--disable-gpu',
             '--no-sandbox',
+            // 容器兼容：小 /dev/shm、无 HOME、首次运行向导都会让 chromium 静默退出
+            '--disable-dev-shm-usage',
+            `--user-data-dir=${this.chromeProfileDir}`,
+            '--no-first-run',
+            '--no-default-browser-check',
+            '--disable-extensions',
             '--dump-dom',
             '--virtual-time-budget=5000',
             '--user-agent=Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36',
@@ -357,7 +364,11 @@ export class WebsiteAnalyzerService {
         if (text.trim().length > 50) {
           contents.push(`[${page || 'home'}]\n${text}`);
         }
-        void stderr;
+        if (stderr && stderr.trim()) {
+          this.logger.warn(
+            `Chrome dump-dom stderr: ${stderr.trim().slice(0, 300)}`,
+          );
+        }
       } catch (err: unknown) {
         if (page === '') {
           throw new Error(
@@ -382,6 +393,11 @@ export class WebsiteAnalyzerService {
           '--headless=new',
           '--disable-gpu',
           '--no-sandbox',
+          '--disable-dev-shm-usage',
+          `--user-data-dir=${this.chromeProfileDir}`,
+          '--no-first-run',
+          '--no-default-browser-check',
+          '--hide-scrollbars',
           `--screenshot=${screenshotPath}`,
           '--window-size=1280,900',
           '--virtual-time-budget=5000',
