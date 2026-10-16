@@ -136,8 +136,14 @@ export class WebsiteAnalyzerService {
 
       return this.toCompanyDto(updated[0]);
     } catch (error: unknown) {
-      const errorMessage =
+      let errorMessage =
         error instanceof Error ? error.message : String(error);
+      // 抓取成功但模型调用失败（典型：没配 API Key）时，不要把脏水泼到"抓取失败"上
+      if (errorMessage.includes('请先在设置中配置你的 API Key')) {
+        errorMessage = `网站内容已抓取，但 AI 分析失败：${errorMessage}`;
+      } else if (!errorMessage.includes('抓取失败')) {
+        errorMessage = `网站抓取失败：${errorMessage}`;
+      }
 
       // 兜底：用 Excel 已有字段做一个基础分析，保证能继续生成邮件
       try {
@@ -148,7 +154,7 @@ export class WebsiteAnalyzerService {
           websiteFeatures: fallbackExtraction.mainProducts,
           websiteLanguage: fallbackExtraction.language,
           status: 'analyzed' as CompanyStatus,
-          analyzeError: `网站抓取失败，已使用兜底信息：${errorMessage}`,
+          analyzeError: `${errorMessage}（已使用兜底信息）`,
         };
         const updated = await this.db
           .update(restaurants)
@@ -303,16 +309,23 @@ export class WebsiteAnalyzerService {
   }
 
 
-  /** 依次尝试各平台可能的无头浏览器二进制名 */
+  /**
+   * 依次尝试各平台可能的无头浏览器二进制名。
+   * 注意：fs.access('chromium') 这类裸名字是按当前工作目录解析的、不走 PATH，
+   * 必须自己拼 PATH 逐段探测（Docker 里 /usr/bin/chromium 就是这样被漏掉的）。
+   */
   private async findBrowserBinary(): Promise<string> {
     const candidates = ['google-chrome', 'chromium', 'chromium-browser'];
     const { access } = await import('fs/promises');
+    const dirs = (process.env.PATH || '').split(':').filter(Boolean);
     for (const bin of candidates) {
-      try {
-        await access(bin);
-        return bin;
-      } catch {
-        // 换下一个候选
+      for (const dir of dirs) {
+        try {
+          await access(`${dir}/${bin}`);
+          return `${dir}/${bin}`;
+        } catch {
+          // 换下一个目录/候选
+        }
       }
     }
     throw new Error(
