@@ -285,7 +285,7 @@ export class WebsiteAnalyzerService {
       browserNote = '（本部署环境未安装可用的无头浏览器，JS 渲染页面无法分析）';
     }
     throw new Error(
-      `网站抓取失败，无法访问该网站（已尝试 HTTP 直取${browserNote ? '，' + browserNote : '与无头浏览器/截图'}）`,
+      `网站抓取失败，无法访问该网站（已尝试 HTTP 直取${browserNote ? browserNote : '与无头浏览器/截图'}）`,
     );
   }
 
