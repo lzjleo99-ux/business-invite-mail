@@ -28,7 +28,11 @@ async function bootstrap() {
   // 自托管：直接托管前端静态资源（平台环境由 CDN 提供，自建部署没有 CDN，
   // 若不托管，/assets/* 会被 ViewController 的 '*' 兜底接住返回 index.html，
   // 浏览器拿到的是 HTML 而不是 JS/CSS，页面一片空白）。
-  app.useStaticAssets(join(process.cwd(), 'dist/client'));
+  // index: false 是关键：否则 '/' 会被 serve-static 直接当作目录索引返回
+  // 原始 index.html，视图渲染（注入 __platform__ / CSRF token）被跳过，
+  // 客户端 JSON.parse('{{{__platform__}}}') 抛异常后判定自己是静态托管，
+  // 整站静默切换成 localStorage 离线模式（设置、数据全部失效）。
+  app.useStaticAssets(join(process.cwd(), 'dist/client'), { index: false });
 
   await app.listen(port, host);
   logger.log(`Server running on ${host}:${port}`);
