@@ -275,8 +275,18 @@ export class WebsiteAnalyzerService {
       this.logger.warn(`截图视觉分析失败: ${msg}`);
     }
 
-    // Step 4: 兜底——抛出异常，由上层 buildFallbackExtraction 处理
-    throw new Error('网站抓取失败，无法访问该网站（已尝试HTTP/无头浏览器/截图分析）');
+    // Step 4: 兜底——抛出异常，由上层 buildFallbackExtraction 处理。
+    // 错误信息要能区分"网站真的访问不了"和"本部署环境没有可用的无头浏览器"，
+    // 后者重试多少次都没用，别让用户白白重试。
+    let browserNote = '';
+    try {
+      await this.findBrowserBinary();
+    } catch {
+      browserNote = '（本部署环境未安装可用的无头浏览器，JS 渲染页面无法分析）';
+    }
+    throw new Error(
+      `网站抓取失败，无法访问该网站（已尝试 HTTP 直取${browserNote ? '，' + browserNote : '与无头浏览器/截图'}）`,
+    );
   }
 
   private async fetchWithHttp(baseUrl: string): Promise<string> {
