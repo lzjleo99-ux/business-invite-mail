@@ -34,6 +34,19 @@ COPY --from=build /app/dist ./dist
 COPY --from=build /app/node_modules ./node_modules
 COPY --from=build /app/scripts ./scripts
 COPY --from=build /app/package.json ./package.json
+
+# 功能依赖的运行时二进制（node:*-slim 都不带这些，缺了整个功能静默失败）：
+# - python3 + openpyxl/pypdf：Excel 导入与项目资料 PDF/表格解析（服务端 spawn python3）
+# - chromium：网站分析的无头浏览器渲染与截图兜底（spawn google-chrome）
+#   代码里会依次尝试 google-chrome / chromium / chromium-browser
+# - fonts-liberation：截图渲染文字用（没字体会出方框）
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends \
+       python3 python3-openpyxl python3-pypdf2 \
+       chromium fonts-liberation ca-certificates \
+    && ln -sf "$(command -v chromium || command -v chromium-browser)" /usr/bin/google-chrome \
+    && rm -rf /var/lib/apt/lists/*
+
 RUN mkdir -p logs
 
 # Cloud Run 约定注入 PORT=8080；Northflank 等在平台侧设置 SERVER_HOST/PORT

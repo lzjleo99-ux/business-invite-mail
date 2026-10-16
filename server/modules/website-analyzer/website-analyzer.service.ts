@@ -302,6 +302,24 @@ export class WebsiteAnalyzerService {
     return combined.slice(0, this.MAX_TEXT_LENGTH);
   }
 
+
+  /** 依次尝试各平台可能的无头浏览器二进制名 */
+  private async findBrowserBinary(): Promise<string> {
+    const candidates = ['google-chrome', 'chromium', 'chromium-browser'];
+    const { access } = await import('fs/promises');
+    for (const bin of candidates) {
+      try {
+        await access(bin);
+        return bin;
+      } catch {
+        // 换下一个候选
+      }
+    }
+    throw new Error(
+      `未找到无头浏览器（尝试过 ${candidates.join(' / ')}），请先安装 chromium`,
+    );
+  }
+
   private async fetchWithHeadlessChrome(baseUrl: string): Promise<string> {
     const pages = ['', '/about', '/contact'];
     const contents: string[] = [];
@@ -310,7 +328,7 @@ export class WebsiteAnalyzerService {
       try {
         const url = page ? this.joinUrl(baseUrl, page) : baseUrl;
         const { stdout, stderr } = await execFileAsync(
-          'google-chrome',
+          await this.findBrowserBinary(),
           [
             '--headless=new',
             '--disable-gpu',
@@ -346,7 +364,7 @@ export class WebsiteAnalyzerService {
 
     try {
       await execFileAsync(
-        'google-chrome',
+        await this.findBrowserBinary(),
         [
           '--headless=new',
           '--disable-gpu',

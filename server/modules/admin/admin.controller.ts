@@ -129,6 +129,57 @@ export class AdminController {
     return { success: true };
   }
 
+  /** 临时诊断：用与网站分析相同的 axios 实例抓取目标 URL，返回原始响应特征 */
+  @Get('netcheck')
+  async netcheck(@Query('url') url: string): Promise<Record<string, unknown>> {
+    if (!url) {
+      return { error: 'missing url' };
+    }
+    const axios = (await import('axios')).default;
+    const client = axios.create({
+      timeout: 15000,
+      maxRedirects: 5,
+      headers: {
+        'User-Agent':
+          'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, Gecko) Chrome/126.0.0.0 Safari/537.36',
+        Accept:
+          'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8',
+        'Accept-Language': 'en-US,en;q=0.9',
+        'Accept-Encoding': 'gzip, deflate, br',
+        'Cache-Control': 'no-cache',
+        Pragma: 'no-cache',
+        DNT: '1',
+        'Upgrade-Insecure-Requests': '1',
+      },
+      validateStatus: (status: number) => status >= 200 && status < 400,
+    });
+    try {
+      const r = await client.get<string>(url, { responseType: 'text' });
+      const body = String(r.data ?? '');
+      const stripped = body
+        .replace(/<script[\s\S]*?<\/script>/gi, ' ')
+        .replace(/<style[\s\S]*?<\/style>/gi, ' ')
+        .replace(/<[^>]+>/g, ' ')
+        .replace(/\s+/g, ' ')
+        .trim();
+      return {
+        ok: true,
+        status: r.status,
+        contentType: r.headers['content-type'] ?? null,
+        contentEncoding: r.headers['content-encoding'] ?? null,
+        rawLength: body.length,
+        textLength: stripped.length,
+        finalUrl: r.request?.res?.responseUrl ?? null,
+        sample: body.slice(0, 300),
+      };
+    } catch (err: unknown) {
+      return {
+        ok: false,
+        error: err instanceof Error ? err.message : String(err),
+      };
+    }
+  }
+
   @Post('smtp-test')
   async testSmtp(@Body() dto: SendTestMailDto): Promise<{ success: boolean }> {
     await this.mailService.sendTestMail(dto.to);
