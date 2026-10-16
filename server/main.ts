@@ -20,6 +20,18 @@ async function bootstrap() {
   const host = process.env.SERVER_HOST || 'localhost';
   const port = Number(process.env.SERVER_PORT || process.env.PORT || '3000');
 
+  // 缓存策略：SPA 壳（HTML）含每请求刷新的 CSRF token 与平台数据，绝不能缓存，
+  // 否则浏览器可能拿到旧壳（症状：整站静默变离线版/旧 bundle 404 白屏）；
+  // /assets/* 是内容哈希文件名，可以长缓存。
+  app.use((req: import('express').Request, res: import('express').Response, next: import('express').NextFunction) => {
+    if (req.path.startsWith('/assets/')) {
+      res.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
+    } else if (req.method === 'GET' && !req.path.startsWith('/api/')) {
+      res.setHeader('Cache-Control', 'no-store');
+    }
+    next();
+  });
+
   // 注册视图引擎, 渲染 client 目录下的 html 文件
   app.setBaseViewsDir(join(process.cwd(), 'dist/client'));
   app.setViewEngine('html');

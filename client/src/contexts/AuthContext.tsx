@@ -17,6 +17,38 @@ import * as authApi from '@/api/auth';
 const TOKEN_KEY = 'auth_token';
 const USER_KEY = 'auth_user';
 
+/**
+ * 存储降级链：localStorage → sessionStorage → 内存。
+ * 某些浏览器/隐私模式会禁掉 localStorage（Safari「阻止所有 Cookie」、
+ * 严格隐私扩展），此时 setItem 直接抛错——原来会被 catch 吞掉、登录态
+ * 完全不留痕，用户表现为"登录成功但刷新就又回登录页"。至少要让当前
+ * 会话可用，并给出可感知的降级。
+ */
+const authStorage: Pick<Storage, 'getItem' | 'setItem' | 'removeItem'> = (() => {
+  const probe = (s: Storage | undefined): s is Storage => {
+    try {
+      if (!s) return false;
+      s.setItem('__auth_probe__', '1');
+      s.removeItem('__auth_probe__');
+      return true;
+    } catch {
+      return false;
+    }
+  };
+  if (probe(window.localStorage)) return window.localStorage;
+  if (probe(window.sessionStorage)) {
+    logger.warn('localStorage 不可用，登录态降级为 sessionStorage（仅当前标签页有效）');
+    return window.sessionStorage;
+  }
+  logger.warn('localStorage/sessionStorage 均不可用，登录态仅保留在内存中');
+  const mem = new Map<string, string>();
+  return {
+    getItem: (k: string) => (mem.has(k) ? (mem.get(k) as string) : null),
+    setItem: (k: string, v: string) => void mem.set(k, String(v)),
+    removeItem: (k: string) => void mem.delete(k),
+  };
+})();
+
 interface AuthContextValue {
   user: AuthUser | null;
   token: string | null;
@@ -53,8 +85,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
 
   useEffect(() => {
     try {
-      const storedToken = window.localStorage.getItem(TOKEN_KEY);
-      const storedUser = window.localStorage.getItem(USER_KEY);
+      const storedToken = authStorage.getItem(TOKEN_KEY);
+      const storedUser = authStorage.getItem(USER_KEY);
       if (storedToken && storedUser) {
         setToken(storedToken);
         setUser(JSON.parse(storedUser) as AuthUser);
@@ -71,8 +103,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
     setUser(newUser);
     queryClient.clear();
     try {
-      window.localStorage.setItem(TOKEN_KEY, newToken);
-      window.localStorage.setItem(USER_KEY, JSON.stringify(newUser));
+      authStorage.setItem(TOKEN_KEY, newToken);
+      authStorage.setItem(USER_KEY, JSON.stringify(newUser));
     } catch (err) {
       logger.warn('Failed to save auth to localStorage', err);
     }
@@ -83,8 +115,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
     setUser(null);
     queryClient.clear();
     try {
-      window.localStorage.removeItem(TOKEN_KEY);
-      window.localStorage.removeItem(USER_KEY);
+      authStorage.removeItem(TOKEN_KEY);
+      authStorage.removeItem(USER_KEY);
     } catch (err) {
       logger.warn('Failed to clear auth from localStorage', err);
     }
@@ -129,7 +161,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
           tokenRef.current ??
           (() => {
             try {
-              return window.localStorage.getItem(TOKEN_KEY);
+              return authStorage.getItem(TOKEN_KEY);
             } catch {
               return null;
             }
