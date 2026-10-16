@@ -129,6 +129,45 @@ export class AdminController {
     return { success: true };
   }
 
+/** 容器内 chromium 试验台：穷举 flag 组合，一次部署定位可用配置 */
+  private async netcheckChrome(url: string): Promise<Record<string, unknown>> {
+    const { execFile } = await import('child_process');
+    const { promisify } = await import('util');
+    const { access } = await import('fs/promises');
+    const execFileAsync = promisify(execFile);
+    const dirs = (process.env.PATH || '').split(':').filter(Boolean);
+    let bin = '';
+    for (const b of ['google-chrome', 'chromium', 'chromium-browser']) {
+      for (const d of dirs) {
+        try { await access(`${d}/${b}`); bin = `${d}/${b}`; break; } catch { /* next */ }
+      }
+      if (bin) break;
+    }
+    if (!bin) return { error: 'no browser binary found' };
+
+    const variants: Record<string, string[]> = {
+      'new+vtb': ['--headless=new', '--no-sandbox', '--disable-dev-shm-usage', '--user-data-dir=/tmp/nc1', '--no-first-run', '--dump-dom', '--virtual-time-budget=5000'],
+      'new-novtb': ['--headless=new', '--no-sandbox', '--disable-dev-shm-usage', '--user-data-dir=/tmp/nc2', '--no-first-run', '--dump-dom'],
+      'old+vtb': ['--headless=old', '--no-sandbox', '--disable-dev-shm-usage', '--user-data-dir=/tmp/nc3', '--no-first-run', '--dump-dom', '--virtual-time-budget=5000'],
+      'old-novtb': ['--headless=old', '--no-sandbox', '--disable-dev-shm-usage', '--user-data-dir=/tmp/nc4', '--no-first-run', '--dump-dom'],
+      'file': ['--headless=new', '--no-sandbox', '--disable-dev-shm-usage', '--user-data-dir=/tmp/nc5', '--no-first-run', '--dump-dom'],
+    };
+    const out: Record<string, unknown> = { bin };
+    for (const [name, flags] of Object.entries(variants)) {
+      const target = name === 'file' ? 'data:text/html,<h1>hello</h1><p>local render test</p>' : url;
+      try {
+        const { stdout, stderr } = await execFileAsync(bin, [...flags, target], { timeout: 20000, maxBuffer: 4 * 1024 * 1024 });
+        out[name] = { stdoutLen: stdout.length, head: stdout.slice(0, 80), stderr: stderr.slice(0, 160) };
+      } catch (err: unknown) {
+        out[name] = { error: err instanceof Error ? err.message.slice(0, 200) : String(err).slice(0, 200) };
+      }
+    }
+    return out;
+  }
+
+  @Get('netcheck')
+  async netcheck(@Query('url') url: string): Promise<Record<string, unknown>> {
+
   /** 临时诊断：用与网站分析相同的 axios 实例抓取目标 URL，返回原始响应特征 */
   @Get('netcheck')
   async netcheck(@Query('url') url: string): Promise<Record<string, unknown>> {
