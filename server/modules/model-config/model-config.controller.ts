@@ -74,6 +74,14 @@ export class ModelConfigController {
     return this.modelConfigService.getConfig(user.userId);
   }
 
+  /** 可选模型列表（带中文描述），供设置页下拉框使用 */
+  @Get('models')
+  async listModels(
+    @CurrentUser() user: JwtPayload,
+  ): Promise<{ models: Array<{ id: string; description: string }>; live: boolean }> {
+    return this.modelConfigService.listModels(user.userId);
+  }
+
   @Patch()
   async updateConfig(
     @CurrentUser() user: JwtPayload,

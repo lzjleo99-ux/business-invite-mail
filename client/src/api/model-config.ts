@@ -36,3 +36,17 @@ export async function updateImportSecret(
   const response = await axiosForBackend.post('/api/settings/import-secret', data);
   return response.data;
 }
+
+export interface ModelOption {
+  id: string;
+  description: string;
+}
+
+/** 可选模型列表（实时从中转拉取，失败时用内置清单） */
+export async function listModels(): Promise<{
+  models: ModelOption[];
+  live: boolean;
+}> {
+  const response = await axiosForBackend.get('/api/model-config/models');
+  return response.data;
+}

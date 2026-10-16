@@ -15,6 +15,27 @@ const DEFAULT_MODEL = 'gpt-4o-mini';
 const DEFAULT_EMAIL_LANGUAGE = 'auto' as const;
 const DEFAULT_SENDER_SIGNATURE = 'Best regards,\nBD Team';
 
+
+/** 内置模型清单：中转拉不到列表时的兜底，同时提供中文描述 */
+const BUILTIN_MODELS: Array<{ id: string; description: string }> = [
+  {
+    id: 'TPK/GLM-5.2',
+    description: '智谱 GLM-5.2 · 综合能力最强，中英文邮件质量高（推荐）',
+  },
+  {
+    id: 'TPK/DeepSeek-V4-Flash',
+    description: 'DeepSeek V4 Flash · 速度快、额度消耗低，适合批量生成',
+  },
+  {
+    id: 'TPK/Qwen3.6-35B-A3B',
+    description: '阿里 Qwen3.6 35B · 中文理解好，性价比高',
+  },
+  {
+    id: 'TPK/Qwen3.8-27B',
+    description: '阿里 Qwen3.8 27B · 轻量快速，适合简单场景',
+  },
+];
+
 @Injectable()
 export class ModelConfigService {
   private readonly logger = new Logger(ModelConfigService.name);
@@ -168,6 +189,48 @@ export class ModelConfigService {
         }
       }
       return { success: false, message };
+    }
+  }
+
+
+  /**
+   * 可选模型列表：优先从中转服务实时拉取（用当前用户自己存的 Base URL + Key 调
+   * {baseUrl}/models），拉取失败或没配 Key 时回退到内置列表，保证下拉永远有东西可选。
+   * 描述以内置为准（中转不提供中文描述）。
+   */
+  async listModels(userId: string): Promise<{
+    models: Array<{ id: string; description: string }>;
+    live: boolean;
+  }> {
+    const builtin = BUILTIN_MODELS.map((m) => ({ ...m }));
+    const row = await this.getUserRow(userId);
+
+    if (!row.apiKey || !row.apiKey.trim() || !row.apiBaseUrl) {
+      return { models: builtin, live: false };
+    }
+
+    try {
+      const url = `${row.apiBaseUrl.replace(/\/$/, '')}/models`;
+      const resp = await axios.get<{ data?: Array<{ id?: string }> }>(url, {
+        headers: { Authorization: `Bearer ${row.apiKey}` },
+        timeout: 10000,
+      });
+      const ids = (resp.data?.data ?? [])
+        .map((m) => (typeof m?.id === 'string' ? m.id.trim() : ''))
+        .filter((id): id is string => !!id);
+      if (ids.length === 0) {
+        return { models: builtin, live: false };
+      }
+      const known = new Map(BUILTIN_MODELS.map((m) => [m.id, m.description]));
+      return {
+        models: ids.map((id) => ({
+          id,
+          description: known.get(id) ?? '服务端可用模型',
+        })),
+        live: true,
+      };
+    } catch {
+      return { models: builtin, live: false };
     }
   }
 

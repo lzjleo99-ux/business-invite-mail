@@ -131,6 +131,16 @@ const SettingsPage = () => {
     disabled: modelLoading,
   });
 
+  // 可选模型列表（设置页下拉框用）
+  const { data: modelOptions } = useQuery({
+    queryKey: ['model-options'],
+    queryFn: () => modelConfigApi.listModels(),
+    staleTime: 5 * 60 * 1000,
+    retry: false,
+  });
+  const modelList = modelOptions?.models ?? [];
+  const currentModelDesc = modelList.find((m) => m.id === modelForm.watch('modelName'))?.description;
+
   const updateMutation = useMutation({
     mutationFn: (values: ModelFormValues) => {
       const payload: Parameters<typeof modelConfigApi.updateModelConfig>[0] = {
@@ -421,8 +431,24 @@ const SettingsPage = () => {
                         <FormItem>
                           <FormLabel>{t('模型名称')}</FormLabel>
                           <FormControl>
-                            <Input placeholder="gpt-4o-mini" {...field} />
+                            <select
+                              className="flex h-10 w-full rounded-md border border-slate-200 bg-white px-3 py-2 text-sm ring-offset-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-400 disabled:cursor-not-allowed disabled:opacity-50"
+                              value={field.value ?? ''}
+                              onChange={(e) => field.onChange(e.target.value)}
+                            >
+                              {field.value && !modelList.some((m) => m.id === field.value) && (
+                                <option value={field.value}>{field.value}</option>
+                              )}
+                              {modelList.map((m) => (
+                                <option key={m.id} value={m.id}>
+                                  {m.id}
+                                </option>
+                              ))}
+                            </select>
                           </FormControl>
+                          {currentModelDesc && (
+                            <p className="text-xs text-slate-500 mt-1">{currentModelDesc}</p>
+                          )}
                           <FormMessage />
                         </FormItem>
                       )}
