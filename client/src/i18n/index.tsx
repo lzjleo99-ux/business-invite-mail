@@ -68,6 +68,19 @@ export const I18nProvider: React.FC<{ children: React.ReactNode }> = ({ children
   useEffect(() => {
     document.documentElement.lang = lang === 'en' ? 'en' : 'zh';
     document.title = lang === 'en' ? APP_NAME_EN : APP_NAME_ZH;
+
+    // 平台服务端渲染会把 index.html 里的 <link rel="icon" href="/favicon.svg">
+    // 改写成空 href（实测线上就是 <link rel="icon" href="">），浏览器因此拿不到
+    // logo。客户端兜底：删掉空 href 的 icon 链接，再挂上自己的 favicon。
+    document.querySelectorAll('link[rel~="icon"]').forEach((el) => {
+      if (!el.getAttribute('href')) el.remove();
+    });
+    if (!document.querySelector('link[rel="icon"][href="/favicon.svg"]')) {
+      const icon = document.createElement('link');
+      icon.setAttribute('rel', 'icon');
+      icon.setAttribute('href', '/favicon.svg');
+      document.head.appendChild(icon);
+    }
   }, [lang]);
 
   const t = useCallback(
