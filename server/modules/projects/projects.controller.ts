@@ -12,7 +12,6 @@ import {
   NotFoundException,
   Logger,
   UseGuards,
-  StreamableFile,
   Res,
 } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
@@ -233,14 +232,21 @@ export class ProjectsController {
   /**
    * 素材文件下载/预览。字节来自 material_blobs 表。
    * 图片与 PDF 内联展示，其余类型按附件下载。
+   *
+   * 实现说明（重要，勿"简化"回 StreamableFile）：这里必须 @Res() 完全接管并
+   * 手工分块写。平台 LoggingInterceptor 会对 handler 返回值无条件
+   * JSON.stringify —— StreamableFile 内部持有全量 buffer（经 Readable 的
+   * _readableState），会被展开成约 5 倍大小的数字数组字符串再进日志序列化，
+   * 在 488MB 内存的容器上直接 OOM（6MB 能活、13.6MB 必死，实测复现）。
+   * 手工写则返回值为 undefined，拦截器只会记录小对象。
    */
   @Get(':id/materials/:materialId/download')
   async downloadMaterial(
     @Param('id') id: string,
     @Param('materialId') materialId: string,
     @CurrentUser() user: JwtPayload,
-    @Res({ passthrough: true }) res: import('express').Response,
-  ): Promise<StreamableFile> {
+    @Res() res: import('express').Response,
+  ): Promise<void> {
     const meta = await this.projectsService.getMaterialMeta(
       id,
       materialId,
@@ -258,7 +264,27 @@ export class ProjectsController {
       `${inline ? 'inline' : 'attachment'}; filename="${encodeURIComponent(safeName)}"; filename*=UTF-8''${encodeURIComponent(meta.fileName)}`,
     );
     res.contentType(blob.contentType);
-    return new StreamableFile(blob.data);
+    res.setHeader('Content-Length', String(blob.data.length));
+
+    const CHUNK = 256 * 1024;
+    let written = 0;
+    await new Promise<void>((resolve, reject) => {
+      res.on('error', reject);
+      const writeNext = (): void => {
+        while (written < blob.data.length) {
+          const end = Math.min(written + CHUNK, blob.data.length);
+          const ok = res.write(blob.data.subarray(written, end));
+          written = end;
+          if (!ok) {
+            res.once('drain', writeNext);
+            return;
+          }
+        }
+        res.end();
+        resolve();
+      };
+      writeNext();
+    });
   }
 
   @Get(':id/materials')
