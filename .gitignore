@@ -67,3 +67,5 @@ pnpm-lock.yaml
 .agent/
 .npm_cache
 dist-bundle/
+/*.png
+!client/**/*.png
