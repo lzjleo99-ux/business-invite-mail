@@ -210,6 +210,7 @@ const WorkbenchTab: React.FC<WorkbenchTabProps> = ({
 
   // 「一键分析全部」的目标 = 项目里所有未分析（待分析 + 失败）的公司，
   // 跨分页拉全、不设上限 —— 当前页最多 20 条，直接用会漏掉其余页。
+  // 平台 ListQueryDto 校验 pageSize ≤ 100，所以按 100/页循环到 total 尽头。
   const [analyzeAllPreparing, setAnalyzeAllPreparing] = useState(false);
   const handleAnalyzeAll = useCallback(async () => {
     setAnalyzeAllPreparing(true);
@@ -218,9 +219,9 @@ const WorkbenchTab: React.FC<WorkbenchTabProps> = ({
       for (const status of ['pending', 'failed'] as const) {
         let page = 1;
         for (;;) {
-          const res = await getCompanies({ projectId, page, pageSize: 500, status });
+          const res = await getCompanies({ projectId, page, pageSize: 100, status });
           for (const c of res.items) seen.set(c.id, c);
-          if (res.items.length === 0 || page * 500 >= res.total) break;
+          if (res.items.length === 0 || page * 100 >= res.total) break;
           page += 1;
         }
       }
