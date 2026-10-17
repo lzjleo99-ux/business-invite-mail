@@ -1,4 +1,4 @@
-import { Injectable, Inject, Logger } from '@nestjs/common';
+import { Injectable, Inject, Logger, OnModuleInit } from '@nestjs/common';
 import {
   DRIZZLE_DATABASE,
   type PostgresJsDatabase,
@@ -54,7 +54,7 @@ interface MaterialRow {
  * 已经跑过 OCR 存进 contentSummary/parsedContent）+ 所属项目语境。
  */
 @Injectable()
-export class ImageAnalysisService {
+export class ImageAnalysisService implements OnModuleInit {
   private readonly logger = new Logger(ImageAnalysisService.name);
   private ensurePromise: Promise<void> | null = null;
   /** apiKey → 是否支持视觉请求（进程内缓存，避免每张图试错） */
@@ -66,6 +66,19 @@ export class ImageAnalysisService {
     @Inject(DRIZZLE_DATABASE) private readonly db: PostgresJsDatabase,
     private readonly materialBlobs: MaterialBlobService,
   ) {}
+
+  /**
+   * 启动即跑列迁移。listMaterials 直接 select image_description，
+   * 若等"首次描述图片"才迁移，部署后到首次分析之间素材列表会 500。
+   * 失败不阻断启动：懒路径与下次启动都会重试。
+   */
+  onModuleInit(): void {
+    void this.ensureColumn().catch((err: unknown) => {
+      this.logger.error(
+        `image_description 列迁移失败（将在下次使用时重试）: ${err instanceof Error ? err.message : String(err)}`,
+      );
+    });
+  }
 
   /** project_materials.image_description 列（平台管理的表，启动期幂等 ALTER 补齐）。 */
   private ensureColumn(): Promise<void> {
