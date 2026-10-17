@@ -237,13 +237,23 @@ export class AdminController {
 
     // 阶段3：底层客户端直跑同样查询（raw unsafe，无 drizzle 层）
     const rawClient = (db['$client'] ?? (db['session'] as { client?: unknown } | undefined)?.client) as
-      | { unsafe: (q: string, p?: unknown[]) => Promise<Array<{ data: Buffer }>> }
+      | Record<string, unknown>
       | undefined;
-    report.rawClientAvailable = !!rawClient;
-    if (rawClient) {
-      const t3 = Date.now();
-      const rrows = await rawClient.unsafe('select data from material_blobs where material_id = $1', [materialId]);
-      report.stage3_rawUnsafe = { ms: Date.now() - t3, byteLen: rrows[0]?.data?.length, memAfter: mem() };
+    report.rawClientProbe = {
+      truthy: !!rawClient,
+      type: typeof rawClient,
+      keys: rawClient ? Object.getOwnPropertyNames(rawClient).slice(0, 15) : [],
+      unsafeType: rawClient ? typeof rawClient['unsafe'] : 'n/a',
+    };
+    if (rawClient && typeof rawClient['unsafe'] === 'function') {
+      const unsafe = rawClient['unsafe'] as (q: string, p?: unknown[]) => Promise<Array<{ data: Buffer }>>;
+      try {
+        const t3 = Date.now();
+        const rrows = await unsafe('select data from material_blobs where material_id = $1', [materialId]);
+        report.stage3_rawUnsafe = { ms: Date.now() - t3, byteLen: rrows[0]?.data?.length, memAfter: mem() };
+      } catch (err) {
+        report.stage3_rawUnsafe = { error: String(err).split('\n')[0] };
+      }
     }
 
     if (streamMode === '1') {
