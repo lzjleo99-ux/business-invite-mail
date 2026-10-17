@@ -115,12 +115,14 @@ export class MailService {
   /**
    * 发送原始 RFC822 报文（BD 群发邮件用）：
    * 报文由 eml-generator 组装（multipart/related + CID 内嵌图），
-   * From/To/Subject 都在报文头里，nodemailer 会按报文内容直发。
+   * From/To/Subject 都在报文头里。**必须显式传 envelope** ——
+   * nodemailer 的 raw 模式不解析报文头，缺 envelope 会报
+   * "No recipients defined"（收件人取报文 To，寄件人取 SMTP 配置的 fromEmail）。
    */
-  async sendRaw(raw: string): Promise<void> {
+  async sendRaw(raw: string, envelope: { from: string; to: string[] }): Promise<void> {
     const transporter = await this.getTransporter();
     try {
-      await transporter.sendMail({ raw } as Parameters<Transporter['sendMail']>[0]);
+      await transporter.sendMail({ raw, envelope } as Parameters<Transporter['sendMail']>[0]);
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
       this.logger.error(`SMTP raw send failed: ${msg}`);

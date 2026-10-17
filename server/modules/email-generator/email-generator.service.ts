@@ -251,6 +251,7 @@ export class EmailGeneratorService {
   private async buildCampaignRaw(company: typeof restaurants.$inferSelect): Promise<{
     raw: string;
     to: string;
+    from: string;
     subject: string;
   }> {
     const { subject, body } = this.pickEmailVersion(company);
@@ -266,7 +267,8 @@ export class EmailGeneratorService {
       : `${fromName} <${fromName.toLowerCase().replace(/\s+/g, '.')}@example.com>`;
 
     const raw = generateEmlWithImages(to, subject, body, fromLine, inlineImages);
-    return { raw, to, subject };
+    // envelope.from 用 SMTP 发件地址（服务器必须以该地址登录），回退到配置里的登录账号
+    return { raw, to, from: fromEmail || smtp?.username?.trim() || '', subject };
   }
 
   /**
@@ -286,8 +288,8 @@ export class EmailGeneratorService {
       throw new BadRequestException('该公司没有邮箱地址，无法发送');
     }
 
-    const { raw, to: recipient, subject } = await this.buildCampaignRaw(company);
-    await this.mailService.sendRaw(raw);
+    const { raw, to: recipient, subject, from } = await this.buildCampaignRaw(company);
+    await this.mailService.sendRaw(raw, { from, to: [recipient] });
     await this.markEmailContacted(company.id);
     return { to: recipient, subject };
   }
@@ -349,8 +351,8 @@ export class EmailGeneratorService {
         const company = eligible[cursor];
         cursor += 1;
         try {
-          const { raw } = await this.buildCampaignRaw(company);
-          await this.mailService.sendRaw(raw);
+          const { raw, to, from } = await this.buildCampaignRaw(company);
+          await this.mailService.sendRaw(raw, { from, to: [to] });
           await this.markEmailContacted(company.id);
           summary.sent += 1;
         } catch (err: unknown) {
