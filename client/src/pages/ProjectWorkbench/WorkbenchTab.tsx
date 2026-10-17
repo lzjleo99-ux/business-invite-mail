@@ -45,6 +45,13 @@ import {
 } from '@client/src/components/ui/select';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@client/src/components/ui/tabs';
 import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogFooter,
+} from '@client/src/components/ui/dialog';
+import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
@@ -405,6 +412,40 @@ const WorkbenchTab: React.FC<WorkbenchTabProps> = ({
   const activeBatchProcessed = activeBatchOp.processed + activeBatchOp.failed;
   const activeBatchTotal = activeBatchOp.total;
   const activeBatchProgress = activeBatchOp.progress;
+
+  // --- 一键发送（SMTP 直发） ---
+  // 服务端圈定目标：已生成邮件 + 有邮箱 + 未发送过（emailContactedAt 为空）。
+  const [sendAllRunning, setSendAllRunning] = useState(false);
+  const [sendConfirmOpen, setSendConfirmOpen] = useState(false);
+  const handleSendAll = useCallback(async () => {
+    setSendAllRunning(true);
+    try {
+      const summary = await emailGeneratorApi.batchSendEmails(projectId);
+      void qc.invalidateQueries({ queryKey: ['companies'] });
+      void qc.invalidateQueries({ queryKey: ['company-stats'] });
+      if (summary.eligible === 0) {
+        toast.info(t('没有可发送的邮件（需要已生成、有邮箱且未发送过）'));
+      } else if (summary.failed > 0) {
+        toast.warning(
+          t('批量发送完成：成功 {s} 封，失败 {f} 封', { s: summary.sent, f: summary.failed }),
+        );
+        if (summary.errors.length > 0) {
+          toast.error(
+            t('发送失败详情：{list}', {
+              list: summary.errors.slice(0, 3).map((e) => `${e.name}: ${e.error}`).join('；'),
+            }),
+          );
+        }
+      } else {
+        toast.success(t('批量发送完成：{s} 封全部发送成功', { s: summary.sent }));
+      }
+    } catch (err: unknown) {
+      logger.error('批量发送失败', err);
+      toast.error(t('批量发送失败，请检查发信服务配置后重试'));
+    } finally {
+      setSendAllRunning(false);
+    }
+  }, [projectId, t, qc]);
 
   const STATUS_OPTIONS: { value: StatusFilterValue; label: string }[] = [
     { value: 'all', label: t('全部') },
@@ -1391,6 +1432,21 @@ const WorkbenchTab: React.FC<WorkbenchTabProps> = ({
                )}
              </div>
              <div className="flex gap-2 justify-end flex-wrap">
+               {hasChat && (
+                 <Button
+                   variant="outline"
+                   size="sm"
+                   onClick={() => onGenerateWhatsApp(record)}
+                   disabled={generatingWhatsAppId === record.id}
+                 >
+                   {generatingWhatsAppId === record.id ? (
+                     <Loader2 className="animate-spin" size={14} />
+                   ) : (
+                     <RefreshCw size={14} />
+                   )}
+                   {hasWhatsAppMessage ? t('重新生成话术') : t('生成话术')}
+                 </Button>
+               )}
                {hasWhatsAppMessage ? (
                  <>
                    <Button
@@ -1607,8 +1663,50 @@ const WorkbenchTab: React.FC<WorkbenchTabProps> = ({
                   })
                 : t('一键准备 IM 话术')}
             </Button>
+            <Button
+              variant="default"
+              onClick={() => setSendConfirmOpen(true)}
+              disabled={sendAllRunning || batchAnalyzeOp.isRunning || batchGenerateOp.isRunning || batchWhatsAppOp.isRunning || items.length === 0}
+              className="bg-blue-600 hover:bg-blue-700 text-white"
+            >
+              {sendAllRunning ? (
+                <Loader2 className="animate-spin" size={16} />
+              ) : (
+                <Send size={16} />
+              )}
+              {sendAllRunning ? t('发送中...') : t('一键发送')}
+            </Button>
           </div>
         </div>
+
+        {/* 一键发送确认：真实外发，必须显式确认 */}
+        <Dialog open={sendConfirmOpen} onOpenChange={(v) => !sendAllRunning && setSendConfirmOpen(v)}>
+          <DialogContent className="max-w-md">
+            <DialogHeader>
+              <DialogTitle>{t('一键发送确认')}</DialogTitle>
+            </DialogHeader>
+            <p className="text-sm text-slate-600">
+              {t('将向所有「已生成邮件、有邮箱且未发送过」的公司实际发送邮件，此操作会真实发出，确认继续？')}
+            </p>
+            <DialogFooter>
+              <Button variant="outline" size="sm" onClick={() => setSendConfirmOpen(false)} disabled={sendAllRunning}>
+                {t('取消')}
+              </Button>
+              <Button
+                size="sm"
+                onClick={() => {
+                  setSendConfirmOpen(false);
+                  void handleSendAll();
+                }}
+                disabled={sendAllRunning}
+                className="bg-blue-600 hover:bg-blue-700 text-white"
+              >
+                {sendAllRunning && <Loader2 className="animate-spin" size={14} />}
+                {t('开始发送')}
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
 
         {/* Batch progress bar */}
         {(batchAnalyzeOp.isRunning || batchGenerateOp.isRunning || batchWhatsAppOp.isRunning) && (

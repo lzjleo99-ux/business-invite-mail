@@ -15,7 +15,7 @@ import { Type } from 'class-transformer';
 import type { Response } from 'express';
 import { JwtAuthGuard, type JwtPayload } from '../auth/jwt-auth.guard';
 import { CurrentUser } from '../auth/current-user.decorator';
-import { EmailGeneratorService } from './email-generator.service';
+import { EmailGeneratorService, type BatchSendSummary } from './email-generator.service';
 import type {
   GeneratedEmail,
   BatchGenerateRequest,
@@ -36,6 +36,11 @@ class BatchGenerateDto implements BatchGenerateRequest {
 }
 
 class BatchWhatsAppDto implements BatchWhatsAppRequest {
+  @IsString()
+  projectId!: string;
+}
+
+class BatchSendDto {
   @IsString()
   projectId!: string;
 }
@@ -130,6 +135,38 @@ export class EmailGeneratorController {
     @Body() dto: BatchWhatsAppDto,
   ): Promise<{ total: number }> {
     return this.emailGeneratorService.batchPrepareWhatsApp(dto.projectId, user.userId);
+  }
+
+  /**
+   * 单公司直发：把已生成的邮件经 SMTP 发给该公司（自动收件人/主题/内嵌图），
+   * 成功后自动标记「已邮件联系」。
+   */
+  @Post('send/:companyId')
+  async sendEmail(
+    @Param('companyId') companyId: string,
+  ): Promise<{ to: string; subject: string }> {
+    if (!companyId) {
+      throw new BadRequestException('companyId 不能为空');
+    }
+    return this.emailGeneratorService.sendCompanyEmail(companyId);
+  }
+
+  /**
+   * 一键发送：项目内所有「已生成 + 有邮箱 + 未发送」的公司逐家经 SMTP 发出。
+   * 耗时与公司数成正比（每封 1-2s），客户端超时给足。
+   */
+  @Post('batch-send')
+  async batchSend(
+    @CurrentUser() user: JwtPayload,
+    @Body() dto: BatchSendDto,
+  ): Promise<BatchSendSummary> {
+    if (!dto.projectId) {
+      throw new BadRequestException('projectId 不能为空');
+    }
+    return this.emailGeneratorService.batchSendProjectEmails(dto.projectId, {
+      userId: user.userId,
+      role: user.role,
+    });
   }
 
   @Get('compose/:companyId')

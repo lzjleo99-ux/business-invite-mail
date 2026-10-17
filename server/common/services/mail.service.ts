@@ -112,6 +112,22 @@ export class MailService {
     }
   }
 
+  /**
+   * 发送原始 RFC822 报文（BD 群发邮件用）：
+   * 报文由 eml-generator 组装（multipart/related + CID 内嵌图），
+   * From/To/Subject 都在报文头里，nodemailer 会按报文内容直发。
+   */
+  async sendRaw(raw: string): Promise<void> {
+    const transporter = await this.getTransporter();
+    try {
+      await transporter.sendMail({ raw } as Parameters<Transporter['sendMail']>[0]);
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      this.logger.error(`SMTP raw send failed: ${msg}`);
+      throw new BadRequestException(`发信失败：${msg}`);
+    }
+  }
+
   /** 管理员点「测试发信」 */
   async sendTestMail(to: string): Promise<void> {
     const stamp = new Date().toLocaleString('zh-CN');

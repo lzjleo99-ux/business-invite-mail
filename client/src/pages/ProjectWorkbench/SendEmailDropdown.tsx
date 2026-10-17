@@ -17,6 +17,13 @@ import * as emailGeneratorApi from '@client/src/api/email-generator';
 import { stripImageMarkers } from '@client/src/utils/email-body';
 import { Button } from '@client/src/components/ui/button';
 import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogFooter,
+} from '@client/src/components/ui/dialog';
+import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
@@ -51,6 +58,8 @@ const SendEmailDropdown: React.FC<SendEmailDropdownProps> = ({
 }) => {
   const { t } = useI18n();
   const [open, setOpen] = useState(false);
+  const [confirmSendOpen, setConfirmSendOpen] = useState(false);
+  const [sending, setSending] = useState(false);
 
   const email = record.websiteContactEmail || record.email || '';
   const subject =
@@ -87,6 +96,23 @@ const SendEmailDropdown: React.FC<SendEmailDropdownProps> = ({
 
   const handleCopyBody = () => {
     if (plainBody) onCopy(plainBody, t('邮件正文'));
+  };
+
+  const handleSendDirect = () => {
+    if (!email || sending) return;
+    setSending(true);
+    emailGeneratorApi
+      .sendEmail(record.id)
+      .then((result) => {
+        toast.success(t('邮件已发送至 {email}', { email: result.to }));
+        setConfirmSendOpen(false);
+      })
+      .catch((err: unknown) => {
+        logger.error('直接发送失败', err);
+        const msg = err instanceof Error ? err.message : '';
+        toast.error(msg.includes('发信失败') || msg.includes('SMTP') ? msg : t('发送失败，请稍后重试'));
+      })
+      .finally(() => setSending(false));
   };
 
   const handleDownloadEml = () => {
@@ -189,6 +215,10 @@ const SendEmailDropdown: React.FC<SendEmailDropdownProps> = ({
             </DropdownMenuItem>
             {hasEmailContent && (
               <>
+                <DropdownMenuItem onClick={() => { setOpen(false); setConfirmSendOpen(true); }} className="gap-2 font-medium text-blue-700 focus:text-blue-800 focus:bg-blue-50">
+                  <Send size={14} />
+                  {t('直接发送（SMTP）')}
+                </DropdownMenuItem>
                 <DropdownMenuItem onClick={handleCopySubject} className="gap-2">
                   <Copy size={14} />
                   {t('复制邮件主题')}
@@ -238,6 +268,26 @@ const SendEmailDropdown: React.FC<SendEmailDropdownProps> = ({
           </DropdownMenuItem>
         )}
       </DropdownMenuContent>
+
+      <Dialog open={confirmSendOpen} onOpenChange={(v) => !sending && setConfirmSendOpen(v)}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader>
+            <DialogTitle>{t('确认发送邮件')}</DialogTitle>
+          </DialogHeader>
+          <p className="text-sm text-slate-600">
+            {t('将通过系统 SMTP 把这封邮件发送给 {email}，确认发送？', { email })}
+          </p>
+          <DialogFooter>
+            <Button variant="outline" size="sm" onClick={() => setConfirmSendOpen(false)} disabled={sending}>
+              {t('取消')}
+            </Button>
+            <Button size="sm" onClick={handleSendDirect} disabled={sending}>
+              {sending && <Loader2 className="animate-spin" size={14} />}
+              {t('确认发送')}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </DropdownMenu>
   );
 };

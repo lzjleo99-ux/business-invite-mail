@@ -28,6 +28,16 @@ import { generateEmlWithImages, type EmlInlineImage } from '../../common/utils/e
 import type { EmailImageCandidate } from '../projects/image-analysis.service';
 import { ImageAnalysisService } from '../projects/image-analysis.service';
 import { MaterialBlobService } from '../projects/material-blob.service';
+import { MailService } from '@server/common/services/mail.service';
+
+export interface BatchSendSummary {
+  eligible: number;
+  sent: number;
+  failed: number;
+  skippedNoEmail: number;
+  skippedAlreadySent: number;
+  errors: Array<{ name: string; error: string }>;
+}
 
 interface BilingualEmailResult {
   subjectLocal: string;
@@ -53,6 +63,7 @@ export class EmailGeneratorService {
     @Inject(DRIZZLE_DATABASE) private readonly db: PostgresJsDatabase,
     private readonly imageAnalysis: ImageAnalysisService,
     private readonly materialBlobs: MaterialBlobService,
+    private readonly mailService: MailService,
   ) {}
 
   async generateEmail(companyId: string, userId: string): Promise<GeneratedEmail> {
@@ -181,11 +192,28 @@ export class EmailGeneratorService {
       ? `${sender.senderName} <${sender.senderName.toLowerCase().replace(/\s+/g, '.')}@example.com>`
       : sender.senderName;
 
-    // 正文里的 [[IMG:<materialId>]] 标记 → 内嵌图片（multipart/related + CID）。
-    // 取不到字节的素材（已删/旧数据）自动跳过；最终无图时保持纯文本 EML。
+    const inlineImages = await this.collectInlineImages(company.emailBody);
+
+    const emlContent = generateEmlWithImages(
+      toEmail,
+      company.emailSubject,
+      company.emailBody,
+      fromLine,
+      inlineImages,
+    );
+
+    const safeName = company.name.replace(/[^a-zA-Z0-9_-]/g, '_').slice(0, 50);
+    return {
+      emlContent,
+      fileName: `${safeName}_email.eml`,
+    };
+  }
+
+  /** 正文里的 [[IMG:<materialId>]] 标记 → 可内嵌的图片资源；取不到字节的自动跳过。 */
+  private async collectInlineImages(body: string): Promise<EmlInlineImage[]> {
     const inlineImages: EmlInlineImage[] = [];
     const markerIds = new Set<string>();
-    for (const m of company.emailBody.matchAll(/\[\[IMG:([^\]\n]+)\]\]/g)) {
+    for (const m of body.matchAll(/\[\[IMG:([^\]\n]+)\]\]/g)) {
       markerIds.add(m[1].trim());
     }
     for (const materialId of markerIds) {
@@ -205,20 +233,155 @@ export class EmailGeneratorService {
         data: blob.data,
       });
     }
+    return inlineImages;
+  }
 
-    const emlContent = generateEmlWithImages(
-      toEmail,
-      company.emailSubject,
-      company.emailBody,
-      fromLine,
-      inlineImages,
-    );
+  /** 双语邮件取发送版本：优先本地语言（收件人母语转化率最高），没有则英文。 */
+  private pickEmailVersion(company: typeof restaurants.$inferSelect): {
+    subject: string;
+    body: string;
+  } {
+    if (company.emailSubjectLocal && company.emailBodyLocal) {
+      return { subject: company.emailSubjectLocal, body: company.emailBodyLocal };
+    }
+    return { subject: company.emailSubject ?? '', body: company.emailBody ?? '' };
+  }
 
-    const safeName = company.name.replace(/[^a-zA-Z0-9_-]/g, '_').slice(0, 50);
-    return {
-      emlContent,
-      fileName: `${safeName}_email.eml`,
+  /** 组装 BD 群发邮件的原始报文（multipart/related + CID 内嵌图），From 用 SMTP 配置的发件邮箱。 */
+  private async buildCampaignRaw(company: typeof restaurants.$inferSelect): Promise<{
+    raw: string;
+    to: string;
+    subject: string;
+  }> {
+    const { subject, body } = this.pickEmailVersion(company);
+    const to = (company.websiteContactEmail || company.email || '').trim();
+    const inlineImages = await this.collectInlineImages(body);
+
+    const smtp = await this.mailService.getSettings();
+    const sender = await this.getSenderConfig();
+    const fromName = smtp?.fromName?.trim() || sender.senderName;
+    const fromEmail = smtp?.fromEmail?.trim();
+    const fromLine = fromEmail
+      ? `${fromName} <${fromEmail}>`
+      : `${fromName} <${fromName.toLowerCase().replace(/\s+/g, '.')}@example.com>`;
+
+    const raw = generateEmlWithImages(to, subject, body, fromLine, inlineImages);
+    return { raw, to, subject };
+  }
+
+  /**
+   * 单公司直发：把已生成的邮件经 SMTP 发给该公司（自动收件人/主题/内嵌图）。
+   * 成功后标记 contactStatus.emailContactedAt。
+   */
+  async sendCompanyEmail(companyId: string): Promise<{ to: string; subject: string }> {
+    const company = await this.getCompanyById(companyId);
+    if (!company) {
+      throw new BadRequestException('公司不存在');
+    }
+    if (!company.emailSubject && !company.emailSubjectLocal) {
+      throw new BadRequestException('邮件尚未生成，请先生成邮件');
+    }
+    const to = (company.websiteContactEmail || company.email || '').trim();
+    if (!to) {
+      throw new BadRequestException('该公司没有邮箱地址，无法发送');
+    }
+
+    const { raw, to: recipient, subject } = await this.buildCampaignRaw(company);
+    await this.mailService.sendRaw(raw);
+    await this.markEmailContacted(company.id);
+    return { to: recipient, subject };
+  }
+
+  /**
+   * 一键发送：项目内所有「已生成邮件 + 有邮箱 + 未发送过」的公司逐家经 SMTP 发出。
+   * 无邮箱/已发送的自动跳过并在结果里报数；单项失败不中断整批。
+   */
+  async batchSendProjectEmails(
+    projectId: string,
+    user: { userId: string; role: 'admin' | 'user' },
+  ): Promise<BatchSendSummary> {
+    if (user.role !== 'admin') {
+      const owned = await this.db
+        .select({ id: projects.id })
+        .from(projects)
+        .where(and(eq(projects.id, projectId), eq(projects.ownerId, user.userId)))
+        .limit(1);
+      if (owned.length === 0) {
+        throw new BadRequestException('项目不存在或无权访问');
+      }
+    }
+
+    const companies = await this.db
+      .select()
+      .from(restaurants)
+      .where(eq(restaurants.projectId, projectId));
+
+    const summary: BatchSendSummary = {
+      eligible: 0,
+      sent: 0,
+      failed: 0,
+      skippedNoEmail: 0,
+      skippedAlreadySent: 0,
+      errors: [],
     };
+
+    const eligible: Array<typeof restaurants.$inferSelect> = [];
+    for (const c of companies) {
+      const recipient = (c.websiteContactEmail || c.email || '').trim();
+      const contactedAt =
+        (c.contactStatus as { emailContactedAt?: string } | null)?.emailContactedAt;
+      if (c.status !== 'generated') continue; // 未生成的不发
+      if (!recipient) {
+        summary.skippedNoEmail += 1;
+        continue;
+      }
+      if (contactedAt) {
+        summary.skippedAlreadySent += 1;
+        continue;
+      }
+      eligible.push(c);
+    }
+    summary.eligible = eligible.length;
+
+    let cursor = 0;
+    const worker = async (): Promise<void> => {
+      while (cursor < eligible.length) {
+        const company = eligible[cursor];
+        cursor += 1;
+        try {
+          const { raw } = await this.buildCampaignRaw(company);
+          await this.mailService.sendRaw(raw);
+          await this.markEmailContacted(company.id);
+          summary.sent += 1;
+        } catch (err: unknown) {
+          summary.failed += 1;
+          const msg = err instanceof Error ? err.message : String(err);
+          summary.errors.push({ name: company.name, error: msg.slice(0, 200) });
+          this.logger.warn(`批量发送失败 ${company.name}: ${msg.split('\n')[0]}`);
+        }
+      }
+    };
+    await Promise.all(Array.from({ length: Math.min(2, eligible.length) }, worker));
+
+    return summary;
+  }
+
+  /** 发送成功后标记「已邮件联系」（与手动标记同字段）。 */
+  private async markEmailContacted(companyId: string): Promise<void> {
+    const rows = await this.db
+      .select({ contactStatus: restaurants.contactStatus })
+      .from(restaurants)
+      .where(eq(restaurants.id, companyId))
+      .limit(1);
+    if (rows.length === 0) return;
+    const current =
+      (rows[0].contactStatus as { emailContactedAt?: string } | null) ?? {};
+    await this.db
+      .update(restaurants)
+      .set({
+        contactStatus: { ...current, emailContactedAt: new Date().toISOString() },
+      })
+      .where(eq(restaurants.id, companyId));
   }
 
   async getWhatsAppInfo(companyId: string): Promise<WhatsAppInfo> {
