@@ -1,4 +1,4 @@
-import React, { useCallback, useMemo, useState } from 'react';
+import React, { useCallback, useMemo, useRef, useState } from 'react';
 import { Table, TableProps } from '@lark-apaas/client-toolkit/antd-table';
 import { toast } from 'sonner';
 import { logger } from '@lark-apaas/client-toolkit/logger';
@@ -240,6 +240,10 @@ const WorkbenchTab: React.FC<WorkbenchTabProps> = ({
   }, [projectId, batchAnalyzeOp, t]);
 
   // --- Batch generate email operation ---
+  // 「一键生成全部」只圈「已分析 + 有邮箱 + 尚未生成」的公司：
+  // 没有收件人生成邮件是纯烧 AI 额度；生成接口本身不检查邮箱也不发信，
+  // 所以无邮箱的公司以前也会"成功"——这是漏洞不是功能。
+  const skippedNoEmailRef = useRef(0);
   const batchGenerateOp = useBatchOperation<Company>({
     items,
     getItemId: (item: Company) => item.id,
@@ -274,15 +278,51 @@ const WorkbenchTab: React.FC<WorkbenchTabProps> = ({
     onComplete: ({ success, failed }: { success: number; failed: number }) => {
       void qc.invalidateQueries({ queryKey: ['companies'] });
       void qc.invalidateQueries({ queryKey: ['company-stats'] });
+      const skipped = skippedNoEmailRef.current;
+      const suffix = skipped > 0 ? t('；已跳过无邮箱 {n} 家', { n: skipped }) : '';
       if (failed > 0) {
         toast.warning(
-          t('批量生成完成：成功 {s} 条，失败 {f} 条', { s: success, f: failed }),
+          t('批量生成完成：成功 {s} 条，失败 {f} 条', { s: success, f: failed }) + suffix,
         );
       } else {
-        toast.success(t('批量生成完成：共 {s} 条全部成功', { s: success }));
+        toast.success(t('批量生成完成：共 {s} 条全部成功', { s: success }) + suffix);
       }
+      skippedNoEmailRef.current = 0;
     },
   });
+
+  const [generateAllPreparing, setGenerateAllPreparing] = useState(false);
+  const handleGenerateAll = useCallback(async () => {
+    setGenerateAllPreparing(true);
+    try {
+      const seen = new Map<string, Company>();
+      let noEmail = 0;
+      let page = 1;
+      // 生成只对 analyzed 状态有意义（failed 需要先重新分析；generated 有行内重新生成按钮）
+      for (;;) {
+        const res = await getCompanies({ projectId, page, pageSize: 100, status: 'analyzed' });
+        for (const c of res.items) {
+          seen.set(c.id, c);
+          if (!(c.websiteContactEmail || c.email)) noEmail += 1;
+        }
+        if (res.items.length === 0 || page * 100 >= res.total) break;
+        page += 1;
+      }
+      const targets = [...seen.values()].filter((c) => c.websiteContactEmail || c.email);
+      if (targets.length === 0) {
+        skippedNoEmailRef.current = 0;
+        toast.info(t('没有可生成邮件的公司（需要已分析且有邮箱）'));
+        return;
+      }
+      skippedNoEmailRef.current = noEmail;
+      batchGenerateOp.start(targets);
+    } catch (err: unknown) {
+      logger.error('获取可生成公司列表失败', err);
+      toast.error(t('获取待分析列表失败，请重试'));
+    } finally {
+      setGenerateAllPreparing(false);
+    }
+  }, [projectId, batchGenerateOp, t]);
 
   // --- Batch WhatsApp operation ---
   const batchWhatsAppOp = useBatchOperation<Company>({
@@ -1498,21 +1538,23 @@ const WorkbenchTab: React.FC<WorkbenchTabProps> = ({
             </Button>
             <Button
               variant="default"
-              onClick={() => batchGenerateOp.start()}
-              disabled={batchGenerateOp.isRunning || items.length === 0 || batchAnalyzeOp.isRunning || batchWhatsAppOp.isRunning}
+              onClick={() => void handleGenerateAll()}
+              disabled={generateAllPreparing || batchGenerateOp.isRunning || items.length === 0 || batchAnalyzeOp.isRunning || batchWhatsAppOp.isRunning}
             >
-              {batchGenerateOp.isRunning ? (
+              {generateAllPreparing || batchGenerateOp.isRunning ? (
                 <Loader2 className="animate-spin" size={16} />
               ) : (
                 <Mail size={16} />
               )}
-              {batchGenerateOp.isRunning
-                ? t('生成中 {p}/{t}（{percent}%）', {
-                    p: batchGenerateOp.processed + batchGenerateOp.failed,
-                    t: batchGenerateOp.total,
-                    percent: batchGenerateOp.progress,
-                  })
-                : t('一键生成全部')}
+              {generateAllPreparing
+                ? t('正在获取可生成列表...')
+                : batchGenerateOp.isRunning
+                  ? t('生成中 {p}/{t}（{percent}%）', {
+                      p: batchGenerateOp.processed + batchGenerateOp.failed,
+                      t: batchGenerateOp.total,
+                      percent: batchGenerateOp.progress,
+                    })
+                  : t('一键生成全部')}
             </Button>
             <Button
               variant="outline"
