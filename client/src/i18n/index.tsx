@@ -67,7 +67,16 @@ export const I18nProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   useEffect(() => {
     document.documentElement.lang = lang === 'en' ? 'en' : 'zh';
-    document.title = lang === 'en' ? APP_NAME_EN : APP_NAME_ZH;
+
+    // 平台服务端渲染会在页面加载完成后才把 <title> 改成它的默认应用名
+    // （妙搭应用/妙捷应用），比 React 挂载更晚 —— 所以标题要重申：
+    // 立即一次、load 事件一次、1.2s 兜底一次。
+    const applyTitle = () => {
+      document.title = lang === 'en' ? APP_NAME_EN : APP_NAME_ZH;
+    };
+    applyTitle();
+    window.addEventListener('load', applyTitle);
+    const timer = window.setTimeout(applyTitle, 1200);
 
     // 平台服务端渲染会把 index.html 里的 <link rel="icon" href="/favicon.svg">
     // 改写成空 href（实测线上就是 <link rel="icon" href="">），浏览器因此拿不到
@@ -81,6 +90,11 @@ export const I18nProvider: React.FC<{ children: React.ReactNode }> = ({ children
       icon.setAttribute('href', '/favicon.svg');
       document.head.appendChild(icon);
     }
+
+    return () => {
+      window.removeEventListener('load', applyTitle);
+      window.clearTimeout(timer);
+    };
   }, [lang]);
 
   const t = useCallback(
