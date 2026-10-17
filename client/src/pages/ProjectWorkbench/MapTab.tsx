@@ -2,8 +2,6 @@ import { useEffect, useMemo } from 'react';
 import { Link } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { MapContainer, TileLayer, Marker, Popup, useMap } from 'react-leaflet';
-// react-leaflet-cluster v4 以 default export 暴露 MarkerClusterGroup
-import MarkerClusterGroup from 'react-leaflet-cluster';
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
 import markerIcon2x from 'leaflet/dist/images/marker-icon-2x.png';
@@ -83,18 +81,44 @@ export default function MapTab({ projectId }: MapTabProps) {
 
   const list = companies ?? [];
 
-  const { located, missing, points } = useMemo(() => {
+  // 全部公司逐家上图，不用聚合：聚合会把同城/相近的公司折成带数字的气泡，
+  // 看起来"只有几个点"。坐标完全相同的公司做小半径环形偏移（~百米级），
+  // 保证每家一个可见的独立图钉；第一家保持在原坐标。
+  const { located, missing, markers } = useMemo(() => {
     const locatedList: Company[] = [];
     const missingList: Company[] = [];
     for (const c of list) {
       if (hasCoords(c)) locatedList.push(c);
       else missingList.push(c);
     }
-    const pts = locatedList.map(
-      (c) => [Number(c.latitude), Number(c.longitude)] as [number, number],
-    );
-    return { located: locatedList, missing: missingList, points: pts };
+    const groups = new Map<string, Company[]>();
+    for (const c of locatedList) {
+      const key = `${Number(c.latitude)},${Number(c.longitude)}`;
+      const group = groups.get(key);
+      if (group) group.push(c);
+      else groups.set(key, [c]);
+    }
+    const pts = locatedList.map((c) => {
+      const lat = Number(c.latitude);
+      const lng = Number(c.longitude);
+      const group = groups.get(`${lat},${lng}`) as Company[];
+      if (group.length === 1) return { company: c, lat, lng };
+      const i = group.indexOf(c);
+      const radius = 0.0006 * Math.ceil(Math.sqrt(group.length)); // ~70m × √n
+      const angle = (2 * Math.PI * i) / group.length - Math.PI / 2;
+      return {
+        company: c,
+        lat: lat + radius * Math.sin(angle),
+        lng: lng + radius * Math.cos(angle),
+      };
+    });
+    return { located: locatedList, missing: missingList, markers: pts };
   }, [list]);
+
+  const fitPoints = useMemo(
+    () => markers.map((m) => [m.lat, m.lng] as [number, number]),
+    [markers],
+  );
 
   if (isLoading) {
     return (
@@ -158,10 +182,9 @@ export default function MapTab({ projectId }: MapTabProps) {
               url="https://tile.openstreetmap.org/{z}/{x}/{y}.png"
               maxZoom={19}
             />
-            <FitBounds points={points} />
-            <MarkerClusterGroup chunkedLoading>
-              {located.map((c) => (
-                <Marker key={c.id} position={[Number(c.latitude), Number(c.longitude)]}>
+            <FitBounds points={fitPoints} />
+            {markers.map(({ company: c, lat, lng }) => (
+              <Marker key={c.id} position={[lat, lng]}>
                   <Popup>
                     <div className="space-y-1 text-sm" style={{ minWidth: 220 }}>
                       <p className="font-semibold text-slate-800">{c.name}</p>
@@ -175,9 +198,9 @@ export default function MapTab({ projectId }: MapTabProps) {
                           {t('电话')}：{c.phone}
                         </p>
                       )}
-                      {c.email && (
+                      {(c.websiteContactEmail || c.email) && (
                         <p className="text-slate-600">
-                          {t('邮箱')}：{c.email}
+                          {t('邮箱')}：{c.websiteContactEmail || c.email}
                         </p>
                       )}
                       {c.website && (
@@ -204,7 +227,6 @@ export default function MapTab({ projectId }: MapTabProps) {
                   </Popup>
                 </Marker>
               ))}
-            </MarkerClusterGroup>
           </MapContainer>
         </div>
       )}

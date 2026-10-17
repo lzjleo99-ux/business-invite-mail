@@ -85,10 +85,18 @@ const ProjectWorkbenchInner: React.FC = () => {
   const [generatingWhatsAppId, setGeneratingWhatsAppId] = useState<string | null>(null);
 
   // Project detail
+  // retry 覆盖部署重启窗口：容器重启会闪断 20-60s，默认 3 次重试(~7s)扛不住，
+  // 用户会看到"项目数据消失"的空页面（数据其实都在）。
+  const deployRetry = {
+    retry: 6,
+    retryDelay: (attempt: number) => Math.min(2000 * (attempt + 1), 8000),
+  } as const;
+
   const { data: project, isLoading: projectLoading } = useQuery({
     queryKey: ['project', id],
     queryFn: () => projectsApi.getProject(id),
     enabled: !!id,
+    ...deployRetry,
   });
 
   // Project edit state
@@ -110,6 +118,7 @@ const ProjectWorkbenchInner: React.FC = () => {
     queryKey: ['company-stats', id],
     queryFn: () => restaurantsApi.getCompanyStats(id),
     enabled: !!id,
+    ...deployRetry,
   });
 
   const { data: listData, isLoading: listLoading } = useQuery({
@@ -125,6 +134,7 @@ const ProjectWorkbenchInner: React.FC = () => {
         search: searchText || undefined,
       }),
     enabled: !!id,
+    ...deployRetry,
   });
 
   const { data: duplicates, refetch: refetchDuplicates, isFetching: dupLoading } = useQuery({
