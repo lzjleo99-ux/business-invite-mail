@@ -12,6 +12,13 @@ export type UILang = 'zh' | 'en';
 
 const STORAGE_KEY = 'bd-mail-ui-lang';
 
+/**
+ * 应用名（品牌）。浏览器标签页标题 + 侧边栏/顶部都用它；
+ * 服务端注入的默认标题（妙搭应用/妙捷应用）会被这里覆盖。
+ */
+export const APP_NAME_ZH = '邮件收发助手';
+export const APP_NAME_EN = 'Email Assistant';
+
 interface I18nContextValue {
   lang: UILang;
   setLang: (lang: UILang) => void;
@@ -60,6 +67,7 @@ export const I18nProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   useEffect(() => {
     document.documentElement.lang = lang === 'en' ? 'en' : 'zh';
+    document.title = lang === 'en' ? APP_NAME_EN : APP_NAME_ZH;
   }, [lang]);
 
   const t = useCallback(

@@ -2,7 +2,7 @@
 // Missing keys fall back to the Chinese source at runtime (see t() in index.tsx).
 export const enMessages: Record<string, string> = {
   // ---- Brand / nav ----
-  'BD 邮件助手': 'BD Mail Assistant',
+  '邮件收发助手': 'Email Assistant',
   '项目列表': 'Projects',
   '设置': 'Settings',
   'English': 'English',

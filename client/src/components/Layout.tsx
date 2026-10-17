@@ -26,6 +26,7 @@ import {
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
+import { AppLogo } from '@/components/AppLogo';
 import {
   Dialog,
   DialogContent,
@@ -217,8 +218,9 @@ const Layout: React.FC = () => {
     <div className="flex h-screen w-screen bg-slate-50">
       {/* Desktop sidebar */}
       <aside className="hidden w-60 flex-shrink-0 border-r border-slate-200 bg-white lg:flex lg:flex-col">
-        <div className="flex h-16 items-center border-b border-slate-200 px-5">
-          <h1 className="text-lg font-bold text-slate-800">{t('BD 邮件助手')}</h1>
+        <div className="flex h-16 items-center gap-2.5 border-b border-slate-200 px-5">
+          <AppLogo className="h-8 w-8" />
+          <h1 className="text-lg font-bold text-slate-800">{t('邮件收发助手')}</h1>
         </div>
         {renderNav()}
         <div className="mt-auto border-t border-slate-200">
@@ -237,9 +239,10 @@ const Layout: React.FC = () => {
               </Button>
             </SheetTrigger>
             <SheetContent side="left" className="w-64 p-0">
-              <div className="flex h-16 items-center border-b border-slate-200 px-5">
+              <div className="flex h-16 items-center gap-2.5 border-b border-slate-200 px-5">
+                <AppLogo className="h-8 w-8" />
                 <h1 className="text-lg font-bold text-slate-800">
-                  {t('BD 邮件助手')}
+                  {t('邮件收发助手')}
                 </h1>
               </div>
               {renderNav(() => setMobileNavOpen(false))}
@@ -249,8 +252,9 @@ const Layout: React.FC = () => {
               </div>
             </SheetContent>
           </Sheet>
-          <span className="text-base font-bold text-slate-800">
-            {t('BD 邮件助手')}
+          <span className="flex items-center gap-2 text-base font-bold text-slate-800">
+            <AppLogo className="h-6 w-6" />
+            {t('邮件收发助手')}
           </span>
         </header>
 
