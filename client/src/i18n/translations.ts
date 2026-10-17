@@ -158,6 +158,7 @@ export const enMessages: Record<string, string> = {
   '邮件正文': 'Email body',
   '请输入邮件正文': 'Write the email body',
   '暂无邮件内容': 'No email content yet',
+  '邮件中的图片以 [[IMG:...]] 标记占位（其下一行为图注），编辑时请保留这些行': 'Images are embedded as [[IMG:...]] markers (the line below each marker is its caption) — keep those lines when editing',
   '保存修改': 'Save changes',
   '编辑邮件': 'Edit email',
   '重新生成': 'Regenerate',

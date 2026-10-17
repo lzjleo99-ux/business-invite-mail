@@ -24,7 +24,10 @@ import type {
   EmlDownloadResponse,
   WhatsAppInfo,
 } from '@shared/api.interface';
-import { generateEml } from '../../common/utils/eml-generator';
+import { generateEmlWithImages, type EmlInlineImage } from '../../common/utils/eml-generator';
+import type { EmailImageCandidate } from '../projects/image-analysis.service';
+import { ImageAnalysisService } from '../projects/image-analysis.service';
+import { MaterialBlobService } from '../projects/material-blob.service';
 
 interface BilingualEmailResult {
   subjectLocal: string;
@@ -48,6 +51,8 @@ export class EmailGeneratorService {
 
   constructor(
     @Inject(DRIZZLE_DATABASE) private readonly db: PostgresJsDatabase,
+    private readonly imageAnalysis: ImageAnalysisService,
+    private readonly materialBlobs: MaterialBlobService,
   ) {}
 
   async generateEmail(companyId: string, userId: string): Promise<GeneratedEmail> {
@@ -66,6 +71,22 @@ export class EmailGeneratorService {
       const sender = await this.getSenderConfig();
       const projectContext = await this.getProjectContext(company.projectId);
 
+      // 图片候选：项目素材里的图片 + AI 视觉描述（缓存），供模型挑选贴合正文的图。
+      // 无图/无描述时为空数组，prompt 不出现图片段。
+      let emailImages: EmailImageCandidate[] = [];
+      if (company.projectId) {
+        try {
+          emailImages = await this.imageAnalysis.getEmailImageCandidates(
+            company.projectId,
+            userId,
+          );
+        } catch (err: unknown) {
+          this.logger.warn(
+            `获取图片候选失败（邮件不带图继续）: ${err instanceof Error ? err.message : String(err)}`,
+          );
+        }
+      }
+
       const languageCode = this.getLocalLanguageCode(company.country);
 
       const result = await this.callBilingualEmailModel({
@@ -74,6 +95,7 @@ export class EmailGeneratorService {
         sender,
         languageCode,
         config,
+        images: emailImages,
       });
 
       await this.db
@@ -159,11 +181,37 @@ export class EmailGeneratorService {
       ? `${sender.senderName} <${sender.senderName.toLowerCase().replace(/\s+/g, '.')}@example.com>`
       : sender.senderName;
 
-    const emlContent = generateEml(
+    // 正文里的 [[IMG:<materialId>]] 标记 → 内嵌图片（multipart/related + CID）。
+    // 取不到字节的素材（已删/旧数据）自动跳过；最终无图时保持纯文本 EML。
+    const inlineImages: EmlInlineImage[] = [];
+    const markerIds = new Set<string>();
+    for (const m of company.emailBody.matchAll(/\[\[IMG:([^\]\n]+)\]\]/g)) {
+      markerIds.add(m[1].trim());
+    }
+    for (const materialId of markerIds) {
+      const metaRows = await this.db
+        .select({ fileName: projectMaterials.fileName })
+        .from(projectMaterials)
+        .where(eq(projectMaterials.id, materialId))
+        .limit(1);
+      if (metaRows.length === 0) continue;
+      const blob = await this.materialBlobs.load(materialId);
+      if (!blob || !/^image\//.test(blob.contentType)) continue;
+      inlineImages.push({
+        materialId,
+        contentId: `img-${materialId}@bid`,
+        fileName: metaRows[0].fileName,
+        contentType: blob.contentType,
+        data: blob.data,
+      });
+    }
+
+    const emlContent = generateEmlWithImages(
       toEmail,
       company.emailSubject,
       company.emailBody,
       fromLine,
+      inlineImages,
     );
 
     const safeName = company.name.replace(/[^a-zA-Z0-9_-]/g, '_').slice(0, 50);
@@ -517,8 +565,24 @@ export class EmailGeneratorService {
       modelName: string;
       temperature: number | null;
     };
+    images: EmailImageCandidate[];
   }): Promise<BilingualEmailResult> {
-    const { company, projectContext, sender, languageCode, config } = params;
+    const { company, projectContext, sender, languageCode, config, images } = params;
+
+    // 图片别名映射：prompt 里只出现 IMG-1..N（短、好抄），返回后映射回真实
+    // materialId —— 模型抄长 UUID 很容易抄错一位，别名化是防幻觉的关键。
+    const aliasMap = new Map<string, string>();
+    images.forEach((img, i) => aliasMap.set(String(i + 1), img.materialId));
+
+    const imagesSection = images.length > 0
+      ? `\n## AVAILABLE PRODUCT IMAGES\n`
+      + `You may embed up to 2 of the images below into EACH version of the email — but ONLY where the image genuinely supports the point that email is making. Match by content: compare each image's description with the single alignment point and the concrete details of the email (industry, product, scene). An image that is merely from the same industry but shows something the email never mentions is a WRONG choice — do not use it. If no image truly fits, embed none. Never embed an image just because it exists.\n\n`
+      + `To embed an image, put this exact marker on its own line at the exact spot the image should appear:\n`
+      + `[[IMG:1]]\n`
+      + `On the NEXT line, write a short caption for it — one plain sentence in the same language as that email version, describing what the picture shows in the context of the email. No brackets, no "Caption:" prefix.\n\n`
+      + `Images (alias — description):\n`
+      + images.map((img, i) => `- IMG-${i + 1}: ${img.description} (file: ${img.fileName})`).join('\n')
+      : '';
 
     const langName = this.getLanguageName(languageCode);
     const isUK = this.isUKCompany(company.country);
@@ -567,7 +631,7 @@ City: ${cityName || 'unknown'}
 
 ## WHAT WE OFFER
 ${projectInfo}
-
+${imagesSection}
 ## SENDER
 Name: ${sender.senderName}
 ${sender.senderTitle ? `Title: ${sender.senderTitle}` : ''}
@@ -605,6 +669,7 @@ Run through this checklist. If any item fails, rewrite before returning:
 - [ ] Does it end with a proper signature (closing + name + title)?
 - [ ] Does it read fluently with smooth, natural transitions and grammatically correct sentences (no awkward machine-translation phrasing, especially in the local-language version)?
 - [ ] Is the logic coherent — a clear line from the opening observation to the single fit to the one ask, with no jumps or contradictions?
+- [ ] Any [[IMG:n]] marker you embedded: the image description genuinely matches what that paragraph says (0-2 markers per version; none if no image fits — markers must reference ONLY the listed aliases)
 
 ## LANGUAGE
 - Local language version: ${langName} (primary — write this version first, then translate/adapt for English)
@@ -650,6 +715,8 @@ Return ONLY a JSON object with these exact keys:
         bodyEn: parsed.bodyEn ?? parsed.body_en ?? '',
         relevancePoints: parsed.relevancePoints ?? parsed.relevance_points ?? [],
       };
+      result.bodyLocal = this.sanitizeImageMarkers(result.bodyLocal, aliasMap);
+      result.bodyEn = this.sanitizeImageMarkers(result.bodyEn, aliasMap);
       const mainRp = (parsed as unknown as Record<string, unknown>).main_relevance_point;
       if (mainRp && typeof mainRp === 'string' && result.relevancePoints.length === 0) {
         result.relevancePoints = [mainRp];
@@ -675,6 +742,8 @@ Return ONLY a JSON object with these exact keys:
           bodyEn: parsed.bodyEn ?? parsed.body_en ?? '',
           relevancePoints: parsed.relevancePoints ?? parsed.relevance_points ?? [],
         };
+        result.bodyLocal = this.sanitizeImageMarkers(result.bodyLocal, aliasMap);
+        result.bodyEn = this.sanitizeImageMarkers(result.bodyEn, aliasMap);
         const mainRp = (parsed as unknown as Record<string, unknown>).main_relevance_point;
         if (mainRp && typeof mainRp === 'string' && result.relevancePoints.length === 0) {
           result.relevancePoints = [mainRp];
@@ -840,6 +909,28 @@ Return ONLY a JSON object with these exact keys:
       if (fallback.local && fallback.english) return fallback as unknown as BilingualWhatsAppResult;
       throw new Error('无法解析模型返回的 JSON');
     }
+  }
+
+  /**
+   * 校验模型输出里的图片标记：
+   * - `[[IMG:别名]]` 映射回真实 materialId（接受 IMG-1 / 1 / img-1 等写法）；
+   * - 未知别名 / 超出每版本 2 张上限的标记整行删除（连同标记行），防止把
+   *   `[[IMG:3]]` 这类引用泄漏进正式邮件；
+   * - 图注行不动：它是普通文本，标记删掉后图注降级为普通句子，可接受。
+   */
+  private sanitizeImageMarkers(body: string, aliasMap: Map<string, string>): string {
+    let used = 0;
+    let result = body.replace(/\[\[IMG:([^\]\n]+)\]\]/g, (full, rawKey: string) => {
+      const norm = rawKey.trim().toUpperCase().replace(/^IMG-/, '');
+      const materialId = aliasMap.get(norm) ?? aliasMap.get(rawKey.trim());
+      if (!materialId) return '';
+      used += 1;
+      if (used > 2) return '';
+      return `[[IMG:${materialId}]]`;
+    });
+    // 清掉因删除标记留下的空行（连续 3+ 换行压成 2）
+    result = result.replace(/^[ \t]*\n(?=[ \t]*\n)/gm, '').replace(/\n{3,}/g, '\n\n');
+    return result.trim();
   }
 
   private sanitizeJsonString(str: string): string {

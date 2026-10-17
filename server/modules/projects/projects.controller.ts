@@ -21,6 +21,7 @@ import * as XLSX from 'xlsx';
 import { spawn } from 'child_process';
 import { ProjectsService } from './projects.service';
 import { MaterialBlobService } from './material-blob.service';
+import { ImageAnalysisService } from './image-analysis.service';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { CurrentUser } from '../auth/current-user.decorator';
 import type { JwtPayload } from '../auth/jwt-auth.guard';
@@ -81,7 +82,22 @@ export class ProjectsController {
   constructor(
     private readonly projectsService: ProjectsService,
     private readonly materialBlobs: MaterialBlobService,
+    private readonly imageAnalysis: ImageAnalysisService,
   ) {}
+
+  /**
+   * 图片素材上传成功后 fire-and-forget 预分析（vision 描述写入
+   * image_description，供后续邮件选图直接读缓存）。
+   * 失败只记日志：生成邮件时 getEmailImageCandidates 会兜底重算。
+   */
+  private scheduleImageAnalysis(materialId: string, userId: string, fileType: string): void {
+    if (fileType !== 'image') return;
+    void this.imageAnalysis.describeMaterial(materialId, userId).catch((err: unknown) => {
+      this.logger.warn(
+        `图片预分析失败 ${materialId}: ${err instanceof Error ? err.message : String(err)}`,
+      );
+    });
+  }
 
   @Get()
   async findAll(@CurrentUser() user: JwtPayload): Promise<Project[]> {
@@ -161,6 +177,7 @@ export class ProjectsController {
       { userId: user.userId, role: user.role },
     );
     await this.materialBlobs.save(created.id, file.buffer, file.mimetype || 'application/octet-stream');
+    this.scheduleImageAnalysis(created.id, user.userId, fileType);
     return created;
   }
 
@@ -226,6 +243,7 @@ export class ProjectsController {
       { userId: user.userId, role: user.role },
     );
     await this.materialBlobs.save(created.id, buffer, mimeType);
+    this.scheduleImageAnalysis(created.id, user.userId, fileType);
     return created;
   }
 

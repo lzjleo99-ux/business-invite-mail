@@ -14,6 +14,7 @@ import {
 } from 'lucide-react';
 
 import * as emailGeneratorApi from '@client/src/api/email-generator';
+import { stripImageMarkers } from '@client/src/utils/email-body';
 import { Button } from '@client/src/components/ui/button';
 import {
   DropdownMenu,
@@ -64,6 +65,10 @@ const SendEmailDropdown: React.FC<SendEmailDropdownProps> = ({
   const chatPhone = bestChatPhone(record);
   const hasPhone = !!chatPhone;
 
+  // 复制/mailto 走纯文本：去掉 [[IMG:...]] 标记行（图注保留为普通文字）。
+  // 图片只能随 .eml 下载内嵌，纯文本渠道带不了图。
+  const plainBody = body ? stripImageMarkers(body) : '';
+
   // Lazily fetch the prepared IM script when the menu is opened.
   const { data: waInfo, isFetching: waLoading } = useQuery({
     queryKey: ['whatsapp-info', record.id],
@@ -81,7 +86,7 @@ const SendEmailDropdown: React.FC<SendEmailDropdownProps> = ({
   };
 
   const handleCopyBody = () => {
-    if (body) onCopy(body, t('邮件正文'));
+    if (plainBody) onCopy(plainBody, t('邮件正文'));
   };
 
   const handleDownloadEml = () => {
@@ -96,7 +101,7 @@ const SendEmailDropdown: React.FC<SendEmailDropdownProps> = ({
     if (!email) return;
     const params = new URLSearchParams();
     if (subject) params.set('subject', subject);
-    if (body) params.set('body', body);
+    if (plainBody) params.set('body', plainBody);
     location.assign(`mailto:${email}?${params.toString()}`);
   };
 

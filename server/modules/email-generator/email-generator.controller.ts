@@ -95,6 +95,9 @@ export class EmailGeneratorController {
     @Res() res: Response,
   ): Promise<void> {
     const result: EmlDownloadResponse = await this.emailGeneratorService.getEml(companyId);
+    // 带 CID 内嵌图时 emlContent 可达数 MB（base64）——必须 @Res() 接管直接写出，
+    // 返回 void。平台 LoggingInterceptor 会对 handler 返回值无条件 JSON.stringify
+    // （见 projects.controller downloadMaterial 的注释），返回大字符串会白白放大进日志。
     res.setHeader('Content-Type', 'message/rfc822; charset=utf-8');
     res.setHeader(
       'Content-Disposition',

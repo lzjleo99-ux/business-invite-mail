@@ -29,6 +29,8 @@ import {
 
 import * as websiteAnalyzerApi from '@client/src/api/website-analyzer';
 import * as emailGeneratorApi from '@client/src/api/email-generator';
+import EmailBodyView from './EmailBodyView';
+import { hasImageMarkers } from '@client/src/utils/email-body';
 import { Button } from '@client/src/components/ui/button';
 import { Input } from '@client/src/components/ui/input';
 import { Textarea } from '@client/src/components/ui/textarea';
@@ -1110,6 +1112,7 @@ const WorkbenchTab: React.FC<WorkbenchTabProps> = ({
              <div className="space-y-1">
                <p className="text-xs font-medium text-slate-500">{t('邮件正文')}</p>
                {isEditing ? (
+                 <>
                  <Textarea
                    value={emailBody}
                    onChange={(e) => {
@@ -1123,11 +1126,19 @@ const WorkbenchTab: React.FC<WorkbenchTabProps> = ({
                    placeholder={t('请输入邮件正文')}
                    rows={12}
                  />
+                 {hasImageMarkers(emailBody) && (
+                   <p className="text-xs text-slate-400">
+                     {t('邮件中的图片以 [[IMG:...]] 标记占位（其下一行为图注），编辑时请保留这些行')}
+                   </p>
+                 )}
+                 </>
                ) : (
                  <div className="rounded-md border border-slate-200 bg-slate-50 p-3 min-h-[200px]">
-                   <p className="text-sm text-slate-700 whitespace-pre-wrap">
-                     {emailBody || t('暂无邮件内容')}
-                   </p>
+                   {emailBody ? (
+                     <EmailBodyView body={emailBody} projectId={record.projectId} />
+                   ) : (
+                     <p className="text-sm text-slate-700">{t('暂无邮件内容')}</p>
+                   )}
                  </div>
                )}
              </div>

@@ -149,6 +149,7 @@ export class ProjectsService {
       fileType: m.fileType,
       fileSize: m.fileSize,
       contentSummary: m.contentSummary,
+      imageDescription: m.imageDescription ?? null,
       sortOrder: m.sortOrder,
       createdAt: m.createdAt.toISOString(),
     }));
@@ -304,6 +305,7 @@ export class ProjectsService {
       fileType: m.fileType,
       fileSize: m.fileSize,
       contentSummary: m.contentSummary,
+      imageDescription: m.imageDescription ?? null,
       sortOrder: m.sortOrder,
       createdAt: m.createdAt.toISOString(),
     };
@@ -381,6 +383,7 @@ export class ProjectsService {
       fileType: m.fileType,
       fileSize: m.fileSize,
       contentSummary: m.contentSummary,
+      imageDescription: m.imageDescription ?? null,
       sortOrder: m.sortOrder,
       createdAt: m.createdAt.toISOString(),
     }));

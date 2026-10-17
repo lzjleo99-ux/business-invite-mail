@@ -37,12 +37,13 @@ COPY --from=build /app/package.json ./package.json
 
 # 功能依赖的运行时二进制（node:*-slim 都不带这些，缺了整个功能静默失败）：
 # - python3 + openpyxl/pypdf：Excel 导入与项目资料 PDF/表格解析（服务端 spawn python3）
+# - python3-pil：邮件选图前把大图缩到 1024px 再发给 vision 模型（缺了 >3.5MB 图看不了）
 # 注意：不再装 chromium——实测 Northflank 沙箱会拦截渲染器进程所需的 syscall，
 # 浏览器能启动（--version 正常）但产不出任何输出（dump-dom 空、截图文件不生成），
 # 属于平台级限制；网站分析改走 HTTP 直取（已覆盖绝大多数服务端渲染的企业站点）。
 RUN apt-get update \
     && apt-get install -y --no-install-recommends \
-       python3 python3-openpyxl python3-pypdf2 ca-certificates \
+       python3 python3-openpyxl python3-pypdf2 python3-pil ca-certificates \
     && rm -rf /var/lib/apt/lists/*
 
 RUN mkdir -p logs

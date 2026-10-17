@@ -223,3 +223,6 @@ CREATE TABLE IF NOT EXISTS material_blobs (
 -- 平台中间件按请求 SET LOCAL ROLE（anon_/authenticated_/service_role_），
 -- 新表必须显式授权，否则运行时 DML 报 permission denied（幂等）。
 GRANT ALL PRIVILEGES ON TABLE material_blobs TO anon_, authenticated_, service_role_;
+
+-- ---------- 图片素材的 AI 视觉描述（邮件选图用；ImageAnalysisService 也会启动期自愈） ----------
+ALTER TABLE project_materials ADD COLUMN IF NOT EXISTS image_description text;

@@ -111,3 +111,15 @@ export async function downloadMaterial(projectId: string, materialId: string): P
     setTimeout(() => URL.revokeObjectURL(url), 60_000);
   }
 }
+
+/**
+ * 拉取素材字节并返回 objectURL（邮件正文里内联展示图片用）。
+ * 调用方负责 URL.revokeObjectURL（组件卸载时）。
+ */
+export async function getMaterialObjectUrl(projectId: string, materialId: string): Promise<string> {
+  const response = await axiosForBackend.get(
+    `/api/projects/${projectId}/materials/${materialId}/download`,
+    { responseType: 'blob' },
+  );
+  return URL.createObjectURL(response.data as Blob);
+}

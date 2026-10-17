@@ -181,6 +181,9 @@ export const projectMaterials = pgTable("project_materials", {
   filePath: text("file_path"),
   contentSummary: text("content_summary"),
   parsedContent: text("parsed_content"),
+  // 图片素材的 AI 视觉描述（邮件选图用；vision 不可用时为 OCR/文件名兜底描述）。
+  // 平台管理的表不能改平台迁移，列由 ImageAnalysisService 启动期幂等 ALTER 补齐。
+  imageDescription: text("image_description"),
   sortOrder: integer("sort_order").notNull().default(0),
   // System field: Creation time (auto-filled, do not modify)
   createdAt: customTimestamptz("_created_at", { precision: 3 }).notNull().default(sql`CURRENT_TIMESTAMP`),

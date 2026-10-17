@@ -145,6 +145,8 @@ export interface ProjectMaterial {
   fileType: string;
   fileSize: number | null;
   contentSummary: string | null;
+  /** 图片素材的 AI 视觉描述（vision 或 OCR/文件名兜底），非图片/未分析为 null */
+  imageDescription: string | null;
   sortOrder: number;
   createdAt: string;
 }
