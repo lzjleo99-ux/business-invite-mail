@@ -70,6 +70,9 @@ export const enMessages: Record<string, string> = {
   // ---- Toolbar ----
   '导入名录': 'Import list',
   '一键分析全部': 'Analyze all',
+  '正在获取待分析列表...': 'Loading pending list...',
+  '没有待分析的公司，所有公司都已分析': 'Nothing to analyze — all companies are already analyzed',
+  '获取待分析列表失败，请重试': 'Failed to load the pending list — please try again',
   '一键生成全部': 'Generate all',
   '一键准备 IM 话术': 'Prepare IM scripts',
   '状态筛选': 'Filter status',

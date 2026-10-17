@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react';
+import React, { useCallback, useMemo, useState } from 'react';
 import { Table, TableProps } from '@lark-apaas/client-toolkit/antd-table';
 import { toast } from 'sonner';
 import { logger } from '@lark-apaas/client-toolkit/logger';
@@ -29,6 +29,7 @@ import {
 
 import * as websiteAnalyzerApi from '@client/src/api/website-analyzer';
 import * as emailGeneratorApi from '@client/src/api/email-generator';
+import { getCompanies } from '@client/src/api/restaurants';
 import EmailBodyView from './EmailBodyView';
 import { hasImageMarkers } from '@client/src/utils/email-body';
 import { Button } from '@client/src/components/ui/button';
@@ -206,6 +207,36 @@ const WorkbenchTab: React.FC<WorkbenchTabProps> = ({
       }
     },
   });
+
+  // 「一键分析全部」的目标 = 项目里所有未分析（待分析 + 失败）的公司，
+  // 跨分页拉全、不设上限 —— 当前页最多 20 条，直接用会漏掉其余页。
+  const [analyzeAllPreparing, setAnalyzeAllPreparing] = useState(false);
+  const handleAnalyzeAll = useCallback(async () => {
+    setAnalyzeAllPreparing(true);
+    try {
+      const seen = new Map<string, Company>();
+      for (const status of ['pending', 'failed'] as const) {
+        let page = 1;
+        for (;;) {
+          const res = await getCompanies({ projectId, page, pageSize: 500, status });
+          for (const c of res.items) seen.set(c.id, c);
+          if (res.items.length === 0 || page * 500 >= res.total) break;
+          page += 1;
+        }
+      }
+      const targets = [...seen.values()];
+      if (targets.length === 0) {
+        toast.info(t('没有待分析的公司，所有公司都已分析'));
+        return;
+      }
+      batchAnalyzeOp.start(targets);
+    } catch (err: unknown) {
+      logger.error('获取待分析公司列表失败', err);
+      toast.error(t('获取待分析列表失败，请重试'));
+    } finally {
+      setAnalyzeAllPreparing(false);
+    }
+  }, [projectId, batchAnalyzeOp, t]);
 
   // --- Batch generate email operation ---
   const batchGenerateOp = useBatchOperation<Company>({
@@ -1446,21 +1477,23 @@ const WorkbenchTab: React.FC<WorkbenchTabProps> = ({
           <div className="flex items-center gap-2 flex-wrap">
             <Button
               variant="secondary"
-              onClick={() => batchAnalyzeOp.start()}
-              disabled={batchAnalyzeOp.isRunning || items.length === 0 || batchGenerateOp.isRunning || batchWhatsAppOp.isRunning}
+              onClick={() => void handleAnalyzeAll()}
+              disabled={analyzeAllPreparing || batchAnalyzeOp.isRunning || items.length === 0 || batchGenerateOp.isRunning || batchWhatsAppOp.isRunning}
             >
-              {batchAnalyzeOp.isRunning ? (
+              {analyzeAllPreparing || batchAnalyzeOp.isRunning ? (
                 <Loader2 className="animate-spin" size={16} />
               ) : (
                 <Play size={16} />
               )}
-              {batchAnalyzeOp.isRunning
-                ? t('分析中 {p}/{t}（{percent}%）', {
-                    p: batchAnalyzeOp.processed + batchAnalyzeOp.failed,
-                    t: batchAnalyzeOp.total,
-                    percent: batchAnalyzeOp.progress,
-                  })
-                : t('一键分析全部')}
+              {analyzeAllPreparing
+                ? t('正在获取待分析列表...')
+                : batchAnalyzeOp.isRunning
+                  ? t('分析中 {p}/{t}（{percent}%）', {
+                      p: batchAnalyzeOp.processed + batchAnalyzeOp.failed,
+                      t: batchAnalyzeOp.total,
+                      percent: batchAnalyzeOp.progress,
+                    })
+                  : t('一键分析全部')}
             </Button>
             <Button
               variant="default"
