@@ -196,6 +196,8 @@ export class AdminController {
   async memcheck(
     @Query('materialId') materialId: string,
     @Query('stream') streamMode: string,
+    @Query('bytes') streamBytes: string | undefined,
+    @Query('chunked') manualChunked: string | undefined,
     @Res({ passthrough: true }) res: import('express').Response,
   ): Promise<unknown> {
     const os = await import('os');
@@ -257,8 +259,34 @@ export class AdminController {
     }
 
     if (streamMode === '1') {
+      const cap = streamBytes ? Number(streamBytes) : 0;
+      const payload = cap > 0 && cap < copy.length ? copy.subarray(0, cap) : copy;
       res.contentType(row.contentType || 'application/octet-stream');
-      return new StreamableFile(copy);
+      if (manualChunked === '1') {
+        res.setHeader('Content-Length', String(payload.length));
+        // 手工分块写（带背压），绕开 StreamableFile 的管道路径
+        const CHUNK = 262144;
+        let written = 0;
+        await new Promise<void>((resolve, reject) => {
+          const writeNext = (): void => {
+            while (written < payload.length) {
+              const end = Math.min(written + CHUNK, payload.length);
+              const ok = res.write(payload.subarray(written, end));
+              written = end;
+              if (!ok) {
+                res.once('drain', writeNext);
+                return;
+              }
+            }
+            res.end();
+            resolve();
+          };
+          res.on('error', reject);
+          writeNext();
+        });
+        return null;
+      }
+      return new StreamableFile(payload);
     }
     return report;
   }
