@@ -139,7 +139,6 @@ const SettingsPage = () => {
     retry: false,
   });
   const modelList = modelOptions?.models ?? [];
-  const currentModelDesc = modelList.find((m) => m.id === modelForm.watch('modelName'))?.description;
 
   const updateMutation = useMutation({
     mutationFn: (values: ModelFormValues) => {
@@ -441,14 +440,11 @@ const SettingsPage = () => {
                               )}
                               {modelList.map((m) => (
                                 <option key={m.id} value={m.id}>
-                                  {m.id}
+                                  {m.description ? `${m.id} · ${m.description}` : m.id}
                                 </option>
                               ))}
                             </select>
                           </FormControl>
-                          {currentModelDesc && (
-                            <p className="text-xs text-slate-500 mt-1">{currentModelDesc}</p>
-                          )}
                           <FormMessage />
                         </FormItem>
                       )}

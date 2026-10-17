@@ -18,22 +18,10 @@ const DEFAULT_SENDER_SIGNATURE = 'Best regards,\nBD Team';
 
 /** 内置模型清单：中转拉不到列表时的兜底，同时提供中文描述 */
 const BUILTIN_MODELS: Array<{ id: string; description: string }> = [
-  {
-    id: 'TPK/GLM-5.2',
-    description: '智谱 GLM-5.2 · 综合能力最强，中英文邮件质量高（推荐）',
-  },
-  {
-    id: 'TPK/DeepSeek-V4-Flash',
-    description: 'DeepSeek V4 Flash · 速度快、额度消耗低，适合批量生成',
-  },
-  {
-    id: 'TPK/Qwen3.6-35B-A3B',
-    description: '阿里 Qwen3.6 35B · 中文理解好，性价比高',
-  },
-  {
-    id: 'TPK/Qwen3.8-27B',
-    description: '阿里 Qwen3.8 27B · 轻量快速，适合简单场景',
-  },
+  { id: 'TPK/GLM-5.2', description: '综合能力最强（推荐）' },
+  { id: 'TPK/DeepSeek-V4-Flash', description: '速度快、省额度' },
+  { id: 'TPK/Qwen3.6-35B-A3B', description: '中文好、性价比高' },
+  { id: 'TPK/Qwen3.8-27B', description: '轻量快速' },
 ];
 
 @Injectable()
