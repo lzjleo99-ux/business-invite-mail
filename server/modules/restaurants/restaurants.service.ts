@@ -418,6 +418,8 @@ export class RestaurantsService {
         return eq(restaurants.status, 'generated');
       case 'no_email':
         return or(isNull(restaurants.email), eq(restaurants.email, ''));
+      case 'has_email':
+        return and(isNotNull(restaurants.email), ne(restaurants.email, ''));
       case 'failed':
         return eq(restaurants.status, 'failed');
       default:

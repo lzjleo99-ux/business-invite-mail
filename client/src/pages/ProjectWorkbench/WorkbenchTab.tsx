@@ -208,10 +208,12 @@ const WorkbenchTab: React.FC<WorkbenchTabProps> = ({
     },
   });
 
-  // 「一键分析全部」的目标 = 项目里所有未分析（待分析 + 失败）的公司，
-  // 跨分页拉全、不设上限 —— 当前页最多 20 条，直接用会漏掉其余页。
-  // 平台 ListQueryDto 校验 pageSize ≤ 100，所以按 100/页循环到 total 尽头。
+  // 「一键分析全部」两段式：
+  // 1) 分析项目里所有未分析（待分析 + 失败）的公司，跨分页拉全、不设上限；
+  // 2) 邮箱核验：重扫全部公司官网 —— 已有邮箱的核验准确性（官网出现更优邮箱则替换），
+  //    没邮箱的尝试从官网挖。纯 HTTP 不调 AI，与第 1 步并行执行。
   const [analyzeAllPreparing, setAnalyzeAllPreparing] = useState(false);
+  const [emailRescanRunning, setEmailRescanRunning] = useState(false);
   const handleAnalyzeAll = useCallback(async () => {
     setAnalyzeAllPreparing(true);
     try {
@@ -228,16 +230,43 @@ const WorkbenchTab: React.FC<WorkbenchTabProps> = ({
       const targets = [...seen.values()];
       if (targets.length === 0) {
         toast.info(t('没有待分析的公司，所有公司都已分析'));
-        return;
+      } else {
+        batchAnalyzeOp.start(targets);
       }
-      batchAnalyzeOp.start(targets);
     } catch (err: unknown) {
       logger.error('获取待分析公司列表失败', err);
       toast.error(t('获取待分析列表失败，请重试'));
-    } finally {
       setAnalyzeAllPreparing(false);
+      return;
     }
-  }, [projectId, batchAnalyzeOp, t]);
+    setAnalyzeAllPreparing(false);
+
+    // 邮箱核验（不依赖第 1 步结果，全部公司都重扫）
+    setEmailRescanRunning(true);
+    try {
+      const summary = await websiteAnalyzerApi.rescanEmails(projectId);
+      void qc.invalidateQueries({ queryKey: ['companies'] });
+      void qc.invalidateQueries({ queryKey: ['company-stats'] });
+      if (summary.updated + summary.added > 0) {
+        toast.success(
+          t('邮箱核验完成：扫描 {s} 个网站，替换 {u} 家、新找到 {a} 家的邮箱', {
+            s: summary.scanned,
+            u: summary.updated,
+            a: summary.added,
+          }),
+        );
+      } else {
+        toast.info(
+          t('邮箱核验完成：{s} 个网站中没有发现可更新的邮箱', { s: summary.scanned }),
+        );
+      }
+    } catch (err: unknown) {
+      logger.error('邮箱核验失败', err);
+      toast.error(t('邮箱核验失败，请稍后重试'));
+    } finally {
+      setEmailRescanRunning(false);
+    }
+  }, [projectId, batchAnalyzeOp, t, qc]);
 
   // --- Batch generate email operation ---
   // 「一键生成全部」只圈「已分析 + 有邮箱 + 尚未生成」的公司：
@@ -417,7 +446,7 @@ const WorkbenchTab: React.FC<WorkbenchTabProps> = ({
       { key: 'analyzed' as const, label: t('已分析'), value: data.analyzed, color: 'text-blue-600' },
       { key: 'pending' as const, label: t('待分析'), value: data.pending, color: 'text-slate-600' },
       { key: 'generated' as const, label: t('已生成邮件'), value: data.generated, color: 'text-green-600' },
-      { key: 'no_email' as const, label: t('缺邮箱'), value: data.noEmail, color: 'text-amber-600' },
+      { key: 'has_email' as const, label: t('有邮箱'), value: data.total - data.noEmail, color: 'text-emerald-600' },
       { key: 'failed' as const, label: t('失败'), value: data.failed, color: 'text-red-600' },
     ];
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -430,6 +459,7 @@ const WorkbenchTab: React.FC<WorkbenchTabProps> = ({
       analyzed: t('已分析'),
       pending: t('待分析'),
       generated: t('已生成邮件'),
+      has_email: t('有邮箱'),
       no_email: t('缺邮箱'),
       failed: t('失败'),
     };
@@ -1519,22 +1549,24 @@ const WorkbenchTab: React.FC<WorkbenchTabProps> = ({
             <Button
               variant="secondary"
               onClick={() => void handleAnalyzeAll()}
-              disabled={analyzeAllPreparing || batchAnalyzeOp.isRunning || items.length === 0 || batchGenerateOp.isRunning || batchWhatsAppOp.isRunning}
+              disabled={analyzeAllPreparing || emailRescanRunning || batchAnalyzeOp.isRunning || items.length === 0 || batchGenerateOp.isRunning || batchWhatsAppOp.isRunning}
             >
-              {analyzeAllPreparing || batchAnalyzeOp.isRunning ? (
+              {analyzeAllPreparing || emailRescanRunning || batchAnalyzeOp.isRunning ? (
                 <Loader2 className="animate-spin" size={16} />
               ) : (
                 <Play size={16} />
               )}
               {analyzeAllPreparing
                 ? t('正在获取待分析列表...')
-                : batchAnalyzeOp.isRunning
-                  ? t('分析中 {p}/{t}（{percent}%）', {
-                      p: batchAnalyzeOp.processed + batchAnalyzeOp.failed,
-                      t: batchAnalyzeOp.total,
-                      percent: batchAnalyzeOp.progress,
-                    })
-                  : t('一键分析全部')}
+                : emailRescanRunning
+                  ? t('正在核验邮箱...')
+                  : batchAnalyzeOp.isRunning
+                    ? t('分析中 {p}/{t}（{percent}%）', {
+                        p: batchAnalyzeOp.processed + batchAnalyzeOp.failed,
+                        t: batchAnalyzeOp.total,
+                        percent: batchAnalyzeOp.progress,
+                      })
+                    : t('一键分析全部')}
             </Button>
             <Button
               variant="default"

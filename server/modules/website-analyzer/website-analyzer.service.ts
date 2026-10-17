@@ -9,7 +9,7 @@ import { execFile } from 'child_process';
 import { promisify } from 'util';
 import { randomUUID } from 'crypto';
 import * as fs from 'fs/promises';
-import { restaurants, modelConfig } from '@server/database/schema';
+import { restaurants, modelConfig, projects } from '@server/database/schema';
 import type { Company, CompanyStatus } from '@shared/api.interface';
 
 const execFileAsync = promisify(execFile);
@@ -36,6 +36,23 @@ interface FetchResult {
   content: string;
   method: 'http' | 'browser' | 'screenshot' | 'fallback';
   error?: string;
+}
+
+export interface EmailRescanChange {
+  id: string;
+  name: string;
+  from: string | null;
+  to: string;
+  action: 'updated' | 'added';
+}
+
+export interface EmailRescanSummary {
+  scanned: number;
+  updated: number;
+  added: number;
+  errors: number;
+  skippedNoWebsite: number;
+  changes: EmailRescanChange[];
 }
 
 @Injectable()
@@ -755,5 +772,223 @@ ${content}`;
 
   analyzeRestaurant(id: string, userId: string): Promise<Company> {
     return this.analyzeCompany(id, userId);
+  }
+
+  // ==================== 邮箱核验/挖掘（轻量，不走 AI） ====================
+  //
+  // 「一键分析全部」时对项目内所有公司重新扫官网：
+  // - 已有邮箱的：核验是否还出现在官网上，出现其他更优邮箱则替换
+  // - 没邮箱的：从官网（首页 + 联系页）挖邮箱
+  // 只做 HTTP 抓取 + 正则提取，不调 AI —— 50 个站点约 1-2 分钟。
+
+  async rescanProjectEmails(
+    projectId: string,
+    user: { userId: string; role: 'admin' | 'user' },
+  ): Promise<EmailRescanSummary> {
+    // 项目访问权：admin 全量，普通用户须是项目 owner（与 restaurants.findAll 同语义）
+    if (user.role !== 'admin') {
+      const owned = await this.db
+        .select({ id: projects.id })
+        .from(projects)
+        .where(and(eq(projects.id, projectId), eq(projects.ownerId, user.userId)))
+        .limit(1);
+      if (owned.length === 0) {
+        throw new BadRequestException('项目不存在或无权访问');
+      }
+    }
+
+    const companies = await this.db
+      .select({
+        id: restaurants.id,
+        name: restaurants.name,
+        website: restaurants.website,
+        email: restaurants.email,
+        websiteContactEmail: restaurants.websiteContactEmail,
+      })
+      .from(restaurants)
+      .where(eq(restaurants.projectId, projectId));
+
+    const withSite = companies.filter((c) => (c.website ?? '').trim().length > 0);
+    const skippedNoWebsite = companies.length - withSite.length;
+
+    const summary: EmailRescanSummary = {
+      scanned: 0,
+      updated: 0,
+      added: 0,
+      errors: 0,
+      skippedNoWebsite,
+      changes: [],
+    };
+
+    let cursor = 0;
+    const worker = async (): Promise<void> => {
+      while (cursor < withSite.length) {
+        const company = withSite[cursor];
+        cursor += 1;
+        try {
+          const action = await this.rescanCompanyEmail(company);
+          summary.scanned += 1;
+          if (action) {
+            summary.changes.push(action);
+            if (action.action === 'updated') summary.updated += 1;
+            else summary.added += 1;
+          }
+          // null = kept（已有邮箱仍在官网）或 none（没挖到），不计入 changes
+        } catch (err: unknown) {
+          summary.scanned += 1;
+          summary.errors += 1;
+          this.logger.warn(
+            `邮箱核验失败 ${company.name}: ${err instanceof Error ? err.message : String(err)}`,
+          );
+        }
+      }
+    };
+    await Promise.all(Array.from({ length: Math.min(this.CONCURRENCY, withSite.length) }, worker));
+
+    return summary;
+  }
+
+  /**
+   * 单公司邮箱核验。返回变更（updated/added）或 null（kept/none/error 已计入 summary）。
+   * 规则：
+   * - 官网（首页 + ≤3 个联系页）提取邮箱，按角色前缀/域名匹配排序取最优
+   * - 已有邮箱且仍在官网出现 → 保持（kept）
+   * - 已有邮箱但官网出现的是别的 → 替换 websiteContactEmail（updated，导入的 email 字段不动）
+   * - 没邮箱且挖到 → 写 websiteContactEmail（email 为空时一并填，added）
+   * - 什么都没挖到 → 保持现状（none），绝不因抓取失败清空已有邮箱
+   */
+  private async rescanCompanyEmail(company: {
+    id: string;
+    name: string;
+    website: string;
+    email: string | null;
+    websiteContactEmail: string | null;
+  }): Promise<{ id: string; name: string; from: string | null; to: string; action: 'updated' | 'added' } | null> {
+    const siteRaw = company.website.trim();
+    const siteUrl = /^https?:\/\//i.test(siteRaw) ? siteRaw : `https://${siteRaw}`;
+    let siteHost = '';
+    try {
+      siteHost = new URL(siteUrl).hostname.replace(/^www\./, '');
+    } catch {
+      return null;
+    }
+
+    const homepage = await this.fetchPageText(siteUrl);
+    if (homepage === null) return null;
+
+    const pages: string[] = [homepage];
+    const contactLinks = this.extractContactLinks(homepage, siteUrl).slice(0, 2);
+    for (const link of contactLinks) {
+      const page = await this.fetchPageText(link);
+      if (page !== null) pages.push(page);
+      if (pages.length >= 3) break;
+    }
+
+    const found = this.rankEmails(
+      pages.flatMap((p) => this.extractEmails(p)),
+      siteHost,
+    );
+    if (found.length === 0) return null;
+
+    const stored = (company.websiteContactEmail || company.email || '').trim().toLowerCase();
+    const best = found[0];
+    if (stored) {
+      if (found.includes(stored)) return null; // kept：已有邮箱仍在官网上，可信
+      if (best === stored) return null;
+      await this.db
+        .update(restaurants)
+        .set({ websiteContactEmail: best })
+        .where(eq(restaurants.id, company.id));
+      return { id: company.id, name: company.name, from: stored || null, to: best, action: 'updated' };
+    }
+    // 没有邮箱 → 新增
+    const updateData: Record<string, unknown> = { websiteContactEmail: best };
+    if (!company.email) updateData.email = best;
+    await this.db
+      .update(restaurants)
+      .set(updateData)
+      .where(eq(restaurants.id, company.id));
+    return { id: company.id, name: company.name, from: null, to: best, action: 'added' };
+  }
+
+  /** 轻量抓取：纯 HTTP、2MB 上限、8s 超时；任何失败返回 null（不抛）。 */
+  private async fetchPageText(url: string): Promise<string | null> {
+    try {
+      const res = await this.httpClient.get<string>(url, {
+        responseType: 'text',
+        maxContentLength: 2 * 1024 * 1024,
+        timeout: 8000,
+      });
+      const text = typeof res.data === 'string' ? res.data : '';
+      return text.length > 0 ? text : null;
+    } catch {
+      return null;
+    }
+  }
+
+  /** 从首页 HTML 里挖联系页链接（kontakt/contact/about/o nama/impressum 等），绝对化。 */
+  private extractContactLinks(html: string, baseUrl: string): string[] {
+    const out: string[] = [];
+    const seen = new Set<string>();
+    const re = /<a\b[^>]*href\s*=\s*["']([^"'#\s]+)["'][^>]*>([\s\S]{0,120}?)<\/a>/gi;
+    let m: RegExpExecArray | null;
+    while ((m = re.exec(html)) !== null && out.length < 4) {
+      const href = m[1];
+      const text = m[2].replace(/<[^>]*>/g, ' ').toLowerCase();
+      if (!/kontakt|contact|about|onama|o-nama|impressum|info|联系|关于/i.test(href + ' ' + text)) continue;
+      try {
+        const abs = new URL(href, baseUrl).toString();
+        // 只跟同站页面
+        if (new URL(abs).hostname.replace(/^www\./, '') !== new URL(baseUrl).hostname.replace(/^www\./, '')) continue;
+        if (seen.has(abs)) continue;
+        seen.add(abs);
+        out.push(abs);
+      } catch {
+        // 相对路径解析失败就跳过
+      }
+    }
+    return out;
+  }
+
+  /** 从 HTML 提取邮箱：mailto: 优先，再全文正则；过滤垃圾与误报，去重小写。 */
+  private extractEmails(html: string): string[] {
+    const raw: string[] = [];
+    const mailto = /mailto:([^\s'"?>\]>,]+)/gi;
+    let m: RegExpExecArray | null;
+    while ((m = mailto.exec(html)) !== null) raw.push(m[1]);
+    const plain = /[A-Za-z0-9._%+-]+@[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)+/g;
+    while ((m = plain.exec(html)) !== null) raw.push(m[0]);
+
+    const bad = /noreply|no-reply|donotreply|postmaster|abuse|spam|example\.(com|org)|sentry|wixpress|wix\.com|wordpress\.|godaddy|cloudflare|\.png|\.jpe?g|\.gif|\.webp|\.svg|\.css|\.js$/i;
+    const out: string[] = [];
+    const seen = new Set<string>();
+    for (let item of raw) {
+      item = item.trim().toLowerCase().replace(/[.,;:!'")\]]+$/, '');
+      if (!/^[a-z0-9._%+-]+@[a-z0-9.-]+\.[a-z]{2,}$/.test(item)) continue;
+      if (item.length > 80) continue;
+      if (bad.test(item)) continue;
+      if (seen.has(item)) continue;
+      seen.add(item);
+      out.push(item);
+    }
+    return out;
+  }
+
+  /**
+   * 邮箱排序：角色前缀（info/office/kontakt/prodaja…）> 与站点同域名 > 其他；
+   * 同分保持出现顺序（首页与 mailto 里的通常最相关）。
+   */
+  private rankEmails(emails: string[], siteHost: string): string[] {
+    const role = /^(info|office|kontakt|contact|prodaja|sales|hello|pomoc|uprava|market[in]g|admin)\./i;
+    const scored = emails.map((e, i) => {
+      let score = 0;
+      const local = e.split('@')[0];
+      const domain = e.split('@')[1] ?? '';
+      if (role.test(local)) score += 3;
+      if (siteHost && (domain === siteHost || domain.endsWith(`.${siteHost}`))) score += 2;
+      return { e, i, score };
+    });
+    scored.sort((a, b) => b.score - a.score || a.i - b.i);
+    return scored.map((s) => s.e);
   }
 }

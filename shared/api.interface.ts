@@ -19,6 +19,7 @@ export type StatsFilterKey =
   | 'analyzed'
   | 'pending'
   | 'generated'
+  | 'has_email'
   | 'no_email'
   | 'failed';
 

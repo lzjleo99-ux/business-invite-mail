@@ -11,6 +11,7 @@ import { CurrentUser } from '../auth/current-user.decorator';
 import { IsArray, IsOptional, IsString } from 'class-validator';
 import { Type } from 'class-transformer';
 import { WebsiteAnalyzerService } from './website-analyzer.service';
+import type { EmailRescanSummary } from './website-analyzer.service';
 import type { Company, BatchAnalyzeRequest } from '@shared/api.interface';
 
 class BatchAnalyzeDto implements BatchAnalyzeRequest {
@@ -22,6 +23,11 @@ class BatchAnalyzeDto implements BatchAnalyzeRequest {
   @IsOptional()
   @IsString()
   projectId?: string;
+}
+
+class RescanEmailsDto {
+  @IsString()
+  projectId!: string;
 }
 
 @UseGuards(JwtAuthGuard)
@@ -52,5 +58,24 @@ export class WebsiteAnalyzerController {
       dto.projectId,
       user.userId,
     );
+  }
+
+  /**
+   * 邮箱核验/挖掘：重扫项目内所有公司官网。
+   * 已有邮箱的核验准确性（官网出现更优邮箱则替换），没邮箱的尝试从官网挖。
+   * 纯 HTTP + 正则，不调 AI；耗时约 1-2 分钟（50 站点）。
+   */
+  @Post('rescan-emails')
+  async rescanEmails(
+    @CurrentUser() user: JwtPayload,
+    @Body() dto: RescanEmailsDto,
+  ): Promise<EmailRescanSummary> {
+    if (!dto.projectId) {
+      throw new BadRequestException('projectId 不能为空');
+    }
+    return this.websiteAnalyzerService.rescanProjectEmails(dto.projectId, {
+      userId: user.userId,
+      role: user.role,
+    });
   }
 }
