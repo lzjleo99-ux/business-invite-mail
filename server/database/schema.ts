@@ -181,9 +181,6 @@ export const projectMaterials = pgTable("project_materials", {
   filePath: text("file_path"),
   contentSummary: text("content_summary"),
   parsedContent: text("parsed_content"),
-  // 图片素材的 AI 视觉描述（邮件选图用；vision 不可用时为 OCR/文件名兜底描述）。
-  // 平台管理的表不能改平台迁移，列由 ImageAnalysisService 启动期幂等 ALTER 补齐。
-  imageDescription: text("image_description"),
   sortOrder: integer("sort_order").notNull().default(0),
   // System field: Creation time (auto-filled, do not modify)
   createdAt: customTimestamptz("_created_at", { precision: 3 }).notNull().default(sql`CURRENT_TIMESTAMP`),
@@ -381,6 +378,21 @@ export const materialBlobs = pgTable("material_blobs", {
   contentType: varchar("content_type", { length: 100 }).notNull().default("application/octet-stream"),
   data: bytea("data").notNull(),
   createdAt: customTimestamptz("_created_at", { precision: 3 }).notNull().default(sql`CURRENT_TIMESTAMP`),
+});
+
+// 图片素材的 AI 视觉描述（邮件选图用）。独立成表而非给 project_materials 加列：
+// 平台管理的表归平台迁移用户所有，自建连接用户 ALTER 加列会报
+// "must be owner of table"（CREATE 新表则 owner 是自己，material_blobs 已验证）。
+// 与 project_materials 一一对应，行删除时级联清理。
+export const materialImageDescriptions = pgTable("material_image_descriptions", {
+  materialId: uuid("material_id")
+    .primaryKey()
+    .references(() => projectMaterials.id, { onDelete: "cascade" }),
+  // 前缀 vision:/fallback: 标记描述来源（读取时剥掉）
+  description: text("description").notNull(),
+  source: varchar("source", { length: 20 }).notNull().default("fallback"),
+  createdAt: customTimestamptz("_created_at", { precision: 3 }).notNull().default(sql`CURRENT_TIMESTAMP`),
+  updatedAt: customTimestamptz("_updated_at", { precision: 3 }).notNull().default(sql`CURRENT_TIMESTAMP`),
 });
 
 export const modelConfigTable = modelConfig;

@@ -224,5 +224,14 @@ CREATE TABLE IF NOT EXISTS material_blobs (
 -- 新表必须显式授权，否则运行时 DML 报 permission denied（幂等）。
 GRANT ALL PRIVILEGES ON TABLE material_blobs TO anon_, authenticated_, service_role_;
 
--- ---------- 图片素材的 AI 视觉描述（邮件选图用；ImageAnalysisService 也会启动期自愈） ----------
-ALTER TABLE project_materials ADD COLUMN IF NOT EXISTS image_description text;
+-- ---------- 图片素材的 AI 视觉描述（邮件选图用） ----------
+-- 独立成表而非给 project_materials 加列：平台表归平台迁移用户所有，
+-- ALTER 加列报 must be owner；CREATE 新表 owner 是自己（幂等）。
+CREATE TABLE IF NOT EXISTS material_image_descriptions (
+  material_id   uuid PRIMARY KEY REFERENCES project_materials(id) ON DELETE CASCADE,
+  description   text NOT NULL,
+  source        varchar(20) NOT NULL DEFAULT 'fallback',
+  _created_at   timestamptz(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  _updated_at   timestamptz(3) NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+GRANT ALL PRIVILEGES ON TABLE material_image_descriptions TO anon_, authenticated_, service_role_;

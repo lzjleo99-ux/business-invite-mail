@@ -10,7 +10,7 @@ import {
   type PostgresJsDatabase,
 } from '@lark-apaas/fullstack-nestjs-core';
 import { eq, asc, max, sql, isNotNull, count, and } from 'drizzle-orm';
-import { projects, projectMaterials, restaurants } from '@server/database/schema';
+import { projects, projectMaterials, restaurants, materialImageDescriptions } from '@server/database/schema';
 import { ImageAnalysisService } from './image-analysis.service';
 import type {
   Project,
@@ -137,10 +137,21 @@ export class ProjectsService {
 
     const stats = statsRows[0] as { companyCount: number | bigint; generatedCount: number };
 
-    // 材料列表
+    // 材料列表（join 描述表，图片素材带 AI 视觉描述）
     const materialRows = await this.db
-      .select()
+      .select({
+        id: projectMaterials.id,
+        projectId: projectMaterials.projectId,
+        fileName: projectMaterials.fileName,
+        fileType: projectMaterials.fileType,
+        fileSize: projectMaterials.fileSize,
+        contentSummary: projectMaterials.contentSummary,
+        imageDescription: materialImageDescriptions.description,
+        sortOrder: projectMaterials.sortOrder,
+        createdAt: projectMaterials.createdAt,
+      })
       .from(projectMaterials)
+      .leftJoin(materialImageDescriptions, eq(materialImageDescriptions.materialId, projectMaterials.id))
       .where(eq(projectMaterials.projectId, id))
       .orderBy(asc(projectMaterials.sortOrder));
 
@@ -151,7 +162,9 @@ export class ProjectsService {
       fileType: m.fileType,
       fileSize: m.fileSize,
       contentSummary: m.contentSummary,
-      imageDescription: m.imageDescription ?? null,
+      imageDescription: m.imageDescription
+        ? m.imageDescription.replace(/^(vision|fallback):/, '')
+        : null,
       sortOrder: m.sortOrder,
       createdAt: m.createdAt.toISOString(),
     }));
@@ -307,7 +320,7 @@ export class ProjectsService {
       fileType: m.fileType,
       fileSize: m.fileSize,
       contentSummary: m.contentSummary,
-      imageDescription: m.imageDescription ?? null,
+      imageDescription: null, // 图片描述由 ImageAnalysisService 异步分析后写入独立表
       sortOrder: m.sortOrder,
       createdAt: m.createdAt.toISOString(),
     };
@@ -372,14 +385,24 @@ export class ProjectsService {
   ): Promise<ProjectMaterial[]> {
     await this.ensureProjectAccess(projectId, user);
 
-    // listMaterials 直接 select image_description —— 查询前确保列已迁移
-    // （onModuleInit 是尽力而为；启动迁移失败时这里请求期自愈，
-    // material_blobs 建表已验证请求期 DDL 可行）。
-    await this.imageAnalysis.ensureColumn();
+    // listMaterials 要 join material_image_descriptions —— 查询前确保表已迁移
+    // （请求期自愈，memoize 后零开销；material_blobs 建表已验证请求期 DDL 可行）。
+    await this.imageAnalysis.ensureTable();
 
     const rows = await this.db
-      .select()
+      .select({
+        id: projectMaterials.id,
+        projectId: projectMaterials.projectId,
+        fileName: projectMaterials.fileName,
+        fileType: projectMaterials.fileType,
+        fileSize: projectMaterials.fileSize,
+        contentSummary: projectMaterials.contentSummary,
+        imageDescription: materialImageDescriptions.description,
+        sortOrder: projectMaterials.sortOrder,
+        createdAt: projectMaterials.createdAt,
+      })
       .from(projectMaterials)
+      .leftJoin(materialImageDescriptions, eq(materialImageDescriptions.materialId, projectMaterials.id))
       .where(eq(projectMaterials.projectId, projectId))
       .orderBy(asc(projectMaterials.sortOrder));
 
@@ -390,7 +413,9 @@ export class ProjectsService {
       fileType: m.fileType,
       fileSize: m.fileSize,
       contentSummary: m.contentSummary,
-      imageDescription: m.imageDescription ?? null,
+      imageDescription: m.imageDescription
+        ? m.imageDescription.replace(/^(vision|fallback):/, '')
+        : null,
       sortOrder: m.sortOrder,
       createdAt: m.createdAt.toISOString(),
     }));

@@ -1,4 +1,4 @@
-import { Injectable, Inject, Logger, OnModuleInit } from '@nestjs/common';
+import { Injectable, Inject, Logger } from '@nestjs/common';
 import {
   DRIZZLE_DATABASE,
   type PostgresJsDatabase,
@@ -6,7 +6,7 @@ import {
 import { eq, asc, sql } from 'drizzle-orm';
 import axios from 'axios';
 import { spawn } from 'child_process';
-import { modelConfig, projectMaterials } from '@server/database/schema';
+import { modelConfig, projectMaterials, materialImageDescriptions } from '@server/database/schema';
 import { runIdempotentMigration } from '@server/common/utils/ddl-runner';
 import { MaterialBlobService } from './material-blob.service';
 
@@ -36,15 +36,18 @@ interface MaterialRow {
   fileType: string;
   contentSummary: string | null;
   parsedContent: string | null;
-  imageDescription: string | null;
 }
 
 /**
  * 图片素材的 AI 视觉描述与缓存。
  *
  * 用途：生成邮件时让模型从项目图片里挑「真正贴合正文内容」的图（而不是随便一张）。
- * 描述缓存到 project_materials.image_description —— 每张图只算一次；
+ * 描述缓存在独立表 material_image_descriptions —— 每张图只算一次；
  * 进程内再挂一层 Promise 去重，批量生成并发触达同一张图时只发一次请求。
+ *
+ * 为什么是独立表而不是给 project_materials 加列：平台管理的表归平台迁移用户
+ * 所有，自建连接用户 ALTER 加列报 "must be owner of table"（onModuleInit 与
+ * 请求期都试过）；CREATE 新表的 owner 是自己，material_blobs 已验证可行。
  *
  * Vision 能力探测：用户的模型配置未必支持图片输入（网关可能只挂了文本模型）。
  * 第一次真实描述请求即探测：返回 200 且有文本 → 支持；若 4xx/明确不支持图片
@@ -54,7 +57,7 @@ interface MaterialRow {
  * 已经跑过 OCR 存进 contentSummary/parsedContent）+ 所属项目语境。
  */
 @Injectable()
-export class ImageAnalysisService implements OnModuleInit {
+export class ImageAnalysisService {
   private readonly logger = new Logger(ImageAnalysisService.name);
   private ensurePromise: Promise<void> | null = null;
   /** apiKey → 是否支持视觉请求（进程内缓存，避免每张图试错） */
@@ -68,56 +71,63 @@ export class ImageAnalysisService implements OnModuleInit {
   ) {}
 
   /**
-   * 启动即跑列迁移。listMaterials 直接 select image_description，
-   * 若等"首次描述图片"才迁移，部署后到首次分析之间素材列表会 500。
-   * 失败不阻断启动：懒路径与下次启动都会重试。
+   * 幂等建表 + 授权（仿 material_blobs）。公开给 ProjectsService：
+   * listMaterials 要 join 本表，查询前确保表存在（启动钩子在该平台
+   * 不可靠，查询路径上的请求期 DDL 已验证可行，memoize 后零开销）。
    */
-  onModuleInit(): void {
-    void this.ensureColumn().catch((err: unknown) => {
-      this.logger.error(
-        `image_description 列迁移失败（将在下次使用时重试）: ${err instanceof Error ? err.message : String(err)}`,
-      );
-    });
-  }
-
-  /**
-   * project_materials.image_description 列（平台管理的表，幂等 ALTER 补齐）。
-   * 公开给 ProjectsService：listMaterials 直接 select 该列，查询前必须确保列存在。
-   * 失败带诊断信息抛出（DdlRunner 错误含各策略探测结果），由调用方决定如何呈现。
-   */
-  ensureColumn(): Promise<void> {
+  ensureTable(): Promise<void> {
     if (!this.ensurePromise) {
       this.ensurePromise = runIdempotentMigration(
         this.db,
-        'image_description 列迁移',
+        'material_image_descriptions 建表迁移',
         async (run) => {
-          await run(
-            'ALTER TABLE project_materials ADD COLUMN IF NOT EXISTS image_description text',
-          );
+          await run(`
+            CREATE TABLE IF NOT EXISTS material_image_descriptions (
+              material_id   uuid PRIMARY KEY REFERENCES project_materials(id) ON DELETE CASCADE,
+              description   text NOT NULL,
+              source        varchar(20) NOT NULL DEFAULT 'fallback',
+              _created_at   timestamptz(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+              _updated_at   timestamptz(3) NOT NULL DEFAULT CURRENT_TIMESTAMP
+            )
+          `);
+          // 角色不存在（如平台托管库）时授权失败可容忍——那种环境不走
+          // SET LOCAL ROLE 中间件；记录日志即可。
+          try {
+            await run(
+              'GRANT ALL PRIVILEGES ON TABLE material_image_descriptions TO anon_, authenticated_, service_role_',
+            );
+          } catch (err) {
+            this.logger.warn(`material_image_descriptions 授权失败（可忽略于非自建环境）: ${String(err).split('\n')[0]}`);
+          }
         },
-      ).then((via) => {
-        this.logger.log(`image_description 列已就绪（via ${via}）`);
-      }).catch((err) => {
-        this.ensurePromise = null;
-        throw err;
-      });
+      )
+        .then((via) => {
+          this.logger.log(`material_image_descriptions 表已就绪（via ${via}）`);
+        })
+        .catch((err) => {
+          this.ensurePromise = null; // 允许下次重试
+          throw err;
+        });
     }
     return this.ensurePromise;
   }
 
   /**
-   * 取（必要时生成）一张图片素材的描述。非图片素材返回 null。
-   * force=true 时忽略缓存重新分析（重新上传会走 force）。
+   * 取（必要时生成）一张图片素材的描述（含 vision:/fallback: 前缀）。
+   * 非图片素材返回 null。force=true 时忽略缓存重新分析（重新上传会走 force）。
    */
   async describeMaterial(
     materialId: string,
     userId: string,
     opts: { force?: boolean } = {},
   ): Promise<string | null> {
-    await this.ensureColumn();
+    await this.ensureTable();
     const row = await this.getMaterial(materialId);
     if (!row || row.fileType !== 'image') return null;
-    if (row.imageDescription && !opts.force) return row.imageDescription;
+    if (!opts.force) {
+      const cached = await this.getCachedDescription(materialId);
+      if (cached) return cached;
+    }
 
     const existing = this.inflight.get(materialId);
     if (existing) return existing;
@@ -144,24 +154,25 @@ export class ImageAnalysisService implements OnModuleInit {
     projectId: string,
     userId: string,
   ): Promise<EmailImageCandidate[]> {
-    await this.ensureColumn();
-    const rows = (await this.db
+    await this.ensureTable();
+    const rows = await this.db
       .select({
         id: projectMaterials.id,
         fileName: projectMaterials.fileName,
         fileType: projectMaterials.fileType,
         contentSummary: projectMaterials.contentSummary,
         parsedContent: projectMaterials.parsedContent,
-        imageDescription: projectMaterials.imageDescription,
+        description: materialImageDescriptions.description,
       })
       .from(projectMaterials)
+      .leftJoin(materialImageDescriptions, eq(materialImageDescriptions.materialId, projectMaterials.id))
       .where(eq(projectMaterials.projectId, projectId))
-      .orderBy(asc(projectMaterials.sortOrder))) as MaterialRow[];
+      .orderBy(asc(projectMaterials.sortOrder));
 
     const images = rows.filter((r) => r.fileType === 'image').slice(0, 6);
     const result: EmailImageCandidate[] = [];
     for (const img of images) {
-      let description = img.imageDescription;
+      let description = img.description;
       let source: EmailImageCandidate['source'] = 'fallback';
       if (description) {
         source = description.startsWith('vision:') ? 'vision' : 'fallback';
@@ -192,27 +203,37 @@ export class ImageAnalysisService implements OnModuleInit {
     return result;
   }
 
+  private async getCachedDescription(materialId: string): Promise<string | null> {
+    const rows = await this.db
+      .select({ description: materialImageDescriptions.description })
+      .from(materialImageDescriptions)
+      .where(eq(materialImageDescriptions.materialId, materialId))
+      .limit(1);
+    return rows[0]?.description ?? null;
+  }
+
   private async getMaterial(materialId: string): Promise<MaterialRow | null> {
-    const rows = (await this.db
+    const rows = await this.db
       .select({
         id: projectMaterials.id,
         fileName: projectMaterials.fileName,
         fileType: projectMaterials.fileType,
         contentSummary: projectMaterials.contentSummary,
         parsedContent: projectMaterials.parsedContent,
-        imageDescription: projectMaterials.imageDescription,
       })
       .from(projectMaterials)
       .where(eq(projectMaterials.id, materialId))
-      .limit(1)) as MaterialRow[];
+      .limit(1);
     return rows[0] ?? null;
   }
 
-  /** 生成描述并写缓存。缓存值带 vision:/fallback: 前缀区分来源（读取时剥掉）。 */
+  /** 生成描述并写缓存（新表 upsert）。缓存值带 vision:/fallback: 前缀区分来源。 */
   private async analyzeAndCache(row: MaterialRow, userId: string): Promise<string | null> {
     let description: string | null = null;
+    let source: 'vision' | 'fallback' = 'fallback';
     try {
-      description = await this.describeWithVision(row, userId);
+      description = await this.describeWithVision(row.id, userId);
+      if (description) source = 'vision';
     } catch (err: unknown) {
       this.logger.warn(
         `vision 描述失败（走兜底） ${row.fileName}: ${err instanceof Error ? err.message : String(err)}`,
@@ -223,22 +244,26 @@ export class ImageAnalysisService implements OnModuleInit {
     }
     if (!description) return null;
 
+    const stored = `${source}:${description}`;
     await this.db
-      .update(projectMaterials)
-      .set({ imageDescription: description })
-      .where(eq(projectMaterials.id, row.id));
-    return description;
+      .insert(materialImageDescriptions)
+      .values({ materialId: row.id, description: stored, source })
+      .onConflictDoUpdate({
+        target: materialImageDescriptions.materialId,
+        set: { description: stored, source, updatedAt: sql`CURRENT_TIMESTAMP` },
+      });
+    return stored;
   }
 
   /** 用用户配置的模型看图生成描述；模型不支持图片输入时抛错（由调用方兜底）。 */
-  private async describeWithVision(row: MaterialRow, userId: string): Promise<string> {
+  private async describeWithVision(materialId: string, userId: string): Promise<string> {
     const config = await this.getModelConfig(userId);
     const supported = this.visionSupport.get(config.apiKey);
     if (supported === false) {
       throw new Error('该模型不支持图片输入（已知）');
     }
 
-    const dataUrl = await this.buildImageDataUrl(row.id);
+    const dataUrl = await this.buildImageDataUrl(materialId);
     const url = `${config.apiBaseUrl.replace(/\/+$/, '')}/chat/completions`;
     const response = await axios.post(
       url,
@@ -280,7 +305,7 @@ export class ImageAnalysisService implements OnModuleInit {
       throw new Error('vision 返回内容为空（可能是推理模型只回了思考过程）');
     }
     this.visionSupport.set(config.apiKey, true);
-    return 'vision:' + text.slice(0, 400);
+    return text.slice(0, 400);
   }
 
   /** blob → data URL；超过阈值先用容器里的 python3+PIL 缩图（缩不了且超 3.5MB 放弃）。 */
@@ -360,7 +385,7 @@ sys.stdout.buffer.write(out.getvalue())
       parts.push(`Text visible in the image (OCR): ${ocr.slice(0, 300)}`);
     }
     if (parts.length === 0) return null;
-    return 'fallback:' + parts.join('; ').slice(0, 400);
+    return parts.join('; ').slice(0, 400);
   }
 
   private async getModelConfig(userId: string): Promise<{
