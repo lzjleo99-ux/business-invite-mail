@@ -36,7 +36,16 @@ export class MaterialBlobService {
   private ensureTable(): Promise<void> {
     if (!this.ensurePromise) {
       this.ensurePromise = (async () => {
-        await this.db.execute(sql`
+        // 不能走 this.db（drizzle）执行 DDL：请求上下文里 datapaas 会把每条
+        // 查询包进 `SET LOCAL ROLE anon_/authenticated_/service_role_` 的事务，
+        // 这些角色只有 DML 权限，CREATE TABLE / GRANT 直接失败。
+        // $client 是底层 postgres-js 实例（已实测 db.$client === client），
+        // 绕开 drizzle 的被 patch 路径，以连接用户（schema owner）身份执行。
+        const raw = (this.db as unknown as { $client?: { unsafe: (q: string) => Promise<unknown> } }).$client;
+        if (!raw?.unsafe) {
+          throw new Error('无法获取底层 postgres 客户端（db.$client 不存在），无法执行 material_blobs 建表迁移');
+        }
+        await raw.unsafe(`
           CREATE TABLE IF NOT EXISTS material_blobs (
             material_id   uuid PRIMARY KEY REFERENCES project_materials(id) ON DELETE CASCADE,
             content_type  varchar(100) NOT NULL DEFAULT 'application/octet-stream',
@@ -47,10 +56,9 @@ export class MaterialBlobService {
         // 角色不存在（如平台托管库）时授权失败可容忍——那种环境不走
         // SET LOCAL ROLE 中间件；记录日志即可，下次调用不再重复尝试。
         try {
-          await this.db.execute(sql`
-            GRANT ALL PRIVILEGES ON TABLE material_blobs
-            TO anon_, authenticated_, service_role_
-          `);
+          await raw.unsafe(
+            'GRANT ALL PRIVILEGES ON TABLE material_blobs TO anon_, authenticated_, service_role_',
+          );
         } catch (err) {
           this.logger.warn(`material_blobs 授权失败（可忽略于非自建环境）: ${String(err).split('\n')[0]}`);
         }
