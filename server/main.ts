@@ -11,8 +11,12 @@ async function bootstrap() {
   const app = await NestFactory.create<NestExpressApplication>(AppModule, {
     abortOnError: process.env.NODE_ENV !== 'development',
   });
-  await configureApp(app, { 
+  await configureApp(app, {
     disableSwagger: true,
+    // 素材走 base64 JSON 上传（materials-base64），服务端允许解码后 30MB，
+    // base64 膨胀 ~1.37 倍 → 请求体上限必须 ≥ 41MB；平台默认只有 1mb，
+    // 大于 1mb 的文件直接 413（素材上传失败的根因之一）。
+    bodyLimit: '42mb',
   });
   const logger = new Logger('Bootstrap');
   // SERVER_HOST/SERVER_PORT 优先；PaaS（Render 等）只注入 PORT，

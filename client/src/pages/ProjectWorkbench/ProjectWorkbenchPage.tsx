@@ -528,6 +528,16 @@ const ProjectWorkbenchInner: React.FC = () => {
     }
   };
 
+  // --- Material preview/download ---
+  const handlePreviewMaterial = async (materialId: string) => {
+    try {
+      await projectsApi.downloadMaterial(id, materialId);
+    } catch (err: unknown) {
+      logger.error('预览素材失败', err);
+      toast.error(t('预览失败，文件可能已被清理，请重新上传'));
+    }
+  };
+
   // --- Duplicates ---
   const handleCheckDuplicates = async () => {
     setCheckingDuplicates(true);
@@ -723,6 +733,7 @@ const ProjectWorkbenchInner: React.FC = () => {
             onSaveProject={() => void handleSaveProject()}
             onUploadMaterial={(f) => void handleUploadMaterial(f)}
             onDeleteMaterial={(mid) => void handleDeleteMaterial(mid)}
+            onPreviewMaterial={(mid) => void handlePreviewMaterial(mid)}
             onStartEdit={handleStartEditProject}
           />
         </TabsContent>

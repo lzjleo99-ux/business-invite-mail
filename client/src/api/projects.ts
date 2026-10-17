@@ -90,3 +90,24 @@ export async function uploadMaterial(
 export async function deleteMaterial(projectId: string, materialId: string): Promise<void> {
   await axiosForBackend.delete(`/api/projects/${projectId}/materials/${materialId}`);
 }
+
+/**
+ * 预览/下载素材文件。
+ * 浏览器直接开 URL 带不上 JWT（Authorization 头只由 axios 拦截器注入），
+ * 所以先以 blob 拉回再走 objectURL：图片/PDF 在新标签页内联打开，
+ * 其余类型（xlsx/docx…）浏览器按 content-type 落盘下载。
+ */
+export async function downloadMaterial(projectId: string, materialId: string): Promise<void> {
+  const response = await axiosForBackend.get(
+    `/api/projects/${projectId}/materials/${materialId}/download`,
+    { responseType: 'blob' },
+  );
+  const blob = response.data as Blob;
+  const url = URL.createObjectURL(blob);
+  try {
+    window.open(url, '_blank', 'noopener,noreferrer');
+  } finally {
+    // 立即 revoke 会中断新标签页加载，给浏览器留出读取时间
+    setTimeout(() => URL.revokeObjectURL(url), 60_000);
+  }
+}

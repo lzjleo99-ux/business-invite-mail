@@ -247,6 +247,7 @@ export const enMessages: Record<string, string> = {
   '生成失败，请稍后重试': 'Generation failed, please try again later',
   '重新生成失败，请稍后重试': 'Regeneration failed, please try again later',
   '上传失败，请稍后重试': 'Upload failed, please try again later',
+  '预览失败，文件可能已被清理，请重新上传': 'Preview failed. The file may have been cleared — please upload it again',
   '查重失败，请稍后重试': 'Duplicate check failed, please try again later',
 
   // ---- Compose page ----

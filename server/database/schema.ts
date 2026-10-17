@@ -360,6 +360,26 @@ export const smtpConfig = pgTable("smtp_config", {
   updatedAt: customTimestamptz("_updated_at", { precision: 3 }).notNull().default(sql`CURRENT_TIMESTAMP`),
 });
 
+// bytea ↔ Buffer 映射：postgres-js 直接给/收 Buffer
+export const bytea = customType<{ data: Buffer; driverData: Buffer }>({
+  dataType() {
+    return "bytea";
+  },
+});
+
+// 素材文件字节。自建部署没有平台对象存储（FileService.upload 依赖
+// /b/{appId}/get_published_v2 拿默认 bucket，自建环境该接口返回 SPA HTML），
+// 文件字节落库；容器重建也不丢（跟业务表同库持久）。
+// 与 project_materials 一一对应，行删除时级联清理。
+export const materialBlobs = pgTable("material_blobs", {
+  materialId: uuid("material_id")
+    .primaryKey()
+    .references(() => projectMaterials.id, { onDelete: "cascade" }),
+  contentType: varchar("content_type", { length: 100 }).notNull().default("application/octet-stream"),
+  data: bytea("data").notNull(),
+  createdAt: customTimestamptz("_created_at", { precision: 3 }).notNull().default(sql`CURRENT_TIMESTAMP`),
+});
+
 export const modelConfigTable = modelConfig;
 export const projectImagesTable = projectImages;
 export const projectMaterialsTable = projectMaterials;

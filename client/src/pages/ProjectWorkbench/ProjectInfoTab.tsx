@@ -34,6 +34,7 @@ export interface ProjectInfoTabProps {
   onSaveProject: () => void;
   onUploadMaterial: (file: File) => void;
   onDeleteMaterial: (materialId: string) => void;
+  onPreviewMaterial: (materialId: string) => void;
   onStartEdit: () => void;
 }
 
@@ -48,6 +49,7 @@ const ProjectInfoTab: React.FC<ProjectInfoTabProps> = ({
   onSaveProject,
   onUploadMaterial,
   onDeleteMaterial,
+  onPreviewMaterial,
   onStartEdit,
 }) => {
   const { t } = useI18n();
@@ -195,7 +197,7 @@ const ProjectInfoTab: React.FC<ProjectInfoTabProps> = ({
                   </div>
                 </div>
                 <div className="flex items-center gap-2">
-                  <Button variant="ghost" size="sm">
+                  <Button variant="ghost" size="sm" onClick={() => onPreviewMaterial(mat.id)}>
                     {t('预览')}
                   </Button>
                   <Button

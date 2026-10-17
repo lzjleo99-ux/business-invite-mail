@@ -9,16 +9,19 @@ import {
   UseInterceptors,
   UploadedFile,
   BadRequestException,
+  NotFoundException,
   Logger,
   UseGuards,
+  StreamableFile,
+  Res,
 } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { IsString, IsOptional, MinLength } from 'class-validator';
-import { FileService } from '@lark-apaas/fullstack-nestjs-core';
 import * as mammoth from 'mammoth';
 import * as XLSX from 'xlsx';
 import { spawn } from 'child_process';
 import { ProjectsService } from './projects.service';
+import { MaterialBlobService } from './material-blob.service';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { CurrentUser } from '../auth/current-user.decorator';
 import type { JwtPayload } from '../auth/jwt-auth.guard';
@@ -78,7 +81,7 @@ export class ProjectsController {
 
   constructor(
     private readonly projectsService: ProjectsService,
-    private readonly fileService: FileService,
+    private readonly materialBlobs: MaterialBlobService,
   ) {}
 
   @Get()
@@ -134,13 +137,6 @@ export class ProjectsController {
     const fileType: string = this.detectFileType(file.mimetype, fileName);
     const fileSize: number = file.size;
 
-    // 上传文件到 dataloom
-    const uploadResult = await this.fileService.upload(file.buffer, {
-      fileName,
-      contentType: file.mimetype,
-    });
-    const filePath: string = uploadResult.filePath;
-
     // 解析文件内容
     let parsedContent: string | null = null;
     try {
@@ -154,16 +150,19 @@ export class ProjectsController {
       ? parsedContent.slice(0, 500)
       : null;
 
-    return this.projectsService.addMaterial(
+    // 文件字节落库（自建部署无平台对象存储，见 MaterialBlobService 注释）
+    const created = await this.projectsService.addMaterial(
       id,
       fileName,
       fileType,
       fileSize,
-      filePath,
+      '', // file_path 由 MaterialBlobService 写为 db:<id>
       contentSummary,
       parsedContent,
       { userId: user.userId, role: user.role },
     );
+    await this.materialBlobs.save(created.id, file.buffer, file.mimetype || 'application/octet-stream');
+    return created;
   }
 
   @Delete(':id/materials/:materialId')
@@ -205,12 +204,6 @@ export class ProjectsController {
     const fileType: string = this.detectFileType(mimeType, fileName);
     const fileSize: number = buffer.length;
 
-    const uploadResult = await this.fileService.upload(buffer, {
-      fileName,
-      contentType: mimeType,
-    });
-    const filePath: string = uploadResult.filePath;
-
     let parsedContent: string | null = null;
     try {
       parsedContent = await this.parseFileContent(buffer, fileType, fileName);
@@ -222,16 +215,50 @@ export class ProjectsController {
       ? parsedContent.slice(0, 500)
       : null;
 
-    return this.projectsService.addMaterial(
+    // 文件字节落库（自建部署无平台对象存储，见 MaterialBlobService 注释）
+    const created = await this.projectsService.addMaterial(
       id,
       fileName,
       fileType,
       fileSize,
-      filePath,
+      '', // file_path 由 MaterialBlobService 写为 db:<id>
       contentSummary,
       parsedContent,
       { userId: user.userId, role: user.role },
     );
+    await this.materialBlobs.save(created.id, buffer, mimeType);
+    return created;
+  }
+
+  /**
+   * 素材文件下载/预览。字节来自 material_blobs 表。
+   * 图片与 PDF 内联展示，其余类型按附件下载。
+   */
+  @Get(':id/materials/:materialId/download')
+  async downloadMaterial(
+    @Param('id') id: string,
+    @Param('materialId') materialId: string,
+    @CurrentUser() user: JwtPayload,
+    @Res({ passthrough: true }) res: import('express').Response,
+  ): Promise<StreamableFile> {
+    const meta = await this.projectsService.getMaterialMeta(
+      id,
+      materialId,
+      { userId: user.userId, role: user.role },
+    );
+    const blob = await this.materialBlobs.load(materialId);
+    if (!blob) {
+      throw new NotFoundException('文件内容不存在（可能上传于旧版本，请重新上传）');
+    }
+
+    const safeName = meta.fileName.replace(/[\r\n"\\]/g, '_') || 'file';
+    const inline = /^image\//.test(blob.contentType) || blob.contentType === 'application/pdf';
+    res.setHeader(
+      'Content-Disposition',
+      `${inline ? 'inline' : 'attachment'}; filename="${encodeURIComponent(safeName)}"; filename*=UTF-8''${encodeURIComponent(meta.fileName)}`,
+    );
+    res.contentType(blob.contentType);
+    return new StreamableFile(blob.data);
   }
 
   @Get(':id/materials')

@@ -336,6 +336,32 @@ export class ProjectsService {
       .where(eq(projectMaterials.id, materialId));
   }
 
+  /** 下载端点用：校验访问权限并返回素材元数据（不含字节）。 */
+  async getMaterialMeta(
+    projectId: string,
+    materialId: string,
+    user: UserContext,
+  ): Promise<{ fileName: string; fileType: string }> {
+    await this.ensureProjectAccess(projectId, user);
+    const rows = await this.db
+      .select({
+        fileName: projectMaterials.fileName,
+        fileType: projectMaterials.fileType,
+      })
+      .from(projectMaterials)
+      .where(
+        and(
+          eq(projectMaterials.id, materialId),
+          eq(projectMaterials.projectId, projectId),
+        ),
+      )
+      .limit(1);
+    if (rows.length === 0) {
+      throw new NotFoundException('材料不存在');
+    }
+    return rows[0];
+  }
+
   async listMaterials(
     projectId: string,
     user: UserContext,

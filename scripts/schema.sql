@@ -211,3 +211,15 @@ CREATE TABLE IF NOT EXISTS smtp_config (
   _created_at  timestamptz(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
   _updated_at  timestamptz(3) NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
+
+-- ---------- material_blobs（素材文件字节，自建部署无平台对象存储，落库持久） ----------
+-- 与 project_materials 一一对应；行删除时级联清理。授权给平台三角色见下。
+CREATE TABLE IF NOT EXISTS material_blobs (
+  material_id   uuid PRIMARY KEY REFERENCES project_materials(id) ON DELETE CASCADE,
+  content_type  varchar(100) NOT NULL DEFAULT 'application/octet-stream',
+  data          bytea NOT NULL,
+  _created_at   timestamptz(3) NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+-- 平台中间件按请求 SET LOCAL ROLE（anon_/authenticated_/service_role_），
+-- 新表必须显式授权，否则运行时 DML 报 permission denied（幂等）。
+GRANT ALL PRIVILEGES ON TABLE material_blobs TO anon_, authenticated_, service_role_;
