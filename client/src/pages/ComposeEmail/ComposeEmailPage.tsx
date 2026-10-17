@@ -11,6 +11,7 @@ import {
   Mail,
   MessageCircle,
   Save,
+  Send,
   Plus,
   Trash2,
   Loader2,
@@ -258,6 +259,36 @@ const ComposeEmailPage: React.FC = () => {
       logger.error('下载 .eml 失败', err);
       toast.error(t('下载失败，请稍后重试'));
     });
+  };
+
+  // SMTP 直发：先把当前可见文本落库（保存失败就别发），再走发送接口
+  const [sendConfirmOpen, setSendConfirmOpen] = useState(false);
+  const [sending, setSending] = useState(false);
+  const handleSend = async () => {
+    if (sending) return;
+    setSending(true);
+    try {
+      const nextSubject = displayLang === 'en' ? activeSubject : subject;
+      const nextBody = displayLang === 'en' ? activeBody : body;
+      const nextSubjectLocal = displayLang === 'local' ? activeSubject : subjectLocal;
+      const nextBodyLocal = displayLang === 'local' ? activeBody : bodyLocal;
+      await saveMutation.mutateAsync({
+        subject: nextSubject,
+        body: nextBody,
+        subjectLocal: nextSubjectLocal,
+        bodyLocal: nextBodyLocal,
+        language: languageCode,
+      });
+      const result = await emailGeneratorApi.sendEmail(companyId);
+      toast.success(t('邮件已发送至 {email}', { email: result.to }));
+      setSendConfirmOpen(false);
+    } catch (err: unknown) {
+      logger.error('直接发送失败', err);
+      const msg = err instanceof Error ? err.message : '';
+      toast.error(msg.includes('发信失败') || msg.includes('SMTP') ? msg : t('发送失败，请稍后重试'));
+    } finally {
+      setSending(false);
+    }
   };
 
   const handleOpenWxMail = () => {
@@ -524,6 +555,19 @@ const ComposeEmailPage: React.FC = () => {
                   {hasEmail && (
                     <Button
                       type="button"
+                      variant="default"
+                      size="default"
+                      onClick={() => setSendConfirmOpen(true)}
+                      disabled={sending}
+                      className="bg-blue-600 hover:bg-blue-700 text-white"
+                    >
+                      <Send size={16} />
+                      {t('发送邮件（SMTP）')}
+                    </Button>
+                  )}
+                  {hasEmail && (
+                    <Button
+                      type="button"
                       variant="outline"
                       size="default"
                       onClick={handleOpenWxMail}
@@ -719,6 +763,35 @@ const ComposeEmailPage: React.FC = () => {
           </Card>
         </div>
       )}
+
+      {/* SMTP 直发确认：真实外发，必须显式确认 */}
+      <Dialog open={sendConfirmOpen} onOpenChange={(v) => !sending && setSendConfirmOpen(v)}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>{t('确认发送邮件')}</DialogTitle>
+          </DialogHeader>
+          <p className="text-sm text-slate-600">
+            {t('将通过系统 SMTP 把这封邮件发送给 {email}，发送前会先保存当前编辑内容，确认发送？', {
+              email: recipientEmail || '',
+            })}
+          </p>
+          <DialogFooter>
+            <Button type="button" variant="outline" size="sm" onClick={() => setSendConfirmOpen(false)} disabled={sending}>
+              {t('取消')}
+            </Button>
+            <Button
+              type="button"
+              size="sm"
+              onClick={() => void handleSend()}
+              disabled={sending}
+              className="bg-blue-600 hover:bg-blue-700 text-white"
+            >
+              {sending && <Loader2 className="animate-spin" size={14} />}
+              {t('确认发送')}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 };
