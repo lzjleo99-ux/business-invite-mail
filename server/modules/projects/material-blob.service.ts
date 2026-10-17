@@ -32,37 +32,95 @@ export class MaterialBlobService {
     @Inject(DRIZZLE_DATABASE) private readonly db: PostgresJsDatabase,
   ) {}
 
+  /**
+   * 拿一个"绕开角色切换"的 DDL 执行器。
+   *
+   * 为什么不能直接用 this.db（drizzle）跑 DDL：请求上下文里 datapaas 会把每条
+   * drizzle 查询包进 `SET LOCAL ROLE anon_/authenticated_/service_role_` 的事务，
+   * 这些角色只有 DML 权限，CREATE TABLE / GRANT 直接失败。
+   *
+   * 按可靠度依次尝试：
+   * 1. `db.$client` —— drizzle(postgres-js) 构造时写入的底层客户端（datapaas 给
+   *    postgres 客户端套的 Proxy 会正常透出 unsafe，且不经过 drizzle 的被 patch 路径）；
+   * 2. `db.session.client` —— 同一个客户端的另一个持有点；
+   * 3. 兜底：用 SUDA_DATABASE_URL 建一次性独立连接（与 init-db.js 同语义，
+   *    连接用户就是 schema owner），跑完即关。
+   */
+  private async getDdlRunner(): Promise<{ run: (q: string) => Promise<unknown>; dispose: () => Promise<void>; via: string }> {
+    type RawClient = { unsafe?: unknown };
+    const db = this.db as unknown as Record<string, unknown> | null;
+    const diagnostics: string[] = [];
+
+    if (db) {
+      const candidates: Array<[string, unknown]> = [
+        ['$client', db['$client']],
+        ['session.client', (db['session'] as { client?: unknown } | undefined)?.client],
+      ];
+      for (const [name, candidate] of candidates) {
+        const raw = candidate as RawClient | undefined;
+        diagnostics.push(`${name}:${raw ? (typeof raw.unsafe === 'function' ? 'unsafe✓' : `unsafe✗(${typeof raw.unsafe})`) : 'absent'}`);
+        if (raw && typeof raw.unsafe === 'function') {
+          const runner = raw as { unsafe: (q: string) => Promise<unknown> };
+          return {
+            run: (q) => runner.unsafe(q),
+            dispose: async () => {},
+            via: name,
+          };
+        }
+      }
+    } else {
+      diagnostics.push('db:null');
+    }
+
+    // 兜底：独立连接
+    const connectionString = process.env.SUDA_DATABASE_URL;
+    diagnostics.push(`SUDA_DATABASE_URL:${connectionString ? 'set' : 'missing'}`);
+    if (connectionString) {
+      // postgres 是 @lark-apaas/nestjs-datapaas 的传递依赖，不在 package.json
+      // 直接依赖里（沙箱与 CI 均无法 npm i 补声明），沿用 tesseract 的 require 先例。
+      // eslint-disable-next-line @typescript-eslint/no-require-imports, import/no-extraneous-dependencies
+      const postgres = require('postgres') as typeof import('postgres');
+      const client = postgres(connectionString, { connect_timeout: 15, idle_timeout: 5, max: 1 });
+      return {
+        run: (q) => client.unsafe(q),
+        dispose: () => client.end(),
+        via: 'dedicated-connection',
+      };
+    }
+
+    throw new Error(
+      `material_blobs 建表迁移无法获取 DDL 执行器 [${diagnostics.join(', ')}]；`
+      + '请手动执行 node scripts/init-db.js "<SUDA_DATABASE_URL>" 后重试',
+    );
+  }
+
   /** 幂等建表 + 授权；只跑一次，失败不抛出（下次调用重试）。 */
   private ensureTable(): Promise<void> {
     if (!this.ensurePromise) {
       this.ensurePromise = (async () => {
-        // 不能走 this.db（drizzle）执行 DDL：请求上下文里 datapaas 会把每条
-        // 查询包进 `SET LOCAL ROLE anon_/authenticated_/service_role_` 的事务，
-        // 这些角色只有 DML 权限，CREATE TABLE / GRANT 直接失败。
-        // $client 是底层 postgres-js 实例（已实测 db.$client === client），
-        // 绕开 drizzle 的被 patch 路径，以连接用户（schema owner）身份执行。
-        const raw = (this.db as unknown as { $client?: { unsafe: (q: string) => Promise<unknown> } }).$client;
-        if (!raw?.unsafe) {
-          throw new Error('无法获取底层 postgres 客户端（db.$client 不存在），无法执行 material_blobs 建表迁移');
-        }
-        await raw.unsafe(`
-          CREATE TABLE IF NOT EXISTS material_blobs (
-            material_id   uuid PRIMARY KEY REFERENCES project_materials(id) ON DELETE CASCADE,
-            content_type  varchar(100) NOT NULL DEFAULT 'application/octet-stream',
-            data          bytea NOT NULL,
-            _created_at   timestamptz(3) NOT NULL DEFAULT CURRENT_TIMESTAMP
-          )
-        `);
-        // 角色不存在（如平台托管库）时授权失败可容忍——那种环境不走
-        // SET LOCAL ROLE 中间件；记录日志即可，下次调用不再重复尝试。
+        const runner = await this.getDdlRunner();
         try {
-          await raw.unsafe(
-            'GRANT ALL PRIVILEGES ON TABLE material_blobs TO anon_, authenticated_, service_role_',
-          );
-        } catch (err) {
-          this.logger.warn(`material_blobs 授权失败（可忽略于非自建环境）: ${String(err).split('\n')[0]}`);
+          await runner.run(`
+            CREATE TABLE IF NOT EXISTS material_blobs (
+              material_id   uuid PRIMARY KEY REFERENCES project_materials(id) ON DELETE CASCADE,
+              content_type  varchar(100) NOT NULL DEFAULT 'application/octet-stream',
+              data          bytea NOT NULL,
+              _created_at   timestamptz(3) NOT NULL DEFAULT CURRENT_TIMESTAMP
+            )
+          `);
+          // 角色不存在（如平台托管库）时授权失败可容忍——那种环境不走
+          // SET LOCAL ROLE 中间件；记录日志即可。
+          try {
+            await runner.run(
+              'GRANT ALL PRIVILEGES ON TABLE material_blobs TO anon_, authenticated_, service_role_',
+            );
+          } catch (err) {
+            this.logger.warn(`material_blobs 授权失败（可忽略于非自建环境）: ${String(err).split('\n')[0]}`);
+          }
+          this.logger.log(`material_blobs 表已就绪（via ${runner.via}）`);
+        } finally {
+          await runner.dispose();
         }
-        this.logger.log('material_blobs 表已就绪');
       })().catch((err) => {
         this.ensurePromise = null; // 允许下次重试
         throw err;
