@@ -80,8 +80,12 @@ export class ImageAnalysisService implements OnModuleInit {
     });
   }
 
-  /** project_materials.image_description 列（平台管理的表，启动期幂等 ALTER 补齐）。 */
-  private ensureColumn(): Promise<void> {
+  /**
+   * project_materials.image_description 列（平台管理的表，幂等 ALTER 补齐）。
+   * 公开给 ProjectsService：listMaterials 直接 select 该列，查询前必须确保列存在。
+   * 失败带诊断信息抛出（DdlRunner 错误含各策略探测结果），由调用方决定如何呈现。
+   */
+  ensureColumn(): Promise<void> {
     if (!this.ensurePromise) {
       this.ensurePromise = runIdempotentMigration(
         this.db,

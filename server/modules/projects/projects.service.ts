@@ -11,6 +11,7 @@ import {
 } from '@lark-apaas/fullstack-nestjs-core';
 import { eq, asc, max, sql, isNotNull, count, and } from 'drizzle-orm';
 import { projects, projectMaterials, restaurants } from '@server/database/schema';
+import { ImageAnalysisService } from './image-analysis.service';
 import type {
   Project,
   ProjectMaterial,
@@ -35,6 +36,7 @@ export class ProjectsService {
 
   constructor(
     @Inject(DRIZZLE_DATABASE) private readonly db: PostgresJsDatabase,
+    private readonly imageAnalysis: ImageAnalysisService,
   ) {}
 
   private isAdmin(user: UserContext): boolean {
@@ -369,6 +371,11 @@ export class ProjectsService {
     user: UserContext,
   ): Promise<ProjectMaterial[]> {
     await this.ensureProjectAccess(projectId, user);
+
+    // listMaterials 直接 select image_description —— 查询前确保列已迁移
+    // （onModuleInit 是尽力而为；启动迁移失败时这里请求期自愈，
+    // material_blobs 建表已验证请求期 DDL 可行）。
+    await this.imageAnalysis.ensureColumn();
 
     const rows = await this.db
       .select()
