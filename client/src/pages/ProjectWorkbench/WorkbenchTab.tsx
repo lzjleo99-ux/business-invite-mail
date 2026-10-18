@@ -3,7 +3,7 @@ import { Table, TableProps } from '@lark-apaas/client-toolkit/antd-table';
 import { toast } from 'sonner';
 import { logger } from '@lark-apaas/client-toolkit/logger';
 import { useNavigate } from 'react-router-dom';
-import { useQueryClient } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   Upload,
   Search,
@@ -91,6 +91,8 @@ import {
 import { useBatchOperation, type BatchItemStatus } from '@client/src/hooks/useBatchOperation';
 import { Popover, PopoverTrigger, PopoverContent } from '@client/src/components/ui/popover';
 import { Slider } from '@client/src/components/ui/slider';
+import { EmailHistoryList } from '@client/src/components/EmailHistoryList';
+import { getCompanyEmailHistories } from '@client/src/api/email-generator';
 
 type StatusFilterValue = CompanyStatus | 'all';
 
@@ -117,8 +119,34 @@ const COL_MIN_WIDTH: Record<string, number> = {
 };
 
 /**
- * 可拖拽宽度的表头单元格（antd v5 components.header.cell 自定义）。
- * onHeaderCell 返回的 width/onResize 等自定义 prop 会被合并进本组件 props，
+ * 公司行的往来记录区：发信 + 收信全量历史（后台 IMAP 自动抓取）。
+ */
+const CompanyEmailHistory: React.FC<{ companyId: string }> = ({ companyId }) => {
+  const { t } = useI18n();
+  const { data, isLoading } = useQuery({
+    queryKey: ['company-email-history', companyId],
+    queryFn: () => getCompanyEmailHistories(companyId),
+    staleTime: 30_000,
+  });
+  const items = data?.items ?? [];
+  return (
+    <div className="space-y-1.5 border-t border-slate-100 pt-3">
+      <p className="text-xs font-medium text-slate-500">{t('往来记录')}</p>
+      {isLoading ? (
+        <p className="text-xs text-slate-400">{t('加载中...')}</p>
+      ) : (
+        <EmailHistoryList
+          items={items}
+          emptyText={t('暂无往来记录：发送邮件或收到回复后会显示在这里')}
+          maxHeight="max-h-48"
+        />
+      )}
+    </div>
+  );
+};
+
+/**
+ * 可拖拽宽度的表头单元格（antd v5 components.header.cell 自定义）。 * onHeaderCell 返回的 width/onResize 等自定义 prop 会被合并进本组件 props，
  * 本组件负责渲染右侧拖拽把手；自定义 prop 不会透传到 DOM（避免 React 警告）。
  */
 interface ResizableHeaderCellProps extends React.HTMLAttributes<HTMLTableCellElement> {
@@ -1488,6 +1516,9 @@ const WorkbenchTab: React.FC<WorkbenchTabProps> = ({
                  </>
                )}
              </div>
+
+             {/* 往来记录（发信/收信全量历史，后台 IMAP 自动收取） */}
+             <CompanyEmailHistory companyId={record.id} />
            </TabsContent>
             <TabsContent value="whatsapp" className="pt-4 space-y-4">
               {/* WhatsApp / Viber Number Info */}

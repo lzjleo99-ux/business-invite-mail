@@ -11,10 +11,12 @@ import {
 import { AdminService } from './admin.service';
 import { AuthService } from '@server/modules/auth/auth.service';
 import { MailService } from '@server/common/services/mail.service';
+import { EmailInboxService } from '@server/modules/email-generator/email-inbox.service';
 import { JwtAuthGuard } from '@server/modules/auth/jwt-auth.guard';
 import { AdminGuard } from '@server/common/guards/admin.guard';
 import { CurrentUser } from '@server/modules/auth/current-user.decorator';
-import { IsString, IsBoolean, IsIn, IsOptional, MinLength, IsEmail } from 'class-validator';
+import { IsString, IsBoolean, IsIn, IsOptional, IsNumber, MinLength, IsEmail } from 'class-validator';
+import { Type } from 'class-transformer';
 import type {
   AdminUser,
   AdminUserListResponse,
@@ -59,6 +61,29 @@ class SaveSmtpConfigDto {
 
   @IsString()
   fromEmail!: string;
+
+  // ---- IMAP 收信 ----
+  @IsOptional()
+  @IsString()
+  imapHost?: string;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsNumber()
+  imapPort?: number;
+
+  @IsOptional()
+  @IsBoolean()
+  imapSecure?: boolean;
+
+  @IsOptional()
+  @IsBoolean()
+  inboxPollEnabled?: boolean;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsNumber()
+  inboxPollSeconds?: number;
 }
 
 class SendTestMailDto {
@@ -85,6 +110,7 @@ export class AdminController {
     private readonly adminService: AdminService,
     private readonly authService: AuthService,
     private readonly mailService: MailService,
+    private readonly emailInboxService: EmailInboxService,
   ) {}
 
   /** 读取 SMTP 配置（密码只返回是否已设置） */
@@ -98,6 +124,11 @@ export class AdminController {
     passwordSet?: boolean;
     fromName?: string | null;
     fromEmail?: string;
+    imapHost?: string | null;
+    imapPort?: number;
+    imapSecure?: boolean;
+    inboxPollEnabled?: boolean;
+    inboxPollSeconds?: number;
   }> {
     const s = await this.mailService.getSettings();
     if (!s) {
@@ -112,6 +143,11 @@ export class AdminController {
       passwordSet: !!s.password,
       fromName: s.fromName,
       fromEmail: s.fromEmail,
+      imapHost: s.imapHost,
+      imapPort: s.imapPort,
+      imapSecure: s.imapSecure,
+      inboxPollEnabled: s.inboxPollEnabled,
+      inboxPollSeconds: s.inboxPollSeconds,
     };
   }
 
@@ -125,7 +161,14 @@ export class AdminController {
       password: dto.password,
       fromName: dto.fromName,
       fromEmail: dto.fromEmail,
+      imapHost: dto.imapHost,
+      imapPort: dto.imapPort,
+      imapSecure: dto.imapSecure,
+      inboxPollEnabled: dto.inboxPollEnabled,
+      inboxPollSeconds: dto.inboxPollSeconds,
     });
+    // 收信轮询开关/间隔热更新（保存即生效，不用重启服务）
+    await this.emailInboxService.refreshSchedule();
     return { success: true };
   }
 

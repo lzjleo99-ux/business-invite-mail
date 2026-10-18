@@ -50,6 +50,11 @@ export interface SmtpConfigResponse {
   passwordSet?: boolean;
   fromName?: string | null;
   fromEmail?: string;
+  imapHost?: string | null;
+  imapPort?: number;
+  imapSecure?: boolean;
+  inboxPollEnabled?: boolean;
+  inboxPollSeconds?: number;
 }
 
 export async function getSmtpConfig(): Promise<SmtpConfigResponse> {
@@ -65,6 +70,11 @@ export async function saveSmtpConfig(params: {
   password?: string;
   fromName?: string;
   fromEmail: string;
+  imapHost?: string;
+  imapPort?: number;
+  imapSecure?: boolean;
+  inboxPollEnabled?: boolean;
+  inboxPollSeconds?: number;
 }): Promise<{ success: boolean }> {
   const response = await axiosForBackend.post('/api/admin/smtp-config', params);
   return response.data;

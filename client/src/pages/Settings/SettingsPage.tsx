@@ -28,6 +28,7 @@ import { Card, CardContent } from '@/components/ui/card';
 import * as modelConfigApi from '@/api/model-config';
 import * as senderConfigApi from '@/api/sender-config';
 import * as adminApi from '@/api/admin';
+import * as emailGeneratorApi from '@/api/email-generator';
 import { Label } from '@/components/ui/label';
 import { useAuth } from '@/contexts/AuthContext';
 import { useI18n } from '@/i18n';
@@ -54,6 +55,12 @@ const SettingsPage = () => {
     fromName: '',
     fromEmail: '',
     passwordSet: false,
+    // IMAP 收信（同一授权码）
+    imapHost: '',
+    imapPort: '993',
+    imapSecure: true,
+    inboxPollEnabled: false,
+    inboxPollSeconds: '180',
   });
   const [smtpBusy, setSmtpBusy] = useState(false);
 
@@ -73,6 +80,11 @@ const SettingsPage = () => {
           fromName: c.fromName ?? '',
           fromEmail: c.fromEmail ?? '',
           passwordSet: !!c.passwordSet,
+          imapHost: c.imapHost ?? '',
+          imapPort: String(c.imapPort ?? 993),
+          imapSecure: c.imapSecure !== false,
+          inboxPollEnabled: !!c.inboxPollEnabled,
+          inboxPollSeconds: String(c.inboxPollSeconds ?? 180),
         }));
         setSmtpTestTo(c.fromEmail ?? '');
       })
@@ -910,6 +922,83 @@ const SettingsPage = () => {
                 {t('使用 SSL/TLS（465 端口一般勾选，587 端口不勾选）')}
               </label>
 
+              {/* ---- 收信（IMAP）：后台自动抓取回复邮件，全量留痕 ---- */}
+              <div className="rounded-lg border border-slate-200 bg-slate-50 p-3 space-y-3">
+                <div className="flex items-center justify-between">
+                  <p className="text-sm font-medium text-slate-700">{t('收信服务（IMAP 自动收取回复）')}</p>
+                  <label className="flex items-center gap-2 text-sm text-slate-600">
+                    <input
+                      type="checkbox"
+                      checked={smtp.inboxPollEnabled}
+                      onChange={(e) => setSmtp({ ...smtp, inboxPollEnabled: e.target.checked })}
+                    />
+                    {t('开启后台自动收取')}
+                  </label>
+                </div>
+                <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+                  <div className="space-y-1.5">
+                    <Label htmlFor="imap-host">{t('IMAP 服务器')}</Label>
+                    <Input
+                      id="imap-host"
+                      value={smtp.imapHost}
+                      onChange={(e) => setSmtp({ ...smtp, imapHost: e.target.value })}
+                      placeholder="imap.exmail.qq.com"
+                    />
+                    <p className="text-xs text-slate-400">{t('留空则按 SMTP 域名自动推导')}</p>
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label htmlFor="imap-port">{t('端口')}</Label>
+                    <Input
+                      id="imap-port"
+                      value={smtp.imapPort}
+                      onChange={(e) => setSmtp({ ...smtp, imapPort: e.target.value })}
+                      placeholder="993"
+                    />
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label htmlFor="imap-interval">{t('收取间隔（秒）')}</Label>
+                    <Input
+                      id="imap-interval"
+                      value={smtp.inboxPollSeconds}
+                      onChange={(e) => setSmtp({ ...smtp, inboxPollSeconds: e.target.value })}
+                      placeholder="180"
+                    />
+                  </div>
+                </div>
+                <div className="flex flex-wrap items-center gap-2">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    disabled={smtpBusy}
+                    onClick={async () => {
+                      setSmtpBusy(true);
+                      try {
+                        const r = await emailGeneratorApi.pollInbox();
+                        if (r.error) {
+                          toast.error(t('收取失败'), { description: r.error });
+                        } else {
+                          toast.success(
+                            t('收取完成：抓取 {f} 封，新入库 {s} 封', { f: r.fetched, s: r.saved }),
+                          );
+                        }
+                        void queryClient.invalidateQueries({ queryKey: ['email-history-global'] });
+                      } catch (err: unknown) {
+                        toast.error(t('收取失败'), {
+                          description: err instanceof Error ? err.message : String(err),
+                        });
+                      } finally {
+                        setSmtpBusy(false);
+                      }
+                    }}
+                  >
+                    {t('立即收取一次')}
+                  </Button>
+                  <span className="text-xs text-slate-500">
+                    {t('使用同一账号的授权码；只抓新邮件（uid 水位），已入库不重复')}
+                  </span>
+                </div>
+              </div>
+
               <div className="flex flex-wrap gap-2">
                 <Button
                   disabled={smtpBusy}
@@ -924,6 +1013,11 @@ const SettingsPage = () => {
                         password: smtp.password || undefined,
                         fromName: smtp.fromName,
                         fromEmail: smtp.fromEmail,
+                        imapHost: smtp.imapHost || undefined,
+                        imapPort: Number(smtp.imapPort) || 993,
+                        imapSecure: smtp.imapSecure,
+                        inboxPollEnabled: smtp.inboxPollEnabled,
+                        inboxPollSeconds: Number(smtp.inboxPollSeconds) || 180,
                       });
                       setSmtp((prev) => ({ ...prev, password: '', passwordSet: true }));
                       toast.success(t('发信服务已保存'));
