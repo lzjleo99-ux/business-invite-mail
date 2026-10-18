@@ -98,6 +98,20 @@ import { getCompanyEmailHistories } from '@client/src/api/email-generator';
 
 type StatusFilterValue = CompanyStatus | 'all';
 
+/** 列宽调节弹层里的中文列名（key → 翻译 key，t() 外面再包一层） */
+const COL_WIDTH_LABELS: Record<string, string> = {
+  star: '星标',
+  seqNo: '序号',
+  name: '名称',
+  country: '国家/地区',
+  websiteBusinessType: '业务类型',
+  email: '邮箱',
+  website: '网站',
+  phone: '电话',
+  status: '状态',
+  action: '操作',
+};
+
 /** 工作台表格列宽：默认值 / 下限 / 中文列名（列宽调节弹层与拖拽把手共用） */
 const DEFAULT_COL_WIDTHS: Record<string, number> = {
   star: 44,
@@ -106,6 +120,7 @@ const DEFAULT_COL_WIDTHS: Record<string, number> = {
   country: 100,
   websiteBusinessType: 140,
   email: 200,
+  website: 200,
   phone: 160,
   status: 160,
   action: 560,
@@ -117,6 +132,7 @@ const COL_MIN_WIDTH: Record<string, number> = {
   country: 70,
   websiteBusinessType: 90,
   email: 120,
+  website: 100,
   phone: 110,
   status: 110,
   action: 320,
@@ -878,6 +894,30 @@ const WorkbenchTab: React.FC<WorkbenchTabProps> = ({
           <span className="text-slate-700">{effective}</span>
         ) : (
           <span className="text-slate-400">-</span>
+        );
+      },
+    },
+    {
+      title: t('网站'),
+      dataIndex: 'website',
+      key: 'website',
+      width: 200,
+      ellipsis: true,
+      // 官网直接可点，方便核对公司真伪 / 手动补查
+      render: (val: string | null) => {
+        const url = (val || '').trim();
+        if (!url) return <span className="text-slate-400">-</span>;
+        const href = /^https?:\/\//i.test(url) ? url : `https://${url}`;
+        return (
+          <a
+            href={href}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="text-primary hover:underline break-all"
+            onClick={(e) => e.stopPropagation()}
+          >
+            {url}
+          </a>
         );
       },
     },
@@ -1866,10 +1906,10 @@ const WorkbenchTab: React.FC<WorkbenchTabProps> = ({
                   </Button>
                 </div>
                 {Object.entries(DEFAULT_COL_WIDTHS).map(([key, defWidth]) => {
+                  // 原来这里是一条嵌套三元，漏掉的 key（phone 等）会掉到最后兜底成「操作」，
+                  // 改成查表，新增列时漏配一眼能看出来。
                   const label =
-                    key === 'star' ? t('星标')
-                    : key === 'websiteBusinessType' ? t('业务类型')
-                    : t(key === 'seqNo' ? '序号' : key === 'name' ? '名称' : key === 'country' ? '国家/地区' : key === 'email' ? '邮箱' : key === 'status' ? '状态' : '操作');
+                    COL_WIDTH_LABELS[key as keyof typeof COL_WIDTH_LABELS] ?? t(key);
                   return (
                     <div key={key} className="space-y-1">
                       <div className="flex items-center justify-between text-xs text-slate-500">
