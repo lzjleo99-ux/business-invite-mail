@@ -142,16 +142,24 @@ export interface BatchSendSummary {
 }
 
 /** 单公司直发：自动收件人/主题/内嵌图，成功后标记「已邮件联系」 */
-export async function sendEmail(companyId: string): Promise<{ to: string; subject: string }> {
-  const response = await axiosForBackend.post(`/api/email-generator/send/${companyId}`);
+export async function sendEmail(
+  companyId: string,
+  lang: 'local' | 'en' = 'local',
+): Promise<{ to: string; subject: string }> {
+  const response = await axiosForBackend.post(
+    `/api/email-generator/send/${companyId}?lang=${lang}`,
+  );
   return response.data;
 }
 
 /** 一键发送：项目内「已生成 + 有邮箱 + 未发送」全部经 SMTP 发出，耗时较长 */
-export async function batchSendEmails(projectId: string): Promise<BatchSendSummary> {
+export async function batchSendEmails(
+  projectId: string,
+  lang: 'local' | 'en' = 'local',
+): Promise<BatchSendSummary> {
   const response = await axiosForBackend.post(
     '/api/email-generator/batch-send',
-    { projectId },
+    { projectId, lang },
     { timeout: 600_000 },
   );
   return response.data;

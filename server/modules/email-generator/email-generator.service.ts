@@ -351,25 +351,39 @@ export class EmailGeneratorService {
     return inlineImages;
   }
 
-  /** 双语邮件取发送版本：优先本地语言（收件人母语转化率最高），没有则英文。 */
-  private pickEmailVersion(company: typeof restaurants.$inferSelect): {
+  /**
+   * 双语邮件取发送版本。
+   * - lang='local'：优先本地语言（收件人母语转化率最高），缺本地版回退英文
+   * - lang='en'：强制英文版
+   */
+  private pickEmailVersion(
+    company: typeof restaurants.$inferSelect,
+    lang: 'local' | 'en' = 'local',
+  ): {
     subject: string;
     body: string;
   } {
-    if (company.emailSubjectLocal && company.emailBodyLocal) {
-      return { subject: company.emailSubjectLocal, body: company.emailBodyLocal };
+    const hasLocal = !!(company.emailSubjectLocal && company.emailBodyLocal);
+    if (lang === 'en' || !hasLocal) {
+      return { subject: company.emailSubject ?? '', body: company.emailBody ?? '' };
     }
-    return { subject: company.emailSubject ?? '', body: company.emailBody ?? '' };
+    return {
+      subject: company.emailSubjectLocal as string,
+      body: company.emailBodyLocal as string,
+    };
   }
 
   /** 组装 BD 群发邮件的原始报文（multipart/related + CID 内嵌图），From 用 SMTP 配置的发件邮箱。 */
-  private async buildCampaignRaw(company: typeof restaurants.$inferSelect): Promise<{
+  private async buildCampaignRaw(
+    company: typeof restaurants.$inferSelect,
+    lang: 'local' | 'en' = 'local',
+  ): Promise<{
     raw: string;
     to: string;
     from: string;
     subject: string;
   }> {
-    const { subject, body } = this.pickEmailVersion(company);
+    const { subject, body } = this.pickEmailVersion(company, lang);
     const to = (company.websiteContactEmail || company.email || '').trim();
     const inlineImages = await this.collectInlineImages(body);
 
@@ -390,7 +404,10 @@ export class EmailGeneratorService {
    * 单公司直发：把已生成的邮件经 SMTP 发给该公司（自动收件人/主题/内嵌图）。
    * 成功后标记 contactStatus.emailContactedAt。
    */
-  async sendCompanyEmail(companyId: string): Promise<{ to: string; subject: string }> {
+  async sendCompanyEmail(
+    companyId: string,
+    lang: 'local' | 'en' = 'local',
+  ): Promise<{ to: string; subject: string }> {
     const company = await this.getCompanyById(companyId);
     if (!company) {
       throw new BadRequestException('公司不存在');
@@ -403,7 +420,10 @@ export class EmailGeneratorService {
       throw new BadRequestException('该公司没有邮箱地址，无法发送');
     }
 
-    const { raw, to: recipient, subject, from } = await this.buildCampaignRaw(company);
+    const { raw, to: recipient, subject, from } = await this.buildCampaignRaw(
+      company,
+      lang,
+    );
     try {
       const { messageId } = await this.mailService.sendRaw(raw, { from, to: [recipient] });
       await this.emailHistory.recordOutbound({
@@ -441,6 +461,7 @@ export class EmailGeneratorService {
   async batchSendProjectEmails(
     projectId: string,
     user: { userId: string; role: 'admin' | 'user' },
+    lang: 'local' | 'en' = 'local',
   ): Promise<BatchSendSummary> {
     if (user.role !== 'admin') {
       const owned = await this.db
@@ -492,7 +513,7 @@ export class EmailGeneratorService {
         const company = eligible[cursor];
         cursor += 1;
         try {
-          const { raw, to, from, subject } = await this.buildCampaignRaw(company);
+          const { raw, to, from, subject } = await this.buildCampaignRaw(company, lang);
           const { messageId } = await this.mailService.sendRaw(raw, { from, to: [to] });
           await this.emailHistory.recordOutbound({
             companyId: company.id,
@@ -512,7 +533,7 @@ export class EmailGeneratorService {
           summary.errors.push({ name: company.name, error: msg.slice(0, 200) });
           this.logger.warn(`批量发送失败 ${company.name}: ${msg.split('\n')[0]}`);
           try {
-            const { to, from, subject } = await this.buildCampaignRaw(company);
+            const { to, from, subject } = await this.buildCampaignRaw(company, lang);
             await this.emailHistory.recordOutbound({
               companyId: company.id,
               projectId: company.projectId,

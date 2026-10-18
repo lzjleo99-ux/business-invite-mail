@@ -75,6 +75,10 @@ class BatchWhatsAppDto implements BatchWhatsAppRequest {
 class BatchSendDto {
   @IsString()
   projectId!: string;
+  /** 发送语言版本：local=收件人本地语言（默认），en=英文 */
+  @IsOptional()
+  @IsIn(['local', 'en'])
+  lang?: 'local' | 'en';
 }
 
 class ComposeSaveDto {
@@ -178,11 +182,15 @@ export class EmailGeneratorController {
   @Post('send/:companyId')
   async sendEmail(
     @Param('companyId') companyId: string,
+    @Query('lang') lang?: string,
   ): Promise<{ to: string; subject: string }> {
     if (!companyId) {
       throw new BadRequestException('companyId 不能为空');
     }
-    return this.emailGeneratorService.sendCompanyEmail(companyId);
+    return this.emailGeneratorService.sendCompanyEmail(
+      companyId,
+      lang === 'en' ? 'en' : 'local',
+    );
   }
 
   /**
@@ -197,10 +205,14 @@ export class EmailGeneratorController {
     if (!dto.projectId) {
       throw new BadRequestException('projectId 不能为空');
     }
-    return this.emailGeneratorService.batchSendProjectEmails(dto.projectId, {
-      userId: user.userId,
-      role: user.role,
-    });
+    return this.emailGeneratorService.batchSendProjectEmails(
+      dto.projectId,
+      {
+        userId: user.userId,
+        role: user.role,
+      },
+      dto.lang ?? 'local',
+    );
   }
 
   /**

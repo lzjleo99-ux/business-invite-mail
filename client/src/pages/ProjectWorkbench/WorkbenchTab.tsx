@@ -27,6 +27,8 @@ import {
   Send,
   Settings2,
   RotateCcw,
+  ChevronDown,
+  Check,
 } from 'lucide-react';
 
 import * as websiteAnalyzerApi from '@client/src/api/website-analyzer';
@@ -523,12 +525,22 @@ const WorkbenchTab: React.FC<WorkbenchTabProps> = ({
     }
   }, [projectId, batchGenerateOp, t]);
 
+  // 批量操作的语言版本（按钮右侧下拉选择）：
+  // - sendLang：一键发送实际发出哪个语言版本（local=收件人本地语言，en=英文）
+  // - whatsAppBatchLang：一键准备 IM 话术后，哪一版作为该公司当前展示/复制的话术
+  const [sendLang, setSendLang] = useState<'local' | 'en'>('local');
+  const [whatsAppBatchLang, setWhatsAppBatchLang] = useState<'local' | 'en'>('local');
+  // 每家公司当前展示/复制的话术语言（批量准备时按下拉选中的语言写入）
+  const [whatsAppLang, setWhatsAppLang] = useState<Record<string, 'local' | 'en'>>({});
+
   // --- Batch WhatsApp operation ---
   const batchWhatsAppOp = useBatchOperation<Company>({
     items,
     getItemId: (item: Company) => item.id,
     operation: async (item: Company) => {
       const result = await emailGeneratorApi.generateWhatsApp(item.id);
+      // 话术两版都会生成；把下拉选中的语言设成该公司的当前展示/复制版本
+      setWhatsAppLang((prev) => ({ ...prev, [item.id]: whatsAppBatchLang }));
       void qc.setQueryData(
         ['companies', projectId],
         (old: { items: Company[] } | undefined) => {
@@ -583,7 +595,7 @@ const WorkbenchTab: React.FC<WorkbenchTabProps> = ({
   const handleSendAll = useCallback(async () => {
     setSendAllRunning(true);
     try {
-      const summary = await emailGeneratorApi.batchSendEmails(projectId);
+      const summary = await emailGeneratorApi.batchSendEmails(projectId, sendLang);
       void qc.invalidateQueries({ queryKey: ['companies'] });
       void qc.invalidateQueries({ queryKey: ['company-stats'] });
       if (summary.eligible === 0) {
@@ -608,7 +620,7 @@ const WorkbenchTab: React.FC<WorkbenchTabProps> = ({
     } finally {
       setSendAllRunning(false);
     }
-  }, [projectId, t, qc]);
+  }, [projectId, t, qc, sendLang]);
 
   const STATUS_OPTIONS: { value: StatusFilterValue; label: string }[] = [
     { value: 'all', label: t('全部') },
@@ -750,7 +762,6 @@ const WorkbenchTab: React.FC<WorkbenchTabProps> = ({
 
   // Per-row display language state for email detail
   const [emailDisplayLang, setEmailDisplayLang] = useState<Record<string, 'local' | 'en'>>({});
-  const [whatsAppLang, setWhatsAppLang] = useState<Record<string, 'local' | 'en'>>({});
 
   const getEmailDisplayLang = (record: Company): 'local' | 'en' => {
     if (emailDisplayLang[record.id]) return emailDisplayLang[record.id];
@@ -1913,38 +1924,86 @@ const WorkbenchTab: React.FC<WorkbenchTabProps> = ({
                     })
                   : t('一键生成全部')}
             </Button>
-            <Button
-              variant="outline"
-              onClick={() => batchWhatsAppOp.start()}
-              disabled={batchWhatsAppOp.isRunning || items.length === 0 || batchAnalyzeOp.isRunning || batchGenerateOp.isRunning}
-              className="text-green-600 border-green-200 hover:bg-green-50 hover:text-green-700"
-            >
-              {batchWhatsAppOp.isRunning ? (
-                <Loader2 className="animate-spin" size={16} />
-              ) : (
-                <MessageCircle size={16} />
-              )}
-              {batchWhatsAppOp.isRunning
-                ? t('准备中 {p}/{t}（{percent}%）', {
-                    p: batchWhatsAppOp.processed + batchWhatsAppOp.failed,
-                    t: batchWhatsAppOp.total,
-                    percent: batchWhatsAppOp.progress,
-                  })
-                : t('一键准备 IM 话术')}
-            </Button>
-            <Button
-              variant="default"
-              onClick={() => setSendConfirmOpen(true)}
-              disabled={sendAllRunning || batchAnalyzeOp.isRunning || batchGenerateOp.isRunning || batchWhatsAppOp.isRunning || items.length === 0}
-              className="bg-blue-600 hover:bg-blue-700 text-white"
-            >
-              {sendAllRunning ? (
-                <Loader2 className="animate-spin" size={16} />
-              ) : (
-                <Send size={16} />
-              )}
-              {sendAllRunning ? t('发送中...') : t('一键发送')}
-            </Button>
+            <div className="flex items-stretch">
+              <Button
+                variant="outline"
+                onClick={() => batchWhatsAppOp.start()}
+                disabled={batchWhatsAppOp.isRunning || items.length === 0 || batchAnalyzeOp.isRunning || batchGenerateOp.isRunning}
+                className="rounded-r-none text-green-600 border-green-200 hover:bg-green-50 hover:text-green-700"
+              >
+                {batchWhatsAppOp.isRunning ? (
+                  <Loader2 className="animate-spin" size={16} />
+                ) : (
+                  <MessageCircle size={16} />
+                )}
+                {batchWhatsAppOp.isRunning
+                  ? t('准备中 {p}/{t}（{percent}%）', {
+                      p: batchWhatsAppOp.processed + batchWhatsAppOp.failed,
+                      t: batchWhatsAppOp.total,
+                      percent: batchWhatsAppOp.progress,
+                    })
+                  : t('一键准备 IM 话术')}
+              </Button>
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button
+                    variant="outline"
+                    disabled={batchWhatsAppOp.isRunning || items.length === 0 || batchAnalyzeOp.isRunning || batchGenerateOp.isRunning}
+                    className="rounded-l-none border-l-0 px-2 text-green-600 border-green-200 hover:bg-green-50 hover:text-green-700"
+                    title={t('选择话术语言')}
+                  >
+                    <ChevronDown size={14} />
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end">
+                  <DropdownMenuItem onClick={() => setWhatsAppBatchLang('local')}>
+                    {t('本地语言')}
+                    {whatsAppBatchLang === 'local' ? <Check size={14} className="ml-auto" /> : null}
+                  </DropdownMenuItem>
+                  <DropdownMenuItem onClick={() => setWhatsAppBatchLang('en')}>
+                    English
+                    {whatsAppBatchLang === 'en' ? <Check size={14} className="ml-auto" /> : null}
+                  </DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
+            </div>
+            <div className="flex items-stretch">
+              <Button
+                variant="default"
+                onClick={() => setSendConfirmOpen(true)}
+                disabled={sendAllRunning || batchAnalyzeOp.isRunning || batchGenerateOp.isRunning || batchWhatsAppOp.isRunning || items.length === 0}
+                className="rounded-r-none bg-blue-600 hover:bg-blue-700 text-white"
+              >
+                {sendAllRunning ? (
+                  <Loader2 className="animate-spin" size={16} />
+                ) : (
+                  <Send size={16} />
+                )}
+                {sendAllRunning ? t('发送中...') : t('一键发送')}
+              </Button>
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button
+                    variant="default"
+                    disabled={sendAllRunning || batchAnalyzeOp.isRunning || batchGenerateOp.isRunning || batchWhatsAppOp.isRunning || items.length === 0}
+                    className="rounded-l-none border-l-0 border-blue-600 bg-blue-600 px-2 text-white hover:bg-blue-700"
+                    title={t('选择发送语言')}
+                  >
+                    <ChevronDown size={14} />
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end">
+                  <DropdownMenuItem onClick={() => setSendLang('local')}>
+                    {t('本地语言')}
+                    {sendLang === 'local' ? <Check size={14} className="ml-auto" /> : null}
+                  </DropdownMenuItem>
+                  <DropdownMenuItem onClick={() => setSendLang('en')}>
+                    English
+                    {sendLang === 'en' ? <Check size={14} className="ml-auto" /> : null}
+                  </DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
+            </div>
           </div>
         </div>
 
@@ -1956,6 +2015,9 @@ const WorkbenchTab: React.FC<WorkbenchTabProps> = ({
             </DialogHeader>
             <p className="text-sm text-slate-600">
               {t('将向所有「已生成邮件、有邮箱且未发送过」的公司实际发送邮件，此操作会真实发出，确认继续？')}
+            </p>
+            <p className="text-sm text-slate-500">
+              {t('发送语言版本：{lang}', { lang: sendLang === 'en' ? 'English' : t('本地语言') })}
             </p>
             <DialogFooter>
               <Button variant="outline" size="sm" onClick={() => setSendConfirmOpen(false)} disabled={sendAllRunning}>
