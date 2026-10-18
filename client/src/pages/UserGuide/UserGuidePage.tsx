@@ -22,6 +22,7 @@ interface Section {
   shotCaption: string;
 }
 
+/** 说明内容里不要用 markdown 星号：本页是纯文本渲染，* 会原样显示 */
 const SECTIONS: Section[] = [
   {
     id: 'import',
@@ -91,13 +92,15 @@ const SECTIONS: Section[] = [
     steps: [
       '点「一键发送」，系统挑出「从未联系过」的公司逐家经 SMTP 真实发出。',
       '判定「已联系」= 成功发过，或收到过回复，或你手动标记过。',
-      '**发送失败的不算已联系**，可以再批量重试一次。',
+      '发送失败的不算「已联系」，可以再批量重试一次。',
       '右侧下拉选发送语言；发送前有确认弹窗，会再显示一次语言版本。',
       '发出的内容与你展开行预览的完全一致（所见即所发）。',
     ],
     tips: [
       '这是真实外发，点之前请确认文案没问题。',
       '发送失败的记录会以红色「发送失败」留在往来记录里，点开可看 SMTP 报错原因。',
+      '退信（Undeliverable）会以「收到回复」形式进来，因此也算已联系、不会重复发；'
+        + '这类公司需要你手动换地址后再发。',
     ],
     shot: '/guide/04-history-detail.png',
     shotCaption: '发送后的往来记录：点开可看完整正文与失败原因',
@@ -108,15 +111,15 @@ const SECTIONS: Section[] = [
     title: '六、往来记录与回复提醒',
     steps: [
       '发信和收信都会自动留痕，公司行展开后底部「往来记录」能看到全部往来。',
-      '**点任意一条往来记录**可看完整信息：类型、时间、收发件人、完整正文、Message-ID。',
-      '左侧「邮件往来」页可看全项目的往来，支持按方向/状态/公司/邮箱/主题搜索。',
+      '点任意一条往来记录可看完整信息：类型、时间、收发件人、完整正文、Message-ID。',
+      '左侧「邮件往来」页可看全项目的往来，支持按方向 / 状态 / 公司 / 邮箱 / 主题搜索。',
       '系统后台每 3 分钟自动收一次收件箱；客户回复会自动入库。',
-      '收到回复后该公司会**自动加星标**（可在统计卡「星标企业」里筛出来）。',
+      '收到回复后该公司会自动加星标（可在统计卡「星标企业」里筛出来）。',
       '还可以在「设置」里配置企业微信群机器人，收到回复时推一条提醒到你的企微群。',
     ],
     tips: [
-      '退信（Undeliverable）也会被收进来并算作往来记录，所以不会重复打扰该客户。',
       '同一封邮件按 Message-ID 去重，不会重复入库。',
+      '「已发送 / 发送失败 / 收到回复」三种状态在列表上有颜色区分。',
     ],
     shot: '/guide/05-email-history.png',
     shotCaption: '左侧「邮件往来」：全项目往来记录，可搜索筛选',
@@ -126,14 +129,15 @@ const SECTIONS: Section[] = [
     icon: Settings,
     title: '七、设置（发信服务与通知）',
     steps: [
-      '「发信服务」：填 SMTP（腾讯企业邮箱 smtp.exmail.qq.com / 465 / SSL），密码填**授权码**不是登录密码。',
+      '「发信服务」：填 SMTP（腾讯企业邮箱 smtp.exmail.qq.com / 465 / SSL），密码填授权码不是登录密码。',
       'IMAP 收信用同一套账号密码，IMAP 主机一般就是 imap.exmail.qq.com:993。',
       '打开「后台自动收取」并设间隔（建议 180 秒），可点「立即收取一次」手动触发。',
-      '同一页可配置企业微信群机器人 webhook：填地址 → 打开开关 → 点「测试推送」确认能收到。',
+      '「企业微信提醒」：填群机器人 webhook → 打开「启用回复提醒」→ 点「测试推送」确认能收到。',
+      '「收到回复自动加星标」默认开启，不需要额外配置。',
     ],
     tips: [
       '发信服务未配置时，生成邮件仍可用，但「一键发送」会失败。',
-      'webhook 地址属于敏感信息，保存后系统只显示"是否已设置"，不再回显原文。',
+      'webhook 地址属于敏感信息，保存后系统只显示「是否已设置」，不再回显原文。',
     ],
     shot: '/guide/06-settings.png',
     shotCaption: '设置页：发信服务、IMAP 自动收取、企微提醒',
@@ -143,7 +147,7 @@ const SECTIONS: Section[] = [
     icon: Star,
     title: '八、跟进与标记',
     steps: [
-      '点公司名前面的 ☆ 可以手动加星/取消星标，重要客户一眼找到。',
+      '点公司名前面的 ☆ 可以手动加星 / 取消星标，重要客户一眼找到。',
       '收到客户回复会自动加星，不需要手动操作。',
       '顶部「星标企业」卡点一下就只看星标客户。',
       '展开行「联系状态」可以手动标记已邮件联系 / WhatsApp 已联系 / Viber 已联系。',
@@ -174,10 +178,16 @@ const SECTIONS: Section[] = [
 const UserGuidePage: React.FC = () => {
   const { t } = useI18n();
   const [active, setActive] = React.useState(SECTIONS[0].id);
-  const current = SECTIONS.find((s) => s.id === active) ?? SECTIONS[0];
+
+  /** 顶部章节按钮：跳到对应章节并高亮 */
+  const jumpTo = (id: string) => {
+    setActive(id);
+    const el = document.getElementById(`guide-${id}`);
+    if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  };
 
   return (
-    <div className="mx-auto max-w-6xl space-y-6">
+    <div className="mx-auto max-w-4xl space-y-6">
       <div>
         <h1 className="text-2xl font-bold text-slate-800">{t('使用说明')}</h1>
         <p className="mt-1 text-sm text-slate-500">
@@ -185,13 +195,13 @@ const UserGuidePage: React.FC = () => {
         </p>
       </div>
 
-      {/* 分类目录 */}
+      {/* 顶部章节导航：点击跳转到对应章节 */}
       <div className="flex flex-wrap gap-2">
         {SECTIONS.map((s) => (
           <button
             key={s.id}
             type="button"
-            onClick={() => setActive(s.id)}
+            onClick={() => jumpTo(s.id)}
             className={`rounded-full px-3 py-1.5 text-xs font-medium transition-colors ${
               active === s.id
                 ? 'bg-primary text-white'
@@ -203,15 +213,21 @@ const UserGuidePage: React.FC = () => {
         ))}
       </div>
 
-      <div className="grid gap-5 lg:grid-cols-2">
-        <div className="space-y-4">
-          <section className="rounded-lg border border-slate-200 bg-white p-5">
+      {/* 全部章节正文：一次性铺开，不再折叠 */}
+      <div className="space-y-8">
+        {SECTIONS.map((s) => (
+          <section
+            key={s.id}
+            id={`guide-${s.id}`}
+            className="scroll-mt-4 space-y-3 rounded-lg border border-slate-200 bg-white p-5"
+          >
             <h2 className="flex items-center gap-2 text-lg font-semibold text-slate-800">
-              <current.icon size={18} className="text-primary" />
-              {t(current.title)}
+              <s.icon size={18} className="text-primary" />
+              {t(s.title)}
             </h2>
-            <ol className="mt-3 space-y-2 text-sm text-slate-700">
-              {current.steps.map((step, i) => (
+
+            <ol className="space-y-2 text-sm text-slate-700">
+              {s.steps.map((step, i) => (
                 <li key={i} className="flex gap-2">
                   <span className="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-slate-100 text-[11px] font-semibold text-slate-600">
                     {i + 1}
@@ -220,50 +236,28 @@ const UserGuidePage: React.FC = () => {
                 </li>
               ))}
             </ol>
-            {current.tips && current.tips.length > 0 && (
-              <div className="mt-4 rounded-md bg-amber-50 p-3">
+
+            {s.tips && s.tips.length > 0 && (
+              <div className="rounded-md bg-amber-50 p-3">
                 <p className="text-xs font-semibold text-amber-800">{t('注意')}</p>
                 <ul className="mt-1 space-y-1 text-xs text-amber-800">
-                  {current.tips.map((tip, i) => (
+                  {s.tips.map((tip, i) => (
                     <li key={i}>· {t(tip)}</li>
                   ))}
                 </ul>
               </div>
             )}
+
+            <figure className="space-y-2 pt-1">
+              <img
+                src={s.shot}
+                alt={s.shotCaption}
+                className="w-full rounded-lg border border-slate-200 bg-white shadow-sm"
+              />
+              <figcaption className="text-xs text-slate-500">{t(s.shotCaption)}</figcaption>
+            </figure>
           </section>
-
-          <nav className="rounded-lg border border-slate-200 bg-white p-4">
-            <p className="text-xs font-semibold text-slate-500">{t('全部章节')}</p>
-            <div className="mt-2 grid grid-cols-1 gap-1 sm:grid-cols-2">
-              {SECTIONS.map((s) => (
-                <button
-                  key={s.id}
-                  type="button"
-                  onClick={() => setActive(s.id)}
-                  className={`flex items-center gap-2 rounded px-2 py-1.5 text-left text-xs transition-colors ${
-                    active === s.id
-                      ? 'bg-slate-100 font-medium text-slate-800'
-                      : 'text-slate-600 hover:bg-slate-50'
-                  }`}
-                >
-                  <s.icon size={13} className="shrink-0 text-slate-400" />
-                  <span>{t(s.title)}</span>
-                </button>
-              ))}
-            </div>
-          </nav>
-        </div>
-
-        <figure className="space-y-2 lg:sticky lg:top-4 lg:self-start">
-          <img
-            src={current.shot}
-            alt={current.shotCaption}
-            className="w-full rounded-lg border border-slate-200 bg-white shadow-sm"
-          />
-          <figcaption className="text-xs text-slate-500">
-            {t(current.shotCaption)}
-          </figcaption>
-        </figure>
+        ))}
       </div>
     </div>
   );
