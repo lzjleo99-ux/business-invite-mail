@@ -25,6 +25,8 @@ import {
   StarOff,
   Phone,
   Send,
+  Settings2,
+  RotateCcw,
 } from 'lucide-react';
 
 import * as websiteAnalyzerApi from '@client/src/api/website-analyzer';
@@ -87,8 +89,94 @@ import {
   type ChatChannel,
 } from '@client/src/utils/chat-links';
 import { useBatchOperation, type BatchItemStatus } from '@client/src/hooks/useBatchOperation';
+import { Popover, PopoverTrigger, PopoverContent } from '@client/src/components/ui/popover';
+import { Slider } from '@client/src/components/ui/slider';
 
 type StatusFilterValue = CompanyStatus | 'all';
+
+/** 工作台表格列宽：默认值 / 下限 / 中文列名（列宽调节弹层与拖拽把手共用） */
+const DEFAULT_COL_WIDTHS: Record<string, number> = {
+  star: 44,
+  seqNo: 70,
+  name: 220,
+  country: 100,
+  websiteBusinessType: 140,
+  email: 200,
+  status: 160,
+  action: 560,
+};
+const COL_MIN_WIDTH: Record<string, number> = {
+  star: 36,
+  seqNo: 50,
+  name: 120,
+  country: 70,
+  websiteBusinessType: 90,
+  email: 120,
+  status: 110,
+  action: 320,
+};
+
+/**
+ * 可拖拽宽度的表头单元格（antd v5 components.header.cell 自定义）。
+ * onHeaderCell 返回的 width/onResize 等自定义 prop 会被合并进本组件 props，
+ * 本组件负责渲染右侧拖拽把手；自定义 prop 不会透传到 DOM（避免 React 警告）。
+ */
+interface ResizableHeaderCellProps extends React.HTMLAttributes<HTMLTableCellElement> {
+  width?: number;
+  onResize?: (width: number) => void;
+  minWidth?: number;
+  resizable?: boolean;
+  resizeHint: string;
+}
+
+const ResizableHeaderCell: React.FC<ResizableHeaderCellProps> = ({
+  width,
+  onResize,
+  minWidth = 60,
+  resizable = true,
+  resizeHint,
+  children,
+  ...restProps
+}) => {
+  const startRef = React.useRef<{ x: number; width: number } | null>(null);
+
+  const handleMouseDown = (e: React.MouseEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    if (!onResize || width == null) return;
+    startRef.current = { x: e.clientX, width };
+    const onMove = (ev: MouseEvent) => {
+      const start = startRef.current;
+      if (!start) return;
+      const next = Math.max(minWidth, start.width + (ev.clientX - start.x));
+      onResize(next);
+    };
+    const onUp = () => {
+      startRef.current = null;
+      window.removeEventListener('mousemove', onMove);
+      window.removeEventListener('mouseup', onUp);
+      document.body.classList.remove('select-none');
+    };
+    document.body.classList.add('select-none');
+    window.addEventListener('mousemove', onMove);
+    window.addEventListener('mouseup', onUp);
+  };
+
+  return (
+    <th {...restProps} className={`${restProps.className ?? ''} relative`}>
+      {children}
+      {resizable && onResize && (
+        <span
+          role="separator"
+          aria-orientation="vertical"
+          title={resizeHint}
+          onMouseDown={handleMouseDown}
+          className="absolute right-0 top-0 z-10 h-full w-1.5 cursor-col-resize select-none bg-transparent transition-colors hover:bg-blue-400/70 active:bg-blue-500/70"
+        />
+      )}
+    </th>
+  );
+};
 
 const getStatusBadgeStyle = (status: CompanyStatus): string => {
   switch (status) {
@@ -190,6 +278,37 @@ const WorkbenchTab: React.FC<WorkbenchTabProps> = ({
   const qc = useQueryClient();
 
   const items = listData?.items || [];
+
+  // --- 表格列宽（拖拽表头边缘 / 工具栏「列宽」按钮，按项目持久化） ---
+  const widthStoreKey = `wb-col-widths-${projectId}`;
+  const [colWidths, setColWidths] = useState<Record<string, number>>(() => {
+    try {
+      const raw = window.localStorage.getItem(widthStoreKey);
+      if (raw) return { ...DEFAULT_COL_WIDTHS, ...(JSON.parse(raw) as Record<string, number>) };
+    } catch {
+      /* ignore */
+    }
+    return DEFAULT_COL_WIDTHS;
+  });
+  const setColWidth = useCallback((key: string, width: number) => {
+    setColWidths((prev) => {
+      const next = { ...prev, [key]: width };
+      try {
+        window.localStorage.setItem(widthStoreKey, JSON.stringify(next));
+      } catch {
+        /* ignore */
+      }
+      return next;
+    });
+  }, [widthStoreKey]);
+  const resetColWidths = useCallback(() => {
+    setColWidths(DEFAULT_COL_WIDTHS);
+    try {
+      window.localStorage.removeItem(widthStoreKey);
+    } catch {
+      /* ignore */
+    }
+  }, [widthStoreKey]);
 
   // --- Batch analyze operation ---
   const batchAnalyzeOp = useBatchOperation<Company>({
@@ -979,6 +1098,32 @@ const WorkbenchTab: React.FC<WorkbenchTabProps> = ({
     },
   ];
 
+  // 应用列宽 + 挂拖拽把手：antd 用 column.width 渲染 colgroup，改 state 即实时生效
+  const effectiveColumns = useMemo(() => {
+    return columns.map((col) => {
+      const key = String((col as { key?: string }).key ?? '');
+      const width = colWidths[key] ?? (col as { width?: number }).width;
+      const resizable = key !== '' && key !== 'star';
+      return {
+        ...col,
+        width,
+        onHeaderCell: () =>
+          ({
+            width,
+            minWidth: COL_MIN_WIDTH[key] ?? 60,
+            resizable,
+            resizeHint: t('拖动调节列宽'),
+            onResize: (w: number) => setColWidth(key, w),
+          }) as React.HTMLAttributes<HTMLTableCellElement>,
+      } as unknown as (typeof columns)[number];
+    });
+  }, [columns, colWidths, setColWidth, t]);
+
+  const totalColWidth = useMemo(
+    () => Object.values(colWidths).reduce((sum, w) => sum + w, 0),
+    [colWidths],
+  );
+
   const expandedRowRender = (record: Company) => {
     const isEditing = editingEmail !== null;
     const hasLocalEmail = !!(record.emailSubjectLocal || record.emailBodyLocal);
@@ -1599,6 +1744,47 @@ const WorkbenchTab: React.FC<WorkbenchTabProps> = ({
             <Button variant="secondary" size="sm" onClick={onSearch}>
               {t('搜索')}
             </Button>
+
+            {/* 列宽调节：弹层逐列调 + 表头右缘直接拖 */}
+            <Popover>
+              <PopoverTrigger asChild>
+                <Button variant="outline" size="sm" className="gap-1.5">
+                  <Settings2 size={14} />
+                  {t('列宽')}
+                </Button>
+              </PopoverTrigger>
+              <PopoverContent align="start" className="w-80 space-y-3">
+                <div className="flex items-center justify-between">
+                  <p className="text-sm font-semibold text-slate-800">{t('调节列宽')}</p>
+                  <Button variant="ghost" size="sm" className="h-7 px-2 text-xs" onClick={resetColWidths}>
+                    <RotateCcw size={12} />
+                    {t('重置')}
+                  </Button>
+                </div>
+                {Object.entries(DEFAULT_COL_WIDTHS).map(([key, defWidth]) => {
+                  const label =
+                    key === 'star' ? t('星标')
+                    : key === 'websiteBusinessType' ? t('业务类型')
+                    : t(key === 'seqNo' ? '序号' : key === 'name' ? '名称' : key === 'country' ? '国家/地区' : key === 'email' ? '邮箱' : key === 'status' ? '状态' : '操作');
+                  return (
+                    <div key={key} className="space-y-1">
+                      <div className="flex items-center justify-between text-xs text-slate-500">
+                        <span>{label}</span>
+                        <span className="tabular-nums">{colWidths[key] ?? defWidth}px</span>
+                      </div>
+                      <Slider
+                        min={COL_MIN_WIDTH[key] ?? 60}
+                        max={800}
+                        step={10}
+                        value={[colWidths[key] ?? defWidth]}
+                        onValueChange={([v]) => setColWidth(key, v)}
+                      />
+                    </div>
+                  );
+                })}
+                <p className="text-xs text-slate-400">{t('也可以直接拖动表头右缘调节列宽')}</p>
+              </PopoverContent>
+            </Popover>
           </div>
 
           <div className="flex items-center gap-2 flex-wrap">
@@ -1738,11 +1924,16 @@ const WorkbenchTab: React.FC<WorkbenchTabProps> = ({
 
         {/* Table */}
         <Table<Company>
-          columns={columns}
+          columns={effectiveColumns}
+          components={{
+            header: {
+              cell: ResizableHeaderCell as unknown as React.ComponentType<Record<string, unknown>>,
+            },
+          }}
           dataSource={listData?.items || []}
           loading={listLoading}
           rowKey="id"
-          scroll={{ x: 1200, y: 500 }}
+          scroll={{ x: totalColWidth, y: 500 }}
           expandable={{
             expandedRowRender,
           }}
