@@ -1,6 +1,7 @@
 import {
   Controller,
   Post,
+  Get,
   Param,
   Body,
   BadRequestException,
@@ -36,6 +37,17 @@ export class WebsiteAnalyzerController {
   constructor(
     private readonly websiteAnalyzerService: WebsiteAnalyzerService,
   ) {}
+
+  /** 某公司抓到的全部联系方式（多个邮箱/电话都要列出来） */
+  @Get('contacts/:companyId')
+  async contacts(
+    @Param('companyId') companyId: string,
+  ): Promise<{ items: { type: 'email' | 'phone'; value: string; isPrimary: boolean }[] }> {
+    if (!companyId) {
+      throw new BadRequestException('companyId 不能为空');
+    }
+    return { items: await this.websiteAnalyzerService.listContacts(companyId) };
+  }
 
   @Post('analyze/:companyId')
   async analyze(

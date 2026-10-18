@@ -62,3 +62,17 @@ export async function rescanEmails(projectId: string): Promise<EmailRescanSummar
   );
   return response.data;
 }
+
+export interface CompanyContact {
+  type: 'email' | 'phone';
+  value: string;
+  isPrimary: boolean;
+}
+
+/** 某公司抓到的全部联系方式（多个邮箱/电话都要列出来） */
+export async function getCompanyContacts(companyId: string): Promise<CompanyContact[]> {
+  const response = await axiosForBackend.get(
+    `/api/website-analyzer/contacts/${companyId}`,
+  );
+  return (response.data?.items ?? []) as CompanyContact[];
+}

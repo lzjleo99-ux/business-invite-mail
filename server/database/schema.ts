@@ -396,6 +396,24 @@ export const wecomNotifySettings = pgTable("wecom_notify_settings", {
 });
 
 /**
+ * 公司联系方式明细（一行一个联系方式）。
+ * 站点上常常同时有总机、传真、多个分部电话、多个邮箱，单列
+ * website_contact_email / website_contact_phone 只能存一个，需求是"多个都要列出来"。
+ * 自建表：平台管理的表不能 ALTER（同 mail_inbox_settings / wecom_notify_settings）。
+ * is_primary 标记表示"发信实际用的那个"（沿用邮箱排序打分选出的最优项）。
+ */
+export const companyContacts = pgTable("company_contacts", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  companyId: uuid("company_id").notNull().references(() => restaurants.id, { onDelete: "cascade" }),
+  type: varchar("type", { length: 10 }).notNull(), // email | phone
+  value: varchar("value", { length: 320 }).notNull(),
+  source: varchar("source", { length: 20 }).notNull().default('website'), // website | import | manual
+  isPrimary: boolean("is_primary").notNull().default(false),
+  createdAt: customTimestamptz("_created_at", { precision: 3 }).notNull().default(sql`CURRENT_TIMESTAMP`),
+  updatedAt: customTimestamptz("_updated_at", { precision: 3 }).notNull().default(sql`CURRENT_TIMESTAMP`),
+});
+
+/**
  * 邮件往来历史（发信 + 收信全量留痕，后台真实数据）。
  * 自建表：平台管理的表不能 ALTER（project_materials 加列踩过 must be owner），
  * 独立新表 + FK cascade 是既定模式（material_blobs / material_image_descriptions 同款）。

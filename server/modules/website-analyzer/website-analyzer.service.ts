@@ -9,7 +9,8 @@ import { execFile } from 'child_process';
 import { promisify } from 'util';
 import { randomUUID } from 'crypto';
 import * as fs from 'fs/promises';
-import { restaurants, modelConfig, projects } from '@server/database/schema';
+import { restaurants, modelConfig, projects, companyContacts } from '@server/database/schema';
+import { runIdempotentMigration } from '@server/common/utils/ddl-runner';
 import type { Company, CompanyStatus } from '@shared/api.interface';
 
 const execFileAsync = promisify(execFile);
@@ -62,6 +63,7 @@ export class WebsiteAnalyzerService {
   private readonly MAX_TEXT_LENGTH = 10000;
   private readonly chromeProfileDir = `/tmp/chrome-profile-${process.pid}`;
   private readonly CONCURRENCY = 5;
+  private contactsTablePromise: Promise<void> | null = null;
 
   constructor(
     @Inject(DRIZZLE_DATABASE) private readonly db: PostgresJsDatabase,
@@ -121,7 +123,7 @@ export class WebsiteAnalyzerService {
       .where(eq(restaurants.id, companyId));
 
     try {
-      const fetchResult = await this.fetchWebsiteContent(company.website, userId);
+      const fetchResult = await this.fetchWebsiteContent(company.website, userId, company.country);
       const extraction = await this.extractWithModel(
         fetchResult.content,
         company.name,
@@ -129,21 +131,42 @@ export class WebsiteAnalyzerService {
         userId,
       );
 
+      // 多个邮箱/电话全部收集：模型给的主值 + 正文里正则扫到的全部（去重）。
+      // 用户要求"有多个都要列出来"，单列 websiteContactEmail/Phone 存不下。
+      const siteHost = (() => {
+        try {
+          return new URL(this.normalizeUrl(company.website)).hostname.replace(/^www\./, '');
+        } catch {
+          return '';
+        }
+      })();
+      const modelEmail = (extraction.email ?? '').trim();
+      const allEmails = this.rankEmails(
+        Array.from(new Set([modelEmail, ...this.extractEmails(fetchResult.content)].filter(Boolean))),
+        siteHost,
+      );
+      const modelPhone = (extraction.phone ?? '').trim();
+      const allPhones = Array.from(
+        new Set([modelPhone, ...this.extractPhones(fetchResult.content)].filter(Boolean)),
+      );
+
       const updateData: Partial<typeof restaurants.$inferInsert> = {
         websiteSummary: extraction.description ?? null,
         websiteCuisine: extraction.businessType ?? null,
         websiteFeatures: extraction.mainProducts ?? null,
         websiteHours: extraction.hours ?? null,
-        websiteContactEmail: extraction.email ?? null,
-        websiteContactPhone: extraction.phone ?? null,
+        // 单列仍保留"最优那个"：发信/列宽/排序都依赖它
+        websiteContactEmail: allEmails[0] ?? null,
+        websiteContactPhone: allPhones[0] ?? null,
         websiteSocial: extraction.social ?? null,
         websiteLanguage: extraction.language ?? null,
         status: 'analyzed' as CompanyStatus,
         analyzeError: null,
       };
 
-      if (extraction.email && !company.email) {
-        updateData.email = extraction.email;
+      const primaryEmail = allEmails[0];
+      if (primaryEmail && !company.email) {
+        updateData.email = primaryEmail;
       }
 
       const updated = await this.db
@@ -151,6 +174,12 @@ export class WebsiteAnalyzerService {
         .set(updateData)
         .where(eq(restaurants.id, companyId))
         .returning();
+
+      await this.saveContacts(
+        companyId,
+        allEmails.map((v) => ({ type: 'email' as const, value: v })),
+        allPhones.map((v) => ({ type: 'phone' as const, value: v })),
+      );
 
       return this.toCompanyDto(updated[0]);
     } catch (error: unknown) {
@@ -254,12 +283,18 @@ export class WebsiteAnalyzerService {
     }
   }
 
-  private async fetchWebsiteContent(website: string, userId: string): Promise<FetchResult> {
+  private async fetchWebsiteContent(
+    website: string,
+    userId: string,
+    country: string | null = null,
+  ): Promise<FetchResult> {
     const baseUrl = this.normalizeUrl(website);
+    // 本地语言栏目：英语 + 本地语言都要爬一遍再判断"有没有联系方式"
+    const localPaths = this.localCrawlPaths(country);
 
     // Step 1: HTTP 抓取
     try {
-      const content = await this.fetchWithHttp(baseUrl);
+      const content = await this.fetchWithHttp(baseUrl, localPaths);
       if (content && content.length > 500) {
         return { content, method: 'http' };
       }
@@ -306,11 +341,57 @@ export class WebsiteAnalyzerService {
     );
   }
 
-  private async fetchWithHttp(baseUrl: string): Promise<string> {
-    const pages = ['', '/about', '/contact', '/products', '/services', '/company'];
+  /**
+   * 按国家给出**本地语言**的常见栏目路径。
+   * 只爬 /contact 这类英文路径会漏掉大量欧洲站点——塞尔维亚/德国/法国/意大利的
+   * "联系我们"几乎都用本地词，用户明确要求"英语和本地语言都测试一遍"。
+   */
+  private localCrawlPaths(country: string | null): string[] {
+    const c = (country || '').toLowerCase();
+    const has = (...keys: string[]) => keys.some((k) => c.includes(k));
+
+    if (has('serbia', 'srbija', 'србија', 'montenegro', 'croatia', 'bosnia', 'macedonia')) {
+      return ['/kontakt', '/kontakti', '/o-nama', '/proizvodi', '/usluge', '/kontakt-2'];
+    }
+    if (has('germany', 'deutschland', 'austria', 'switzerland')) {
+      return ['/kontakt', '/impressum', '/über-uns', '/produkte', '/leistungen'];
+    }
+    if (has('france')) {
+      return ['/nous-contacter', '/a-propos', '/produits', '/services'];
+    }
+    if (has('italy', 'italia')) {
+      return ['/contatti', '/chi-siamo', '/prodotti', '/servizi'];
+    }
+    if (has('spain', 'españa', 'espana')) {
+      return ['/contacto', '/acerca-de', '/productos', '/servicios'];
+    }
+    if (has('netherlands', 'nederland', 'belgium', 'belgië', 'belgie')) {
+      return ['/contact', '/over-ons', '/producten', '/diensten'];
+    }
+    if (has('poland', 'polska')) {
+      return ['/kontakt', '/o-nas', '/produkty', '/uslugi'];
+    }
+    if (has('turkey', 'türkiye', 'turkiye')) {
+      return ['/iletisim', '/hakkimizda', '/urunler', '/hizmetler'];
+    }
+    if (has('romania', 'românia')) {
+      return ['/contact', '/despre-noi', '/produse', '/servicii'];
+    }
+    return [];
+  }
+
+  private async fetchWithHttp(baseUrl: string, localPaths: string[] = []): Promise<string> {
+    // 首页 + 英文常见栏目 + **本地语言栏目**。
+    // 本地语言路径很关键：塞尔维亚/德国/法国站点的"联系我们"很少用 /contact，
+    // 常见 /kontakt（德/塞）、/nous-contacter（法）、/contatti（意）——
+    // 只爬英文路径会漏掉整站唯一的联系方式。
+    const pages = ['', '/about', '/contact', '/products', '/services', '/company', ...localPaths];
     const contents: string[] = [];
+    const seen = new Set<string>();
 
     for (const page of pages) {
+      if (seen.has(page)) continue;
+      seen.add(page);
       try {
         const url = page ? this.joinUrl(baseUrl, page) : baseUrl;
         const response = await this.httpClient.get<string>(url, {
@@ -972,6 +1053,142 @@ ${content}`;
       out.push(item);
     }
     return out;
+  }
+
+  /**
+   * 从 HTML 提取电话：优先 tel: 链接，再全文正则。
+   * 欧洲站点同一个公司常有总机 + 传真 + 多个分部电话，全部保留给用户挑。
+   * 过滤明显的年份/价格/尺寸误报。
+   */
+  private extractPhones(html: string): string[] {
+    const raw: string[] = [];
+    const tel = /tel:([^\s'"?>\]>,]+)/gi;
+    let m: RegExpExecArray | null;
+    while ((m = tel.exec(html)) !== null) raw.push(m[1]);
+
+    // 允许 + 开头、空格/短横/括号分隔；要求至少 6 位数字
+    const plain = /\+?\d[\d\s().-]{5,20}\d/g;
+    while ((m = plain.exec(html)) !== null) raw.push(m[0]);
+
+    const out: string[] = [];
+    const seen = new Set<string>();
+    for (const item of raw) {
+      const trimmed = item.trim().replace(/\s+/g, ' ');
+      const digits = trimmed.replace(/\D/g, '');
+      if (digits.length < 6 || digits.length > 20) continue;
+      // 误报过滤：纯年份（如 2024）、价格、百分比、尺寸
+      if (/^\d{4}$/.test(digits)) continue;
+      if (/^[€$£¥]/.test(trimmed)) continue;
+      if (/\d{4}\s*[x×]\s*\d{4}/i.test(trimmed)) continue;
+      const key = digits; // 同一号码不同写法只留一个
+      if (seen.has(key)) continue;
+      seen.add(key);
+      out.push(trimmed);
+      if (out.length >= 8) break;
+    }
+    return out;
+  }
+
+  /**
+   * 覆盖式保存该公司抓到的全部联系方式（重新分析时先清掉旧的 website 来源）。
+   * 表是自己建的，可以在请求期做 DDL（沿用 ddl-runner 幂等迁移）。
+   */
+  private async saveContacts(
+    companyId: string,
+    emails: { type: 'email'; value: string }[],
+    phones: { type: 'phone'; value: string }[],
+  ): Promise<void> {
+    try {
+      await this.ensureContactsTable();
+      await this.db
+        .delete(companyContacts)
+        .where(
+          and(
+            eq(companyContacts.companyId, companyId),
+            eq(companyContacts.source, 'website'),
+          ),
+        );
+      const rows = [
+        ...emails.map((e, i) => ({
+          companyId,
+          type: 'email' as const,
+          value: e.value.slice(0, 320),
+          source: 'website' as const,
+          isPrimary: i === 0,
+        })),
+        ...phones.map((p, i) => ({
+          companyId,
+          type: 'phone' as const,
+          value: p.value.slice(0, 320),
+          source: 'website' as const,
+          isPrimary: i === 0,
+        })),
+      ];
+      if (rows.length > 0) await this.db.insert(companyContacts).values(rows);
+      this.logger.log(
+        `${companyId} 联系方式已保存：邮箱 ${emails.length} 个、电话 ${phones.length} 个`,
+      );
+    } catch (err: unknown) {
+      // 明细表存不下不能影响主分析结果（单列已有最优值）
+      this.logger.warn(
+        `联系方式明细保存失败（不影响主流程）：${err instanceof Error ? err.message : String(err)}`,
+      );
+    }
+  }
+
+  /** 读某公司全部联系方式（展开行展示多个邮箱/电话） */
+  async listContacts(companyId: string): Promise<
+    { type: 'email' | 'phone'; value: string; isPrimary: boolean }[]
+  > {
+    try {
+      await this.ensureContactsTable();
+      const rows = await this.db
+        .select()
+        .from(companyContacts)
+        .where(eq(companyContacts.companyId, companyId))
+        .orderBy(companyContacts.isPrimary, companyContacts.createdAt);
+      return rows.map((r) => ({
+        type: r.type as 'email' | 'phone',
+        value: r.value,
+        isPrimary: r.isPrimary,
+      }));
+    } catch {
+      return [];
+    }
+  }
+
+  private async ensureContactsTable(): Promise<void> {
+    if (!this.contactsTablePromise) {
+      this.contactsTablePromise = runIdempotentMigration(
+        this.db,
+        'company_contacts',
+        async (run) => {
+          await run(`
+            CREATE TABLE IF NOT EXISTS company_contacts (
+              id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+              company_id uuid NOT NULL REFERENCES restaurants(id) ON DELETE CASCADE,
+              type varchar(10) NOT NULL,
+              value varchar(320) NOT NULL,
+              source varchar(20) NOT NULL DEFAULT 'website',
+              is_primary boolean NOT NULL DEFAULT false,
+              _created_at timestamptz(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+              _updated_at timestamptz(3) NOT NULL DEFAULT CURRENT_TIMESTAMP
+            )`);
+          await run(
+            'CREATE INDEX IF NOT EXISTS idx_company_contacts_company ON company_contacts (company_id, type)',
+          );
+          await run(
+            'GRANT ALL PRIVILEGES ON TABLE company_contacts TO anon_, authenticated_, service_role_',
+          );
+        },
+      )
+        .then(() => undefined)
+        .catch((err: unknown) => {
+          this.contactsTablePromise = null;
+          throw err;
+        });
+    }
+    return this.contactsTablePromise;
   }
 
   /**

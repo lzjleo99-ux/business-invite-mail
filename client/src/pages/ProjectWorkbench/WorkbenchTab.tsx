@@ -32,6 +32,7 @@ import {
 } from 'lucide-react';
 
 import * as websiteAnalyzerApi from '@client/src/api/website-analyzer';
+import { getCompanyContacts } from '@client/src/api/website-analyzer';
 import * as emailGeneratorApi from '@client/src/api/email-generator';
 import { getCompanies } from '@client/src/api/restaurants';
 import EmailBodyView from './EmailBodyView';
@@ -136,6 +137,56 @@ const COL_MIN_WIDTH: Record<string, number> = {
   phone: 110,
   status: 110,
   action: 320,
+};
+
+/**
+ * 公司行的联系方式区：把分析时从官网抓到的**全部**邮箱/电话都列出来
+ * （很多公司有总机、传真、多个分部电话，只显示一个会漏掉可用的）。
+ */
+const CompanyContacts: React.FC<{ companyId: string }> = ({ companyId }) => {
+  const { t } = useI18n();
+  const { data } = useQuery({
+    queryKey: ['company-contacts', companyId],
+    queryFn: () => getCompanyContacts(companyId),
+    staleTime: 60_000,
+  });
+  const items = data ?? [];
+  if (items.length === 0) return null;
+  const emails = items.filter((c) => c.type === 'email');
+  const phones = items.filter((c) => c.type === 'phone');
+  return (
+    <div className="space-y-1.5 border-t border-slate-100 pt-3">
+      <p className="text-xs font-medium text-slate-500">{t('全部联系方式')}</p>
+      {emails.length > 0 && (
+        <div className="flex flex-wrap items-center gap-1.5">
+          <span className="text-xs text-slate-400">{t('邮箱')}</span>
+          {emails.map((c) => (
+            <span
+              key={`e-${c.value}`}
+              className="rounded bg-slate-50 px-1.5 py-0.5 text-xs text-slate-700 break-all"
+            >
+              {c.value}
+              {c.isPrimary && <span className="ml-1 text-[10px] text-primary">{t('主')}</span>}
+            </span>
+          ))}
+        </div>
+      )}
+      {phones.length > 0 && (
+        <div className="flex flex-wrap items-center gap-1.5">
+          <span className="text-xs text-slate-400">{t('电话')}</span>
+          {phones.map((c) => (
+            <span
+              key={`p-${c.value}`}
+              className="rounded bg-slate-50 px-1.5 py-0.5 text-xs text-slate-700 break-all"
+            >
+              {c.value}
+              {c.isPrimary && <span className="ml-1 text-[10px] text-primary">{t('主')}</span>}
+            </span>
+          ))}
+        </div>
+      )}
+    </div>
+  );
 };
 
 /**
@@ -1626,8 +1677,11 @@ const WorkbenchTab: React.FC<WorkbenchTabProps> = ({
                )}
              </div>
 
-             {/* 往来记录（发信/收信全量历史，后台 IMAP 自动收取） */}
-             <CompanyEmailHistory companyId={record.id} />
+            {/* 抓到的全部联系方式（多个邮箱/电话都要列出来，主值标"主"） */}
+            <CompanyContacts companyId={record.id} />
+
+            {/* 往来记录（发信/收信全量历史，后台 IMAP 自动收取） */}
+            <CompanyEmailHistory companyId={record.id} />
            </TabsContent>
             <TabsContent value="whatsapp" className="pt-4 space-y-4">
               {/* WhatsApp / Viber Number Info */}

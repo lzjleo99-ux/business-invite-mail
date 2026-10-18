@@ -288,3 +288,17 @@ CREATE TABLE IF NOT EXISTS wecom_notify_settings (
   _updated_at        timestamptz(3) NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 GRANT ALL PRIVILEGES ON TABLE wecom_notify_settings TO anon_, authenticated_, service_role_;
+
+-- ---------- 公司联系方式明细（一行一个，支持多个邮箱/电话） ----------
+CREATE TABLE IF NOT EXISTS company_contacts (
+  id          uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  company_id  uuid NOT NULL REFERENCES restaurants(id) ON DELETE CASCADE,
+  type        varchar(10) NOT NULL,            -- email | phone
+  value       varchar(320) NOT NULL,
+  source      varchar(20) NOT NULL DEFAULT 'website',
+  is_primary  boolean NOT NULL DEFAULT false, -- 实际发信用那个
+  _created_at timestamptz(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  _updated_at timestamptz(3) NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+CREATE INDEX IF NOT EXISTS idx_company_contacts_company ON company_contacts (company_id, type);
+GRANT ALL PRIVILEGES ON TABLE company_contacts TO anon_, authenticated_, service_role_;
