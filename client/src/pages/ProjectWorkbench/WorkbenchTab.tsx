@@ -199,7 +199,7 @@ const ResizableHeaderCell: React.FC<ResizableHeaderCellProps> = ({
           aria-orientation="vertical"
           title={resizeHint}
           onMouseDown={handleMouseDown}
-          className="absolute right-0 top-0 z-10 h-full w-1.5 cursor-col-resize select-none bg-transparent transition-colors hover:bg-blue-400/70 active:bg-blue-500/70"
+          className="absolute right-0 top-0 z-10 h-full w-3 -mr-1.5 cursor-col-resize select-none border-r-2 border-slate-300 transition-colors hover:border-blue-500 hover:bg-blue-400/30 active:border-blue-600 active:bg-blue-500/40"
         />
       )}
     </th>
