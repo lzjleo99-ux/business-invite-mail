@@ -11,5 +11,8 @@ import { EmailInboxService } from './email-inbox.service';
   imports: [ProjectsModule, SharedMailModule],
   controllers: [EmailGeneratorController],
   providers: [EmailGeneratorService, WeatherService, EmailHistoryService, EmailInboxService],
+  // AdminModule 的设置保存要热更新收信轮询，必须显式导出，
+  // 否则 Nest 启动时解析不了 AdminController 的依赖 → 容器崩溃循环（503）。
+  exports: [EmailInboxService],
 })
 export class EmailGeneratorModule {}

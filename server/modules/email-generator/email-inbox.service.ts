@@ -1,10 +1,10 @@
 import { Injectable, Inject, Logger, OnModuleDestroy, OnModuleInit } from '@nestjs/common';
 import { DRIZZLE_DATABASE, type PostgresJsDatabase } from '@lark-apaas/fullstack-nestjs-core';
-import { and, eq, or, sql } from 'drizzle-orm';
+import { or, sql } from 'drizzle-orm';
 import { ImapFlow } from 'imapflow';
 import { simpleParser } from 'mailparser';
-import { smtpConfig, restaurants } from '@server/database/schema';
-import { runIdempotentMigration } from '@server/common/utils/ddl-runner';
+import { restaurants } from '@server/database/schema';
+import { MailService } from '@server/common/services/mail.service';
 import { EmailHistoryService } from './email-history.service';
 
 export interface InboxPollResult {
@@ -20,24 +20,24 @@ export interface InboxPollResult {
  * - 轮询间隔 inbox_poll_seconds（默认 180s，最小 60s），只抓 uid 大于 inbox_last_uid 的新邮件
  * - mailparser 解析 RFC822，message_id 去重（已入库的跳过）
  * - 按发件地址匹配公司（email / websiteContactEmail），对不上的也留痕（company_id 为空）
- * - 任何失败只记日志，绝不影响主服务
+ * - 任何失败只记日志，绝不影响主服务；启动路径零 DDL、零 IMAP 连接
+ *   （列没建时 getImapSettings 返回默认值=未开启）
  */
 @Injectable()
 export class EmailInboxService implements OnModuleInit, OnModuleDestroy {
   private readonly logger = new Logger(EmailInboxService.name);
   private timer: NodeJS.Timeout | null = null;
   private polling = false;
-  private columnsPromise: Promise<void> | null = null;
 
   constructor(
     @Inject(DRIZZLE_DATABASE) private readonly db: PostgresJsDatabase,
+    private readonly mail: MailService,
     private readonly history: EmailHistoryService,
   ) {}
 
   onModuleInit(): void {
-    // 必须接 .catch：bootstrap 里任何拒绝（如启动期建列失败）若不接，
-    // Node 20 的默认 unhandled-rejections=throw 会直接崩进程 —— 容器重启循环，
-    // 整站 503。启动路径只做「读设置」，绝不碰 DDL（DDL 只在真正轮询/请求时跑）。
+    // 必须接 .catch：bootstrap 里任何拒绝（如读设置失败）若不接，Node 20 的默认
+    // unhandled-rejections=throw 会直接崩进程——容器重启循环，整站 503。
     void this.bootstrap().catch((err: unknown) => {
       this.logger.warn(
         `收信轮询启动失败（不影响主服务）：${err instanceof Error ? err.message : String(err)}`,
@@ -52,50 +52,19 @@ export class EmailInboxService implements OnModuleInit, OnModuleDestroy {
     }
   }
 
+  /** 启动路径：只读设置，默认关闭时直接返回（零 DDL、零连接） */
   private async bootstrap(): Promise<void> {
-    // 先读设置：默认关闭时启动期零 DDL、零 IMAP 连接
-    const s = await this.getSettings();
-    if (!s?.inboxPollEnabled) return;
-    try {
-      await this.ensureColumns();
-      const seconds = Math.max(60, s.inboxPollSeconds || 180);
-      this.logger.log(`收信轮询已启动：每 ${seconds}s 抓取一次新邮件`);
-      this.timer = setInterval(() => {
-        void this.poll().catch((err: unknown) => {
-          this.logger.warn(`收信轮询异常（不影响主服务）：${err instanceof Error ? err.message : String(err)}`);
-        });
-      }, seconds * 1000);
-      // 启动后先跑一次，别干等一个间隔
-      void this.poll().catch(() => undefined);
-    } catch (err: unknown) {
-      this.logger.warn(`收信轮询启动失败：${err instanceof Error ? err.message : String(err)}`);
-    }
-  }
-
-  /** smtp_config 的 IMAP 列（自建表，幂等 ALTER 补齐） */
-  private async ensureColumns(): Promise<void> {
-    if (!this.columnsPromise) {
-      this.columnsPromise = runIdempotentMigration(
-        this.db,
-        'smtp_config IMAP 列迁移',
-        async (run) => {
-          await run('ALTER TABLE smtp_config ADD COLUMN IF NOT EXISTS imap_host varchar(255)');
-          await run('ALTER TABLE smtp_config ADD COLUMN IF NOT EXISTS imap_port integer NOT NULL DEFAULT 993');
-          await run('ALTER TABLE smtp_config ADD COLUMN IF NOT EXISTS imap_secure boolean NOT NULL DEFAULT true');
-          await run('ALTER TABLE smtp_config ADD COLUMN IF NOT EXISTS inbox_poll_enabled boolean NOT NULL DEFAULT false');
-          await run('ALTER TABLE smtp_config ADD COLUMN IF NOT EXISTS inbox_poll_seconds integer NOT NULL DEFAULT 180');
-          await run('ALTER TABLE smtp_config ADD COLUMN IF NOT EXISTS inbox_last_uid integer NOT NULL DEFAULT 0');
-        },
-      )
-        .then((via) => {
-          this.logger.log(`smtp_config IMAP 列已就绪（via ${via}）`);
-        })
-        .catch((err) => {
-          this.columnsPromise = null;
-          throw err;
-        });
-    }
-    return this.columnsPromise;
+    const imap = await this.mail.getImapSettings();
+    if (!imap.inboxPollEnabled) return;
+    const seconds = Math.max(60, imap.inboxPollSeconds || 180);
+    this.logger.log(`收信轮询已启动：每 ${seconds}s 抓取一次新邮件`);
+    this.timer = setInterval(() => {
+      void this.poll().catch((err: unknown) => {
+        this.logger.warn(`收信轮询异常（不影响主服务）：${err instanceof Error ? err.message : String(err)}`);
+      });
+    }, seconds * 1000);
+    // 启动后先跑一次，别干等一个间隔
+    void this.poll().catch(() => undefined);
   }
 
   /** 设置保存后热更新轮询开关/间隔（任何失败都不能让设置保存接口 500） */
@@ -113,37 +82,30 @@ export class EmailInboxService implements OnModuleInit, OnModuleDestroy {
     }
   }
 
-  private async getSettings(): Promise<typeof smtpConfig.$inferSelect | null> {
-    const rows = await this.db
-      .select()
-      .from(smtpConfig)
-      .orderBy(sql`${smtpConfig.createdAt} DESC`)
-      .limit(1);
-    return rows[0] ?? null;
-  }
-
   /** 手动触发一次（设置页「立即收取」按钮） */
   async poll(): Promise<InboxPollResult> {
     if (this.polling) return { fetched: 0, saved: 0, lastUid: 0, error: '正在收取中' };
     this.polling = true;
     try {
-      await this.ensureColumns();
-      const s = await this.getSettings();
+      const s = await this.mail.getSettings();
       if (!s || !s.host || !s.fromEmail) {
         return { fetched: 0, saved: 0, lastUid: 0, error: '发信服务未配置' };
       }
       if (!s.password) {
         return { fetched: 0, saved: 0, lastUid: 0, error: '未配置邮箱授权码' };
       }
+      // IMAP 列在写/轮询路径补齐（请求期 DDL 已验证可行），失败就明说
+      await this.mail.ensureImapColumns();
+      const imap = await this.mail.getImapSettings();
 
       // IMAP 主机：优先设置里的 imap_host；否则按 SMTP 域名推导（smtp.exmail.qq.com → imap.exmail.qq.com）
       const imapHost =
-        s.imapHost?.trim() ||
+        imap.imapHost?.trim() ||
         (s.host.trim().startsWith('smtp.')
           ? s.host.trim().replace(/^smtp\./i, 'imap.')
           : `imap.${s.host.trim()}`);
-      const imapPort = s.imapPort || 993;
-      const imapSecure = s.imapSecure !== false;
+      const imapPort = imap.imapPort || 993;
+      const imapSecure = imap.imapSecure !== false;
       const user = s.username?.trim() || s.fromEmail;
 
       const client = new ImapFlow({
@@ -158,30 +120,31 @@ export class EmailInboxService implements OnModuleInit, OnModuleDestroy {
       await client.connect();
       let fetched = 0;
       let saved = 0;
-      let maxUid = s.inboxLastUid || 0;
+      let maxUid = imap.inboxLastUid || 0;
       try {
         const lock = await client.getMailboxLock('INBOX');
         try {
-          const uids: number[] = await client.search({ uid: `${(s.inboxLastUid || 0) + 1}:*` }, { uid: true });
+          const uids: number[] = await client.search(
+            { uid: `${(imap.inboxLastUid || 0) + 1}:*` },
+            { uid: true },
+          );
           for (const uid of uids) {
             fetched += 1;
             if (uid > maxUid) maxUid = uid;
             try {
-              const msg = await client.fetchOne(
-                `${uid}`,
-                { uid: true, source: true, envelope: true },
-                { uid: true },
-              );
+              const msg = await client.fetchOne(`${uid}`, { uid: true, source: true }, { uid: true });
               const source = msg.source?.toString('utf8') ?? '';
               if (!source) continue;
               const parsed = await simpleParser(source);
               const messageId = parsed.messageId?.trim() || null;
               const inReplyTo = parsed.inReplyTo?.trim() || null;
               const fromAddr = parsed.from?.value?.[0]?.address?.toLowerCase() ?? '';
-              const toAddrs = (parsed.to?.value ?? []).map((v) => v.address?.toLowerCase() ?? '').filter(Boolean);
+              const toAddrs = (parsed.to?.value ?? [])
+                .map((v) => v.address?.toLowerCase() ?? '')
+                .filter(Boolean);
               if (!fromAddr) continue;
 
-              // 按发件地址匹配公司（同项目或任意项目的邮箱列）
+              // 按发件地址匹配公司（任意项目的邮箱列）
               const match = await this.db
                 .select({ id: restaurants.id, projectId: restaurants.projectId })
                 .from(restaurants)
@@ -207,7 +170,9 @@ export class EmailInboxService implements OnModuleInit, OnModuleDestroy {
               });
               if (ok) saved += 1;
             } catch (err: unknown) {
-              this.logger.warn(`解析 uid=${uid} 邮件失败：${err instanceof Error ? err.message : String(err)}`);
+              this.logger.warn(
+                `解析 uid=${uid} 邮件失败：${err instanceof Error ? err.message : String(err)}`,
+              );
             }
           }
         } finally {
@@ -218,11 +183,8 @@ export class EmailInboxService implements OnModuleInit, OnModuleDestroy {
       }
 
       // 推进 uid 水位（即使部分解析失败也不重复抓）
-      if (maxUid > (s.inboxLastUid || 0)) {
-        await this.db
-          .update(smtpConfig)
-          .set({ inboxLastUid: maxUid })
-          .where(eq(smtpConfig.id, s.id));
+      if (maxUid > (imap.inboxLastUid || 0)) {
+        await this.mail.setInboxLastUid(s.id, maxUid);
       }
       if (saved > 0) {
         this.logger.log(`收信轮询：抓取 ${fetched} 封，新入库 ${saved} 封（uid 水位 ${maxUid}）`);

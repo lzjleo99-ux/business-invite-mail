@@ -134,6 +134,7 @@ export class AdminController {
     if (!s) {
       return { configured: false };
     }
+    const imap = await this.mailService.getImapSettings();
     return {
       configured: true,
       host: s.host,
@@ -143,11 +144,11 @@ export class AdminController {
       passwordSet: !!s.password,
       fromName: s.fromName,
       fromEmail: s.fromEmail,
-      imapHost: s.imapHost,
-      imapPort: s.imapPort,
-      imapSecure: s.imapSecure,
-      inboxPollEnabled: s.inboxPollEnabled,
-      inboxPollSeconds: s.inboxPollSeconds,
+      imapHost: imap.imapHost,
+      imapPort: imap.imapPort,
+      imapSecure: imap.imapSecure,
+      inboxPollEnabled: imap.inboxPollEnabled,
+      inboxPollSeconds: imap.inboxPollSeconds,
     };
   }
 
