@@ -104,6 +104,7 @@ class ListQueryDto {
     'generated',
     'has_email',
     'no_email',
+    'not_contacted',
     'failed',
   ])
   filterKey?:
@@ -114,6 +115,7 @@ class ListQueryDto {
     | 'generated'
     | 'has_email'
     | 'no_email'
+    | 'not_contacted'
     | 'failed';
 }
 
