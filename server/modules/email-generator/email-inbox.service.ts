@@ -35,7 +35,14 @@ export class EmailInboxService implements OnModuleInit, OnModuleDestroy {
   ) {}
 
   onModuleInit(): void {
-    void this.bootstrap();
+    // 必须接 .catch：bootstrap 里任何拒绝（如启动期建列失败）若不接，
+    // Node 20 的默认 unhandled-rejections=throw 会直接崩进程 —— 容器重启循环，
+    // 整站 503。启动路径只做「读设置」，绝不碰 DDL（DDL 只在真正轮询/请求时跑）。
+    void this.bootstrap().catch((err: unknown) => {
+      this.logger.warn(
+        `收信轮询启动失败（不影响主服务）：${err instanceof Error ? err.message : String(err)}`,
+      );
+    });
   }
 
   onModuleDestroy(): void {
@@ -46,10 +53,11 @@ export class EmailInboxService implements OnModuleInit, OnModuleDestroy {
   }
 
   private async bootstrap(): Promise<void> {
+    // 先读设置：默认关闭时启动期零 DDL、零 IMAP 连接
+    const s = await this.getSettings();
+    if (!s?.inboxPollEnabled) return;
     try {
       await this.ensureColumns();
-      const s = await this.getSettings();
-      if (!s?.inboxPollEnabled) return;
       const seconds = Math.max(60, s.inboxPollSeconds || 180);
       this.logger.log(`收信轮询已启动：每 ${seconds}s 抓取一次新邮件`);
       this.timer = setInterval(() => {
@@ -90,13 +98,19 @@ export class EmailInboxService implements OnModuleInit, OnModuleDestroy {
     return this.columnsPromise;
   }
 
-  /** 设置保存后热更新轮询开关/间隔 */
+  /** 设置保存后热更新轮询开关/间隔（任何失败都不能让设置保存接口 500） */
   async refreshSchedule(): Promise<void> {
     if (this.timer) {
       clearInterval(this.timer);
       this.timer = null;
     }
-    await this.bootstrap();
+    try {
+      await this.bootstrap();
+    } catch (err: unknown) {
+      this.logger.warn(
+        `刷新收信轮询失败（不影响主服务）：${err instanceof Error ? err.message : String(err)}`,
+      );
+    }
   }
 
   private async getSettings(): Promise<typeof smtpConfig.$inferSelect | null> {
