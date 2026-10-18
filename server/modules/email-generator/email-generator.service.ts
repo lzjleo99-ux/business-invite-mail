@@ -88,6 +88,7 @@ export class EmailGeneratorService {
    *   website-analyzer，这里只处理 generating，避免跨模块语义猜测。
    */
   async recoverZombieGenerating(projectId?: string): Promise<number> {
+    let fixed = 0;
     try {
       const cutoff = new Date(Date.now() - this.ZOMBIE_TIMEOUT_MS);
       const conditions = [
@@ -99,33 +100,82 @@ export class EmailGeneratorService {
         .select({ id: restaurants.id })
         .from(restaurants)
         .where(and(...conditions));
-      if (stale.length === 0) return 0;
-      await this.db
-        .update(restaurants)
-        .set({ status: 'analyzed' as CompanyStatus })
-        .where(
-          inArray(
-            restaurants.id,
-            stale.map((r: { id: string }) => r.id),
-          ),
+      if (stale.length > 0) {
+        await this.db
+          .update(restaurants)
+          .set({ status: 'analyzed' as CompanyStatus })
+          .where(
+            inArray(
+              restaurants.id,
+              stale.map((r: { id: string }) => r.id),
+            ),
+          );
+        this.logger.warn(
+          `回收僵尸 generating 状态 ${stale.length} 条（超过 ${this.ZOMBIE_TIMEOUT_MS / 60000} 分钟未完成）`,
         );
-      this.logger.warn(
-        `回收僵尸 generating 状态 ${stale.length} 条（超过 ${this.ZOMBIE_TIMEOUT_MS / 60000} 分钟未完成）`,
-      );
-      return stale.length;
+        fixed += stale.length;
+      }
     } catch (err: unknown) {
       // 回收失败绝不能影响主流程
       this.logger.warn(
         `回收僵尸 generating 状态失败: ${err instanceof Error ? err.message : String(err)}`,
       );
-      return 0;
     }
+    try {
+      // 修复历史脏数据：无邮箱却被标成 generated 的行（单行「生成」绕过客户端过滤造成）。
+      // 复位成 analyzed 让「已生成邮件」重新成为「有邮箱」的子集，两个数字不再打架。
+      const noEmailGenerated = await this.db
+        .select({ id: restaurants.id })
+        .from(restaurants)
+        .where(
+          and(
+            eq(restaurants.status, 'generated' as CompanyStatus),
+            or(
+              isNull(restaurants.email),
+              eq(restaurants.email, ''),
+            ),
+            or(
+              isNull(restaurants.websiteContactEmail),
+              eq(restaurants.websiteContactEmail, ''),
+            ),
+            ...(projectId ? [eq(restaurants.projectId, projectId)] : []),
+          ),
+        );
+      if (noEmailGenerated.length > 0) {
+        await this.db
+          .update(restaurants)
+          .set({ status: 'analyzed' as CompanyStatus })
+          .where(
+            inArray(
+              restaurants.id,
+              noEmailGenerated.map((r: { id: string }) => r.id),
+            ),
+          );
+        this.logger.warn(
+          `复位无邮箱却已生成的公司 ${noEmailGenerated.length} 条（发不出去的死数据）`,
+        );
+        fixed += noEmailGenerated.length;
+      }
+    } catch (err: unknown) {
+      this.logger.warn(
+        `复位无邮箱已生成公司失败: ${err instanceof Error ? err.message : String(err)}`,
+      );
+    }
+    return fixed;
   }
 
   async generateEmail(companyId: string, userId: string): Promise<GeneratedEmail> {
     const company = await this.getCompanyById(companyId);
     if (!company) {
       throw new BadRequestException('公司不存在');
+    }
+    // 硬性不变量：没有收件人邮箱的公司一律不允许生成。
+    // 之前只有客户端「一键生成全部」过滤了邮箱，服务端 generateEmail 没设防，
+    // 于是单行「生成/重新生成」能把无邮箱公司标成 generated —— 造成「已生成邮件」数
+    // 超过「有邮箱」数（如 26 > 25），而且这类邮件根本发不出去、纯烧 AI 额度。
+    const recipient = (company.websiteContactEmail || company.email || '').trim();
+    if (!recipient) {
+      throw new BadRequestException('该公司没有邮箱地址，无法生成邮件（请先补全邮箱）');
     }
 
     await this.db

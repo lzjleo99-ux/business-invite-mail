@@ -1534,12 +1534,21 @@ const WorkbenchTab: React.FC<WorkbenchTabProps> = ({
                      <Edit3 size={14} />
                      {t('编辑邮件')}
                    </Button>
-                   <Button
-                     variant="secondary"
-                     size="sm"
-                     onClick={() => onRegenerateEmail(record)}
-                     disabled={generatingId === record.id}
-                   >
+                  <Button
+                    variant="secondary"
+                    size="sm"
+                    onClick={() => onRegenerateEmail(record)}
+                    // 无邮箱不生成：服务端也会拦，这里先禁用并说明原因
+                    disabled={
+                      generatingId === record.id ||
+                      !(record.websiteContactEmail || record.email)
+                    }
+                    title={
+                      record.websiteContactEmail || record.email
+                        ? undefined
+                        : t('该公司没有邮箱地址，无法生成邮件')
+                    }
+                  >
                      {generatingId === record.id ? (
                        <Loader2 className="animate-spin" size={14} />
                      ) : (

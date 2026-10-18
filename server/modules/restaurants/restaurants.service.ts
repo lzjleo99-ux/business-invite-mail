@@ -255,6 +255,27 @@ export class RestaurantsService {
         throw new ForbiddenException('无权操作该项目');
       }
     }
+    // 自愈：无邮箱却被标成 generated 的历史脏数据（早期单行「生成」绕过客户端邮箱过滤造成）。
+    // 这类邮件根本发不出去，却让「已生成邮件」数超过「有邮箱」数（26 > 25）。这里复位成
+    // analyzed，保证「已生成邮件」永远是「有邮箱」的子集。统计前先修，读到的数就自洽。
+    try {
+      await this.db
+        .update(restaurants)
+        .set({ status: 'analyzed' as CompanyStatus })
+        .where(
+          and(
+            eq(restaurants.projectId, projectId),
+            eq(restaurants.status, 'generated' as CompanyStatus),
+            or(isNull(restaurants.email), eq(restaurants.email, '')),
+            or(
+              isNull(restaurants.websiteContactEmail),
+              eq(restaurants.websiteContactEmail, ''),
+            ),
+          ),
+        );
+    } catch {
+      // 自愈失败不影响统计返回
+    }
 
     const result = await this.db.execute(sql<{
       total: number;
