@@ -152,3 +152,66 @@ export async function batchSendEmails(projectId: string): Promise<BatchSendSumma
   );
   return response.data;
 }
+
+// --- 邮件往来历史（发信 + 收信） ---
+
+export interface EmailHistoryItem {
+  id: string;
+  companyId: string | null;
+  companyName: string | null;
+  projectId: string | null;
+  direction: 'outbound' | 'inbound';
+  status: 'sent' | 'failed' | 'received';
+  fromAddr: string;
+  toAddr: string;
+  subject: string;
+  snippet: string;
+  messageId: string | null;
+  error: string | null;
+  at: string;
+}
+
+export interface EmailHistoryListParams {
+  companyId?: string;
+  projectId?: string;
+  direction?: 'outbound' | 'inbound';
+  status?: string;
+  search?: string;
+  page?: number;
+  pageSize?: number;
+}
+
+/** 全局往来记录（往来历史页） */
+export async function getEmailHistories(
+  params: EmailHistoryListParams,
+): Promise<{ items: EmailHistoryItem[]; total: number }> {
+  const qs = new URLSearchParams();
+  if (params.companyId) qs.set('companyId', params.companyId);
+  if (params.projectId) qs.set('projectId', params.projectId);
+  if (params.direction) qs.set('direction', params.direction);
+  if (params.status) qs.set('status', params.status);
+  if (params.search) qs.set('search', params.search);
+  if (params.page) qs.set('page', String(params.page));
+  if (params.pageSize) qs.set('pageSize', String(params.pageSize));
+  const response = await axiosForBackend.get(`/api/email-generator/histories?${qs.toString()}`);
+  return response.data;
+}
+
+/** 单公司往来（公司行展开面板） */
+export async function getCompanyEmailHistories(
+  companyId: string,
+): Promise<{ items: EmailHistoryItem[] }> {
+  const response = await axiosForBackend.get(`/api/email-generator/histories/${companyId}`);
+  return response.data;
+}
+
+/** 手动收取一次收件箱 */
+export async function pollInbox(): Promise<{
+  fetched: number;
+  saved: number;
+  lastUid: number;
+  error?: string;
+}> {
+  const response = await axiosForBackend.post('/api/email-generator/inbox-poll', {}, { timeout: 180_000 });
+  return response.data;
+}

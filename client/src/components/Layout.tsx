@@ -9,6 +9,7 @@ import {
   KeyRound,
   ChevronDown,
   Menu,
+  Mail,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { useForm } from 'react-hook-form';
@@ -59,6 +60,7 @@ const Layout: React.FC = () => {
 
   const navItems = [
     { to: '/', label: t('项目列表'), icon: FolderKanban },
+    { to: '/email-history', label: t('邮件往来'), icon: Mail },
     { to: '/settings', label: t('设置'), icon: Settings },
   ];
 
