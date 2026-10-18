@@ -356,6 +356,8 @@ export const enMessages: Record<string, string> = {
   '渠道': 'Channel',
   '邮件': 'Email',
   '电话': 'Phone',
+  '正在读取已保存的发信配置...': 'Loading saved mail settings...',
+  '已保存：发件邮箱 {addr}，授权码已设置（出于安全不回显，留空即不修改）': 'Saved: sending from {addr}, authorization code is set (never shown for security; leave blank to keep it)',
   '使用说明': 'User Guide',
   '全部章节': 'All sections',
   '注意': 'Note',

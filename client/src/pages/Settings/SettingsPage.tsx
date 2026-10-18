@@ -55,6 +55,7 @@ const SettingsPage = () => {
     fromName: '',
     fromEmail: '',
     passwordSet: false,
+    configured: false,
     // IMAP 收信（同一授权码）
     imapHost: '',
     imapPort: '993',
@@ -63,6 +64,9 @@ const SettingsPage = () => {
     inboxPollSeconds: '180',
   });
   const [smtpBusy, setSmtpBusy] = useState(false);
+  // 已保存配置是异步读的：读之前先显示"读取中"，否则会先渲染一堆占位文字，
+  // 看起来像"什么都没填"（占位符 noreply@… 会被误认成真实值）。
+  const [smtpLoading, setSmtpLoading] = useState(true);
 
   // 企业微信群机器人通知（webhook 只写不读，回读只给 webhookSet）
   const [wecom, setWecom] = useState({
@@ -92,13 +96,16 @@ const SettingsPage = () => {
 
   // 读取已保存的 SMTP 配置（密码不回显，只标记是否已设置）
   useEffect(() => {
-    if (!isAdmin) return;
+    if (!isAdmin) {
+      setSmtpLoading(false);
+      return;
+    }
     void adminApi
       .getSmtpConfig()
       .then((c) => {
-        if (!c.configured) return;
         setSmtp((prev) => ({
           ...prev,
+          configured: !!c.configured,
           host: c.host ?? '',
           port: String(c.port ?? 465),
           secure: c.secure !== false,
@@ -114,7 +121,8 @@ const SettingsPage = () => {
         }));
         setSmtpTestTo(c.fromEmail ?? '');
       })
-      .catch(() => undefined);
+      .catch(() => undefined)
+      .finally(() => setSmtpLoading(false));
   }, [isAdmin]);
   const [smtpTestTo, setSmtpTestTo] = useState('');
 
@@ -866,11 +874,24 @@ const SettingsPage = () => {
         {isAdmin && activeTab === 'mail' && (
           <Card>
             <CardContent className="space-y-4">
+              {smtpLoading ? (
+                <p className="py-6 text-center text-sm text-slate-400">
+                  {t('正在读取已保存的发信配置...')}
+                </p>
+              ) : (
+                <>
               <div>
                 <h2 className="text-lg font-semibold text-slate-800">{t('发信服务（SMTP）')}</h2>
                 <p className="mt-1 text-sm text-slate-500">
                   {t('用于「忘记密码」发送验证码。不配置的话用户无法自助重置密码。')}
                 </p>
+                {smtp.configured && (
+                  <p className="mt-2 rounded-md bg-emerald-50 px-3 py-2 text-xs text-emerald-800">
+                    {t('已保存：发件邮箱 {addr}，授权码已设置（出于安全不回显，留空即不修改）', {
+                      addr: smtp.fromEmail || smtp.username,
+                    })}
+                  </p>
+                )}
               </div>
 
               <div className="grid gap-4 md:grid-cols-2">
@@ -1090,6 +1111,8 @@ const SettingsPage = () => {
                   </Button>
                 </div>
               </div>
+                </>
+              )}
             </CardContent>
           </Card>
         )}
