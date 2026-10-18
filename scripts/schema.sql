@@ -261,10 +261,17 @@ CREATE INDEX IF NOT EXISTS idx_email_histories_project ON email_histories (proje
 CREATE UNIQUE INDEX IF NOT EXISTS uq_email_histories_message ON email_histories (message_id);
 GRANT ALL PRIVILEGES ON TABLE email_histories TO anon_, authenticated_, service_role_;
 
--- ---------- smtp_config 收信（IMAP）配置列 ----------
-ALTER TABLE smtp_config ADD COLUMN IF NOT EXISTS imap_host varchar(255);
-ALTER TABLE smtp_config ADD COLUMN IF NOT EXISTS imap_port integer NOT NULL DEFAULT 993;
-ALTER TABLE smtp_config ADD COLUMN IF NOT EXISTS imap_secure boolean NOT NULL DEFAULT true;
-ALTER TABLE smtp_config ADD COLUMN IF NOT EXISTS inbox_poll_enabled boolean NOT NULL DEFAULT false;
-ALTER TABLE smtp_config ADD COLUMN IF NOT EXISTS inbox_poll_seconds integer NOT NULL DEFAULT 180;
-ALTER TABLE smtp_config ADD COLUMN IF NOT EXISTS inbox_last_uid integer NOT NULL DEFAULT 0;
+-- ---------- IMAP 收信配置（单行全局） ----------
+-- 独立新表：smtp_config 归平台迁移用户所有，ALTER 加列报 must be owner
+CREATE TABLE IF NOT EXISTS mail_inbox_settings (
+  id                   uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  imap_host            varchar(255),
+  imap_port            integer NOT NULL DEFAULT 993,
+  imap_secure          boolean NOT NULL DEFAULT true,
+  inbox_poll_enabled   boolean NOT NULL DEFAULT false,
+  inbox_poll_seconds   integer NOT NULL DEFAULT 180,
+  inbox_last_uid       integer NOT NULL DEFAULT 0,
+  _created_at          timestamptz(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  _updated_at          timestamptz(3) NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+GRANT ALL PRIVILEGES ON TABLE mail_inbox_settings TO anon_, authenticated_, service_role_;

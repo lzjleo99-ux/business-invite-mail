@@ -94,8 +94,8 @@ export class EmailInboxService implements OnModuleInit, OnModuleDestroy {
       if (!s.password) {
         return { fetched: 0, saved: 0, lastUid: 0, error: '未配置邮箱授权码' };
       }
-      // IMAP 列在写/轮询路径补齐（请求期 DDL 已验证可行），失败就明说
-      await this.mail.ensureImapColumns();
+      // IMAP 配置表在写/轮询路径补齐（请求期 DDL 已验证可行），失败就明说
+      await this.mail.ensureInboxTable();
       const imap = await this.mail.getImapSettings();
 
       // IMAP 主机：优先设置里的 imap_host；否则按 SMTP 域名推导（smtp.exmail.qq.com → imap.exmail.qq.com）
@@ -184,7 +184,7 @@ export class EmailInboxService implements OnModuleInit, OnModuleDestroy {
 
       // 推进 uid 水位（即使部分解析失败也不重复抓）
       if (maxUid > (imap.inboxLastUid || 0)) {
-        await this.mail.setInboxLastUid(s.id, maxUid);
+        await this.mail.setInboxLastUid(maxUid);
       }
       if (saved > 0) {
         this.logger.log(`收信轮询：抓取 ${fetched} 封，新入库 ${saved} 封（uid 水位 ${maxUid}）`);

@@ -36,7 +36,7 @@ export class MailService {
   private readonly logger = new Logger(MailService.name);
   private transporter: Transporter | null = null;
   private transporterKey = '';
-  private imapColumnsPromise: Promise<void> | null = null;
+  private inboxTablePromise: Promise<void> | null = null;
 
   constructor(
     @Inject(DRIZZLE_DATABASE) private readonly db: PostgresJsDatabase,
@@ -70,36 +70,49 @@ export class MailService {
   }
 
   /**
-   * IMAP 列幂等补齐。只在**写路径/轮询路径**调用（请求期 DDL 已被
-   * material_blobs / material_image_descriptions 多次验证可行）；
-   * 启动路径绝不调用——启动期没有可用的 DDL 连接路径，失败会把容器带崩。
+   * IMAP 收信配置存放在**自建表** mail_inbox_settings（单行全局）：
+   * smtp_config 是平台迁移用户建的，应用用户 ALTER 会报 must be owner
+   * （project_materials 加列踩过同一个坑）——所以不能给它加列。
+   * 建表只在写/轮询路径做（请求期 DDL 已验证可行）；读不到就返回默认值。
    */
-  async ensureImapColumns(): Promise<void> {
-    if (!this.imapColumnsPromise) {
-      this.imapColumnsPromise = runIdempotentMigration(
+  async ensureInboxTable(): Promise<void> {
+    if (!this.inboxTablePromise) {
+      this.inboxTablePromise = runIdempotentMigration(
         this.db,
-        'smtp_config IMAP 列迁移',
+        'mail_inbox_settings 建表迁移',
         async (run) => {
-          await run('ALTER TABLE smtp_config ADD COLUMN IF NOT EXISTS imap_host varchar(255)');
-          await run('ALTER TABLE smtp_config ADD COLUMN IF NOT EXISTS imap_port integer NOT NULL DEFAULT 993');
-          await run('ALTER TABLE smtp_config ADD COLUMN IF NOT EXISTS imap_secure boolean NOT NULL DEFAULT true');
-          await run('ALTER TABLE smtp_config ADD COLUMN IF NOT EXISTS inbox_poll_enabled boolean NOT NULL DEFAULT false');
-          await run('ALTER TABLE smtp_config ADD COLUMN IF NOT EXISTS inbox_poll_seconds integer NOT NULL DEFAULT 180');
-          await run('ALTER TABLE smtp_config ADD COLUMN IF NOT EXISTS inbox_last_uid integer NOT NULL DEFAULT 0');
+          await run(`
+            CREATE TABLE IF NOT EXISTS mail_inbox_settings (
+              id                   uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+              imap_host            varchar(255),
+              imap_port            integer NOT NULL DEFAULT 993,
+              imap_secure          boolean NOT NULL DEFAULT true,
+              inbox_poll_enabled   boolean NOT NULL DEFAULT false,
+              inbox_poll_seconds   integer NOT NULL DEFAULT 180,
+              inbox_last_uid       integer NOT NULL DEFAULT 0,
+              _created_at          timestamptz(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+              _updated_at          timestamptz(3) NOT NULL DEFAULT CURRENT_TIMESTAMP
+            )
+          `);
+          try {
+            await run('GRANT ALL PRIVILEGES ON TABLE mail_inbox_settings TO anon_, authenticated_, service_role_');
+          } catch (err) {
+            this.logger.warn(`mail_inbox_settings 授权失败（可忽略于非自建环境）: ${String(err).split('\n')[0]}`);
+          }
         },
       )
         .then((via) => {
-          this.logger.log(`smtp_config IMAP 列已就绪（via ${via}）`);
+          this.logger.log(`mail_inbox_settings 表已就绪（via ${via}）`);
         })
         .catch((err) => {
-          this.imapColumnsPromise = null;
+          this.inboxTablePromise = null;
           throw err;
         });
     }
-    return this.imapColumnsPromise;
+    return this.inboxTablePromise;
   }
 
-  /** IMAP 收信配置读取：列缺失时返回默认值（未开启），绝不抛错 */
+  /** IMAP 收信配置读取：表/行不存在时返回默认值（未开启），绝不抛错 */
   async getImapSettings(): Promise<ImapSettings> {
     try {
       const result = (await this.db.execute(sql`
@@ -109,8 +122,8 @@ export class MailService {
                inbox_poll_enabled AS "inboxPollEnabled",
                inbox_poll_seconds AS "inboxPollSeconds",
                inbox_last_uid AS "inboxLastUid"
-        FROM smtp_config
-        ORDER BY _created_at DESC
+        FROM mail_inbox_settings
+        ORDER BY _created_at ASC
         LIMIT 1
       `)) as unknown as Array<Record<string, unknown>>;
       const row = result[0];
@@ -124,14 +137,63 @@ export class MailService {
         inboxLastUid: Number(row.inboxLastUid) || 0,
       };
     } catch {
-      // 列还没建（未跑过 ensureImapColumns）→ 视为未配置
+      // 表还没建（未跑过 ensureInboxTable）→ 视为未配置
       return IMAP_DEFAULTS;
     }
   }
 
-  /** 推进收信 uid 水位（raw SQL：此时列一定已存在） */
-  async setInboxLastUid(id: string, uid: number): Promise<void> {
-    await this.db.execute(sql`UPDATE smtp_config SET inbox_last_uid = ${uid} WHERE id = ${id}`);
+  /** 保存 IMAP 配置（单行 upsert；先确保表存在） */
+  async saveInboxSettings(input: {
+    imapHost?: string | null;
+    imapPort?: number;
+    imapSecure?: boolean;
+    inboxPollEnabled?: boolean;
+    inboxPollSeconds?: number;
+  }): Promise<void> {
+    await this.ensureInboxTable();
+    const prev = await this.getImapSettings();
+    const values = {
+      imapHost: input.imapHost !== undefined ? input.imapHost : prev.imapHost,
+      imapPort: Number.isFinite(input.imapPort) ? Number(input.imapPort) : prev.imapPort,
+      imapSecure: input.imapSecure !== undefined ? input.imapSecure !== false : prev.imapSecure,
+      inboxPollEnabled:
+        input.inboxPollEnabled !== undefined ? input.inboxPollEnabled : prev.inboxPollEnabled,
+      inboxPollSeconds: Number.isFinite(input.inboxPollSeconds)
+        ? Math.max(60, Number(input.inboxPollSeconds))
+        : prev.inboxPollSeconds,
+      inboxLastUid: prev.inboxLastUid,
+      updatedAt: new Date(),
+    };
+    const existing = (await this.db.execute(sql`
+      SELECT id FROM mail_inbox_settings ORDER BY _created_at ASC LIMIT 1
+    `)) as unknown as Array<{ id: string }>;
+    if (existing[0]?.id) {
+      await this.db.execute(sql`
+        UPDATE mail_inbox_settings SET
+          imap_host = ${values.imapHost},
+          imap_port = ${values.imapPort},
+          imap_secure = ${values.imapSecure},
+          inbox_poll_enabled = ${values.inboxPollEnabled},
+          inbox_poll_seconds = ${values.inboxPollSeconds},
+          _updated_at = ${values.updatedAt}
+        WHERE id = ${existing[0].id}
+      `);
+    } else {
+      await this.db.execute(sql`
+        INSERT INTO mail_inbox_settings
+          (imap_host, imap_port, imap_secure, inbox_poll_enabled, inbox_poll_seconds, inbox_last_uid)
+        VALUES (${values.imapHost}, ${values.imapPort}, ${values.imapSecure}, ${values.inboxPollEnabled}, ${values.inboxPollSeconds}, ${values.inboxLastUid})
+      `);
+    }
+  }
+
+  /** 推进收信 uid 水位（raw SQL：此时表一定已存在） */
+  async setInboxLastUid(uid: number): Promise<void> {
+    await this.ensureInboxTable();
+    await this.db.execute(sql`
+      UPDATE mail_inbox_settings SET inbox_last_uid = ${uid}, _updated_at = ${new Date()}
+      WHERE id = (SELECT id FROM mail_inbox_settings ORDER BY _created_at ASC LIMIT 1)
+    `);
   }
 
   async saveSettings(input: {
@@ -142,11 +204,6 @@ export class MailService {
     password?: string | null;
     fromName?: string | null;
     fromEmail: string;
-    imapHost?: string | null;
-    imapPort?: number;
-    imapSecure?: boolean;
-    inboxPollEnabled?: boolean;
-    inboxPollSeconds?: number;
   }): Promise<void> {
     if (!input.host || !input.host.trim()) {
       throw new BadRequestException('SMTP 服务器不能为空');
@@ -156,7 +213,7 @@ export class MailService {
     }
 
     const existing = await this.getSettings();
-    const values: Record<string, unknown> = {
+    const values = {
       host: input.host.trim(),
       port: Number.isFinite(input.port) ? Number(input.port) : 465,
       secure: input.secure !== false,
@@ -169,33 +226,13 @@ export class MailService {
       fromEmail: input.fromEmail.trim(),
     };
 
-    // IMAP 字段：先确保列存在（写路径 DDL），再一并写入
-    const wantsImap =
-      input.imapHost !== undefined ||
-      input.imapPort !== undefined ||
-      input.imapSecure !== undefined ||
-      input.inboxPollEnabled !== undefined ||
-      input.inboxPollSeconds !== undefined;
-    if (wantsImap) {
-      await this.ensureImapColumns();
-      const prev = await this.getImapSettings();
-      values.imapHost = input.imapHost !== undefined ? input.imapHost : prev.imapHost;
-      values.imapPort = Number.isFinite(input.imapPort) ? Number(input.imapPort) : prev.imapPort;
-      values.imapSecure = input.imapSecure !== undefined ? input.imapSecure !== false : prev.imapSecure;
-      values.inboxPollEnabled =
-        input.inboxPollEnabled !== undefined ? input.inboxPollEnabled : prev.inboxPollEnabled;
-      values.inboxPollSeconds = Number.isFinite(input.inboxPollSeconds)
-        ? Math.max(60, Number(input.inboxPollSeconds))
-        : prev.inboxPollSeconds;
-    }
-
     if (existing) {
       await this.db
         .update(smtpConfig)
-        .set(values as Partial<typeof smtpConfig.$inferInsert>)
+        .set(values)
         .where(eq(smtpConfig.id, existing.id));
     } else {
-      await this.db.insert(smtpConfig).values(values as typeof smtpConfig.$inferInsert);
+      await this.db.insert(smtpConfig).values(values);
     }
     this.transporter = null;
     this.transporterKey = '';

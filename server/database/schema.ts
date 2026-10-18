@@ -356,7 +356,17 @@ export const smtpConfig = pgTable("smtp_config", {
   password: varchar("password", { length: 255 }),
   fromName: varchar("from_name", { length: 255 }),
   fromEmail: varchar("from_email", { length: 255 }).notNull(),
-  // 收信（IMAP）：同一授权码即可；轮询开关默认关，后台按间隔自动拉取新邮件
+  createdAt: customTimestamptz("_created_at", { precision: 3 }).notNull().default(sql`CURRENT_TIMESTAMP`),
+  updatedAt: customTimestamptz("_updated_at", { precision: 3 }).notNull().default(sql`CURRENT_TIMESTAMP`),
+});
+
+/**
+ * IMAP 收信配置（单行全局）。独立成表而非给 smtp_config 加列：
+ * smtp_config 是平台迁移用户建的，应用用户 ALTER 报 must be owner
+ * （与 project_materials 同一个坑）；CREATE 新表 owner 是自己。
+ */
+export const mailInboxSettings = pgTable("mail_inbox_settings", {
+  id: uuid("id").primaryKey().defaultRandom(),
   imapHost: varchar("imap_host", { length: 255 }),
   imapPort: integer("imap_port").notNull().default(993),
   imapSecure: boolean("imap_secure").notNull().default(true),

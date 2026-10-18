@@ -162,6 +162,9 @@ export class AdminController {
       password: dto.password,
       fromName: dto.fromName,
       fromEmail: dto.fromEmail,
+    });
+    // IMAP 收信配置走自建表（smtp_config 是平台表，不能加列）
+    await this.mailService.saveInboxSettings({
       imapHost: dto.imapHost,
       imapPort: dto.imapPort,
       imapSecure: dto.imapSecure,
