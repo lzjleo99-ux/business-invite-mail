@@ -1,9 +1,9 @@
 import { Injectable, Logger, BadRequestException } from '@nestjs/common';
 import { Inject } from '@nestjs/common';
 import { DRIZZLE_DATABASE, type PostgresJsDatabase } from '@lark-apaas/fullstack-nestjs-core';
-import { desc, eq, sql } from 'drizzle-orm';
+import { asc, desc, eq, sql } from 'drizzle-orm';
 import nodemailer, { type Transporter } from 'nodemailer';
-import { smtpConfig } from '@server/database/schema';
+import { smtpConfig, mailInboxSettings } from '@server/database/schema';
 import { runIdempotentMigration } from '@server/common/utils/ddl-runner';
 
 /** SMTP 基础列（不含 IMAP 列）——IMAP 列是后加的，读取必须容忍「列还没建」 */
@@ -161,39 +161,39 @@ export class MailService {
       inboxPollSeconds: Number.isFinite(input.inboxPollSeconds)
         ? Math.max(60, Number(input.inboxPollSeconds))
         : prev.inboxPollSeconds,
-      inboxLastUid: prev.inboxLastUid,
-      updatedAt: new Date(),
     };
-    const existing = (await this.db.execute(sql`
-      SELECT id FROM mail_inbox_settings ORDER BY _created_at ASC LIMIT 1
-    `)) as unknown as Array<{ id: string }>;
-    if (existing[0]?.id) {
-      await this.db.execute(sql`
-        UPDATE mail_inbox_settings SET
-          imap_host = ${values.imapHost},
-          imap_port = ${values.imapPort},
-          imap_secure = ${values.imapSecure},
-          inbox_poll_enabled = ${values.inboxPollEnabled},
-          inbox_poll_seconds = ${values.inboxPollSeconds},
-          _updated_at = ${values.updatedAt}
-        WHERE id = ${existing[0].id}
-      `);
+    // drizzle 构建器（与 email_histories 同款已验证路径；raw execute 的 UPDATE 在生产库上会挂）
+    const existing = await this.db
+      .select({ id: mailInboxSettings.id })
+      .from(mailInboxSettings)
+      .orderBy(asc(mailInboxSettings.createdAt))
+      .limit(1);
+    if (existing[0]) {
+      await this.db
+        .update(mailInboxSettings)
+        .set({ ...values, updatedAt: new Date() })
+        .where(eq(mailInboxSettings.id, existing[0].id));
     } else {
-      await this.db.execute(sql`
-        INSERT INTO mail_inbox_settings
-          (imap_host, imap_port, imap_secure, inbox_poll_enabled, inbox_poll_seconds, inbox_last_uid)
-        VALUES (${values.imapHost}, ${values.imapPort}, ${values.imapSecure}, ${values.inboxPollEnabled}, ${values.inboxPollSeconds}, ${values.inboxLastUid})
-      `);
+      await this.db.insert(mailInboxSettings).values(values);
     }
   }
 
-  /** 推进收信 uid 水位（raw SQL：此时表一定已存在） */
+  /** 推进收信 uid 水位（drizzle 构建器，与 email_histories 同款已验证路径） */
   async setInboxLastUid(uid: number): Promise<void> {
     await this.ensureInboxTable();
-    await this.db.execute(sql`
-      UPDATE mail_inbox_settings SET inbox_last_uid = ${uid}, _updated_at = ${new Date()}
-      WHERE id = (SELECT id FROM mail_inbox_settings ORDER BY _created_at ASC LIMIT 1)
-    `);
+    const existing = await this.db
+      .select({ id: mailInboxSettings.id })
+      .from(mailInboxSettings)
+      .orderBy(asc(mailInboxSettings.createdAt))
+      .limit(1);
+    if (existing[0]) {
+      await this.db
+        .update(mailInboxSettings)
+        .set({ inboxLastUid: uid, updatedAt: new Date() })
+        .where(eq(mailInboxSettings.id, existing[0].id));
+    } else {
+      await this.db.insert(mailInboxSettings).values({ inboxLastUid: uid });
+    }
   }
 
   async saveSettings(input: {
