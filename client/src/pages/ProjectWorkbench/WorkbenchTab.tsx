@@ -104,6 +104,7 @@ const DEFAULT_COL_WIDTHS: Record<string, number> = {
   country: 100,
   websiteBusinessType: 140,
   email: 200,
+  phone: 160,
   status: 160,
   action: 560,
 };
@@ -114,6 +115,7 @@ const COL_MIN_WIDTH: Record<string, number> = {
   country: 70,
   websiteBusinessType: 90,
   email: 120,
+  phone: 110,
   status: 110,
   action: 320,
 };
@@ -490,15 +492,20 @@ const WorkbenchTab: React.FC<WorkbenchTabProps> = ({
       const seen = new Map<string, Company>();
       let noEmail = 0;
       let page = 1;
-      // 生成只对 analyzed 状态有意义（failed 需要先重新分析；generated 有行内重新生成按钮）
-      for (;;) {
-        const res = await getCompanies({ projectId, page, pageSize: 100, status: 'analyzed' });
-        for (const c of res.items) {
-          seen.set(c.id, c);
-          if (!(c.websiteContactEmail || c.email)) noEmail += 1;
+      // 生成只对 analyzed 状态有意义（failed 需要先重新分析；generated 有行内重新生成按钮）。
+      // generating 也要圈进来：它是"进行中"标记，若上次请求被部署/刷新打断就会永久卡住
+      // （服务端 batchGenerate 只选 analyzed），不圈进来这些公司永远重试不了。
+      for (const status of ['analyzed', 'generating'] as const) {
+        page = 1;
+        for (;;) {
+          const res = await getCompanies({ projectId, page, pageSize: 100, status });
+          for (const c of res.items) {
+            seen.set(c.id, c);
+            if (!(c.websiteContactEmail || c.email)) noEmail += 1;
+          }
+          if (res.items.length === 0 || page * 100 >= res.total) break;
+          page += 1;
         }
-        if (res.items.length === 0 || page * 100 >= res.total) break;
-        page += 1;
       }
       const targets = [...seen.values()].filter((c) => c.websiteContactEmail || c.email);
       if (targets.length === 0) {
@@ -846,6 +853,22 @@ const WorkbenchTab: React.FC<WorkbenchTabProps> = ({
       // 否则用导入的 email 列
       render: (val: string | null, record: Company) => {
         const effective = record.websiteContactEmail || val;
+        return effective ? (
+          <span className="text-slate-700">{effective}</span>
+        ) : (
+          <span className="text-slate-400">-</span>
+        );
+      },
+    },
+    {
+      title: t('电话'),
+      dataIndex: 'phone',
+      key: 'phone',
+      width: 160,
+      ellipsis: true,
+      // 与邮箱同口径：websiteContactPhone 优先（官网核验/挖掘的结果），否则用导入的 phone 列
+      render: (val: string | null, record: Company) => {
+        const effective = record.websiteContactPhone || val;
         return effective ? (
           <span className="text-slate-700">{effective}</span>
         ) : (

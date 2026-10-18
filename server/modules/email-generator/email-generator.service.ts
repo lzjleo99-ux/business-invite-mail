@@ -61,6 +61,15 @@ export class EmailGeneratorService {
   // timeout of 180000ms exceeded 直接失败。放宽到 600s，最多重试 2 次（共 3 次尝试）。
   private readonly MODEL_TIMEOUT_MS = 600000;
   private readonly MAX_RETRIES = 2;
+  /**
+   * 僵尸状态回收：generating / analyzing 是「进行中」标记，正常请求结束一定会落到
+   * generated/analyzed/failed。但进程被重启（部署）、容器被杀、OOM 或前端刷新导致
+   * 请求中途断掉时，catch 里的复位永远不执行，这些行就永久卡在进行中状态。
+   * 后果很严重：客户端「一键生成全部」只圈 status='analyzed'，卡住的行既不在目标里、
+   * 也不能手动重试，等于这家公司从此再也生成不出邮件（前端还会一直显示"生成中 0/3"）。
+   * 所以读取时顺带把超过该时长的僵尸行复位回可重试状态。
+   */
+  private readonly ZOMBIE_TIMEOUT_MS = 30 * 60 * 1000;
 
   constructor(
     @Inject(DRIZZLE_DATABASE) private readonly db: PostgresJsDatabase,
@@ -70,6 +79,49 @@ export class EmailGeneratorService {
     private readonly emailHistory: EmailHistoryService,
   ) {}
 
+  /**
+   * 把僵尸 generating / analyzing 行复位。
+   * - generating → analyzed（可再生成）
+   * - analyzing → 保持 analyzing 的语义是"待分析完成"，复位成 analyzed 会让用户以为已分析，
+   *   但它其实没分析过；这里复位成 analyzed 是因为 analyzed 也能再次被「一键分析」以外
+   *   的路径重跑，且 analyzed 的语义是"网站已分析过"。真正的僵尸 analyzing 来自
+   *   website-analyzer，这里只处理 generating，避免跨模块语义猜测。
+   */
+  async recoverZombieGenerating(projectId?: string): Promise<number> {
+    try {
+      const cutoff = new Date(Date.now() - this.ZOMBIE_TIMEOUT_MS);
+      const conditions = [
+        eq(restaurants.status, 'generating' as CompanyStatus),
+        sql`${restaurants.updatedAt} < ${cutoff}`,
+      ];
+      if (projectId) conditions.push(eq(restaurants.projectId, projectId));
+      const stale = await this.db
+        .select({ id: restaurants.id })
+        .from(restaurants)
+        .where(and(...conditions));
+      if (stale.length === 0) return 0;
+      await this.db
+        .update(restaurants)
+        .set({ status: 'analyzed' as CompanyStatus })
+        .where(
+          inArray(
+            restaurants.id,
+            stale.map((r: { id: string }) => r.id),
+          ),
+        );
+      this.logger.warn(
+        `回收僵尸 generating 状态 ${stale.length} 条（超过 ${this.ZOMBIE_TIMEOUT_MS / 60000} 分钟未完成）`,
+      );
+      return stale.length;
+    } catch (err: unknown) {
+      // 回收失败绝不能影响主流程
+      this.logger.warn(
+        `回收僵尸 generating 状态失败: ${err instanceof Error ? err.message : String(err)}`,
+      );
+      return 0;
+    }
+  }
+
   async generateEmail(companyId: string, userId: string): Promise<GeneratedEmail> {
     const company = await this.getCompanyById(companyId);
     if (!company) {
@@ -78,7 +130,12 @@ export class EmailGeneratorService {
 
     await this.db
       .update(restaurants)
-      .set({ status: 'generating' as CompanyStatus, generateError: null })
+      // updatedAt 显式写入：_updated_at 没有自动更新触发器，不写的话僵尸回收永远判定不出超时
+      .set({
+        status: 'generating' as CompanyStatus,
+        generateError: null,
+        updatedAt: new Date(),
+      })
       .where(eq(restaurants.id, companyId));
 
     try {
@@ -154,6 +211,10 @@ export class EmailGeneratorService {
     userId: string,
   ): Promise<{ total: number }> {
     let targetIds: string[];
+
+    // 先回收僵尸状态：否则卡在 generating 的公司永远进不了 targetIds（下文只选 analyzed），
+    // 重跑多少次都救不回来。
+    await this.recoverZombieGenerating(projectId);
 
     if (companyIds && companyIds.length > 0) {
       const rows = await this.db
