@@ -10,6 +10,7 @@ import {
   ChevronDown,
   Menu,
   Mail,
+  BookOpen,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { useForm } from 'react-hook-form';
@@ -62,6 +63,7 @@ const Layout: React.FC = () => {
     { to: '/', label: t('项目列表'), icon: FolderKanban },
     { to: '/email-history', label: t('邮件往来'), icon: Mail },
     { to: '/settings', label: t('设置'), icon: Settings },
+    { to: '/guide', label: t('使用说明'), icon: BookOpen },
   ];
 
   if (user?.role === 'admin') {

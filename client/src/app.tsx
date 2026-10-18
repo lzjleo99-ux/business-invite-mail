@@ -13,6 +13,7 @@ import LoginPage from './pages/Login/LoginPage';
 import RegisterPage from './pages/Register/RegisterPage';
 import UserManagementPage from './pages/UserManagement/UserManagementPage';
 import EmailHistoryPage from './pages/EmailHistory/EmailHistoryPage';
+import UserGuidePage from './pages/UserGuide/UserGuidePage';
 import ProtectedRoute from './components/ProtectedRoute';
 
 const RoutesComponent = () => {
@@ -30,6 +31,7 @@ const RoutesComponent = () => {
             <Route path="email-history" element={<EmailHistoryPage />} />
             <Route path="compose/:companyId" element={<ComposeEmailPage />} />
             <Route path="admin/users" element={<UserManagementPage />} />
+            <Route path="guide" element={<UserGuidePage />} />
           </Route>
           <Route path="*" element={<NotFound />} />
         </Routes>
