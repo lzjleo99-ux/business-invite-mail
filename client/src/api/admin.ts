@@ -84,3 +84,32 @@ export async function testSmtp(to: string): Promise<{ success: boolean }> {
   const response = await axiosForBackend.post('/api/admin/smtp-test', { to });
   return response.data;
 }
+
+export interface WeComNotifyConfigDto {
+  enabled: boolean;
+  autoStarOnReply: boolean;
+  includeSnippet: boolean;
+  webhookSet: boolean;
+}
+
+/** 企业微信群机器人通知配置（webhook 只写不读，回读只给 webhookSet） */
+export async function getWecomNotifyConfig(): Promise<WeComNotifyConfigDto> {
+  const response = await axiosForBackend.get('/api/admin/wecom-notify-config');
+  return response.data;
+}
+
+export async function saveWecomNotifyConfig(body: {
+  webhookUrl?: string;
+  enabled?: boolean;
+  autoStarOnReply?: boolean;
+  includeSnippet?: boolean;
+}): Promise<{ success: boolean }> {
+  const response = await axiosForBackend.post('/api/admin/wecom-notify-config', body);
+  return response.data;
+}
+
+/** 测试推送：会真实往群里发一条消息 */
+export async function testWecomNotify(): Promise<{ ok: boolean; message: string }> {
+  const response = await axiosForBackend.post('/api/admin/wecom-notify-test', {}, { timeout: 30_000 });
+  return response.data;
+}

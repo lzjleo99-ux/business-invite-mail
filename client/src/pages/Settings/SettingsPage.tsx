@@ -4,7 +4,7 @@ import { useForm } from 'react-hook-form';
 import { z } from 'zod';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { toast } from 'sonner';
-import { Cpu, User, Bot, Copy, KeyRound, Mail } from 'lucide-react';
+import { Cpu, User, Bot, Copy, KeyRound, Mail, Bell } from 'lucide-react';
 import { resolveAppUrl } from '@lark-apaas/client-toolkit/utils/resolveAppUrl';
 import {
   Form,
@@ -24,7 +24,7 @@ import {
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { Button } from '@/components/ui/button';
-import { Card, CardContent } from '@/components/ui/card';
+import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import * as modelConfigApi from '@/api/model-config';
 import * as senderConfigApi from '@/api/sender-config';
 import * as adminApi from '@/api/admin';
@@ -63,6 +63,32 @@ const SettingsPage = () => {
     inboxPollSeconds: '180',
   });
   const [smtpBusy, setSmtpBusy] = useState(false);
+
+  // 企业微信群机器人通知（webhook 只写不读，回读只给 webhookSet）
+  const [wecom, setWecom] = useState({
+    webhookUrl: '',
+    enabled: false,
+    autoStarOnReply: true,
+    includeSnippet: true,
+    webhookSet: false,
+  });
+  const [wecomBusy, setWecomBusy] = useState(false);
+
+  useEffect(() => {
+    if (!isAdmin) return;
+    void adminApi
+      .getWecomNotifyConfig()
+      .then((c) =>
+        setWecom({
+          webhookUrl: '',
+          enabled: !!c.enabled,
+          autoStarOnReply: c.autoStarOnReply !== false,
+          includeSnippet: c.includeSnippet !== false,
+          webhookSet: !!c.webhookSet,
+        }),
+      )
+      .catch(() => undefined);
+  }, [isAdmin]);
 
   // 读取已保存的 SMTP 配置（密码不回显，只标记是否已设置）
   useEffect(() => {
@@ -1063,6 +1089,112 @@ const SettingsPage = () => {
                     {t('发送测试邮件')}
                   </Button>
                 </div>
+              </div>
+            </CardContent>
+          </Card>
+        )}
+
+        {/* 企业微信群机器人：收到客户回复时推提醒 + 自动加星标 */}
+        {user?.role === 'admin' && (
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <Bell size={16} className="text-primary" />
+                {t('企业微信提醒')}
+              </CardTitle>
+              <CardDescription>
+                {t('客户回复被后台收取时，往企业微信群推一条提醒，并自动给该公司加星标')}
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div className="space-y-1.5">
+                <Label>{t('群机器人 Webhook 地址')}</Label>
+                <Input
+                  value={wecom.webhookUrl}
+                  onChange={(e) => setWecom({ ...wecom, webhookUrl: e.target.value })}
+                  placeholder="https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=..."
+                />
+                <p className="text-xs text-slate-500">
+                  {wecom.webhookSet
+                    ? t('已保存（出于安全不显示原文；留空则不修改）')
+                    : t('在企业微信群里「添加群机器人」即可拿到这个地址')}
+                </p>
+              </div>
+
+              <div className="flex flex-wrap gap-6">
+                <label className="flex items-center gap-2 text-sm">
+                  <input
+                    type="checkbox"
+                    checked={wecom.enabled}
+                    onChange={(e) => setWecom({ ...wecom, enabled: e.target.checked })}
+                  />
+                  {t('启用回复提醒')}
+                </label>
+                <label className="flex items-center gap-2 text-sm">
+                  <input
+                    type="checkbox"
+                    checked={wecom.autoStarOnReply}
+                    onChange={(e) =>
+                      setWecom({ ...wecom, autoStarOnReply: e.target.checked })
+                    }
+                  />
+                  {t('收到回复自动加星标')}
+                </label>
+                <label className="flex items-center gap-2 text-sm">
+                  <input
+                    type="checkbox"
+                    checked={wecom.includeSnippet}
+                    onChange={(e) => setWecom({ ...wecom, includeSnippet: e.target.checked })}
+                  />
+                  {t('提醒里带正文摘要')}
+                </label>
+              </div>
+
+              <div className="flex flex-wrap gap-2">
+                <Button
+                  disabled={wecomBusy}
+                  onClick={async () => {
+                    setWecomBusy(true);
+                    try {
+                      await adminApi.saveWecomNotifyConfig({
+                        webhookUrl: wecom.webhookUrl || undefined,
+                        enabled: wecom.enabled,
+                        autoStarOnReply: wecom.autoStarOnReply,
+                        includeSnippet: wecom.includeSnippet,
+                      });
+                      setWecom((prev) => ({ ...prev, webhookUrl: '' }));
+                      toast.success(t('企业微信提醒已保存'));
+                    } catch (err: unknown) {
+                      toast.error(t('保存失败'), {
+                        description: err instanceof Error ? err.message : String(err),
+                      });
+                    } finally {
+                      setWecomBusy(false);
+                    }
+                  }}
+                >
+                  {wecomBusy ? t('保存中...') : t('保存')}
+                </Button>
+                <Button
+                  variant="outline"
+                  disabled={wecomBusy || !wecom.webhookSet}
+                  onClick={async () => {
+                    setWecomBusy(true);
+                    try {
+                      const r = await adminApi.testWecomNotify();
+                      if (r.ok) toast.success(t('推送成功'), { description: r.message });
+                      else toast.error(t('推送失败'), { description: r.message });
+                    } catch (err: unknown) {
+                      toast.error(t('推送失败'), {
+                        description: err instanceof Error ? err.message : String(err),
+                      });
+                    } finally {
+                      setWecomBusy(false);
+                    }
+                  }}
+                >
+                  {t('测试推送')}
+                </Button>
               </div>
             </CardContent>
           </Card>
