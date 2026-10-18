@@ -235,36 +235,3 @@ CREATE TABLE IF NOT EXISTS material_image_descriptions (
   _updated_at   timestamptz(3) NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 GRANT ALL PRIVILEGES ON TABLE material_image_descriptions TO anon_, authenticated_, service_role_;
-
--- ---------- 邮件往来历史（发信+收信全量留痕） ----------
--- 自建表（平台表不可 ALTER，独立新表 + FK cascade）；message_id 唯一索引用于收信去重
-CREATE TABLE IF NOT EXISTS email_histories (
-  id             uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-  company_id     uuid REFERENCES restaurants(id) ON DELETE CASCADE,
-  project_id     uuid,
-  direction      varchar(10) NOT NULL,
-  status         varchar(20) NOT NULL,
-  from_addr      varchar(320) NOT NULL,
-  to_addr        varchar(320) NOT NULL,
-  subject        varchar(500) NOT NULL DEFAULT '',
-  body_text      text NOT NULL DEFAULT '',
-  body_html      text,
-  message_id     varchar(255),
-  in_reply_to    varchar(255),
-  error          text,
-  sent_at        timestamptz(3),
-  received_at    timestamptz(3),
-  _created_at    timestamptz(3) NOT NULL DEFAULT CURRENT_TIMESTAMP
-);
-CREATE INDEX IF NOT EXISTS idx_email_histories_company ON email_histories (company_id, _created_at DESC);
-CREATE INDEX IF NOT EXISTS idx_email_histories_project ON email_histories (project_id, _created_at DESC);
-CREATE UNIQUE INDEX IF NOT EXISTS uq_email_histories_message ON email_histories (message_id);
-GRANT ALL PRIVILEGES ON TABLE email_histories TO anon_, authenticated_, service_role_;
-
--- ---------- smtp_config 收信（IMAP）配置列 ----------
-ALTER TABLE smtp_config ADD COLUMN IF NOT EXISTS imap_host varchar(255);
-ALTER TABLE smtp_config ADD COLUMN IF NOT EXISTS imap_port integer NOT NULL DEFAULT 993;
-ALTER TABLE smtp_config ADD COLUMN IF NOT EXISTS imap_secure boolean NOT NULL DEFAULT true;
-ALTER TABLE smtp_config ADD COLUMN IF NOT EXISTS inbox_poll_enabled boolean NOT NULL DEFAULT false;
-ALTER TABLE smtp_config ADD COLUMN IF NOT EXISTS inbox_poll_seconds integer NOT NULL DEFAULT 180;
-ALTER TABLE smtp_config ADD COLUMN IF NOT EXISTS inbox_last_uid integer NOT NULL DEFAULT 0;

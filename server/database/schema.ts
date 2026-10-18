@@ -356,49 +356,9 @@ export const smtpConfig = pgTable("smtp_config", {
   password: varchar("password", { length: 255 }),
   fromName: varchar("from_name", { length: 255 }),
   fromEmail: varchar("from_email", { length: 255 }).notNull(),
-  // 收信（IMAP）：同一授权码即可；轮询开关默认关，后台按间隔自动拉取新邮件
-  imapHost: varchar("imap_host", { length: 255 }),
-  imapPort: integer("imap_port").notNull().default(993),
-  imapSecure: boolean("imap_secure").notNull().default(true),
-  inboxPollEnabled: boolean("inbox_poll_enabled").notNull().default(false),
-  inboxPollSeconds: integer("inbox_poll_seconds").notNull().default(180),
-  inboxLastUid: integer("inbox_last_uid").notNull().default(0),
   createdAt: customTimestamptz("_created_at", { precision: 3 }).notNull().default(sql`CURRENT_TIMESTAMP`),
   updatedAt: customTimestamptz("_updated_at", { precision: 3 }).notNull().default(sql`CURRENT_TIMESTAMP`),
 });
-
-/**
- * 邮件往来历史（发信 + 收信全量留痕，后台真实数据）。
- * 自建表：平台管理的表不能 ALTER（project_materials 加列踩过 must be owner），
- * 独立新表 + FK cascade 是既定模式（material_blobs / material_image_descriptions 同款）。
- * message_id 唯一索引用于收信去重（同一封邮件只入库一次）。
- */
-export const emailHistories = pgTable(
-  "email_histories",
-  {
-    id: uuid("id").primaryKey().defaultRandom(),
-    companyId: uuid("company_id").references(() => restaurants.id, { onDelete: "cascade" }),
-    projectId: uuid("project_id"),
-    direction: varchar("direction", { length: 10 }).notNull(), // outbound | inbound
-    status: varchar("status", { length: 20 }).notNull(), // sent | failed | received
-    fromAddr: varchar("from_addr", { length: 320 }).notNull(),
-    toAddr: varchar("to_addr", { length: 320 }).notNull(),
-    subject: varchar("subject", { length: 500 }).notNull().default(""),
-    bodyText: text("body_text").notNull().default(""),
-    bodyHtml: text("body_html"),
-    messageId: varchar("message_id", { length: 255 }),
-    inReplyTo: varchar("in_reply_to", { length: 255 }),
-    error: text("error"),
-    sentAt: customTimestamptz("sent_at", { precision: 3 }),
-    receivedAt: customTimestamptz("received_at", { precision: 3 }),
-    createdAt: customTimestamptz("_created_at", { precision: 3 }).notNull().default(sql`CURRENT_TIMESTAMP`),
-  },
-  (table) => ({
-    companyIdx: index("idx_email_histories_company").on(table.companyId, table.createdAt),
-    projectIdx: index("idx_email_histories_project").on(table.projectId, table.createdAt),
-    messageIdx: index("uq_email_histories_message").on(table.messageId),
-  }),
-);
 
 // bytea ↔ Buffer 映射：postgres-js 直接给/收 Buffer
 export const bytea = customType<{ data: Buffer; driverData: Buffer }>({

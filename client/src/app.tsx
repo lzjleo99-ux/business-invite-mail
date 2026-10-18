@@ -12,7 +12,6 @@ import ComposeEmailPage from './pages/ComposeEmail/ComposeEmailPage';
 import LoginPage from './pages/Login/LoginPage';
 import RegisterPage from './pages/Register/RegisterPage';
 import UserManagementPage from './pages/UserManagement/UserManagementPage';
-import EmailHistoryPage from './pages/EmailHistory/EmailHistoryPage';
 import ProtectedRoute from './components/ProtectedRoute';
 
 const RoutesComponent = () => {
@@ -27,7 +26,6 @@ const RoutesComponent = () => {
             <Route path="projects" element={<ProjectListPage />} />
             <Route path="projects/:id" element={<ProjectWorkbenchPage />} />
             <Route path="settings" element={<SettingsPage />} />
-            <Route path="email-history" element={<EmailHistoryPage />} />
             <Route path="compose/:companyId" element={<ComposeEmailPage />} />
             <Route path="admin/users" element={<UserManagementPage />} />
           </Route>

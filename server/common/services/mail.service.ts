@@ -38,11 +38,6 @@ export class MailService {
     password?: string | null;
     fromName?: string | null;
     fromEmail: string;
-    imapHost?: string | null;
-    imapPort?: number;
-    imapSecure?: boolean;
-    inboxPollEnabled?: boolean;
-    inboxPollSeconds?: number;
   }): Promise<void> {
     if (!input.host || !input.host.trim()) {
       throw new BadRequestException('SMTP 服务器不能为空');
@@ -63,12 +58,6 @@ export class MailService {
         : existing?.password ?? null,
       fromName: input.fromName !== undefined ? input.fromName : existing?.fromName ?? null,
       fromEmail: input.fromEmail.trim(),
-      // IMAP 收信配置（同一授权码）
-      imapHost: input.imapHost !== undefined ? input.imapHost : existing?.imapHost ?? null,
-      imapPort: Number.isFinite(input.imapPort) ? Number(input.imapPort) : existing?.imapPort ?? 993,
-      imapSecure: input.imapSecure !== undefined ? input.imapSecure !== false : existing?.imapSecure ?? true,
-      inboxPollEnabled: input.inboxPollEnabled !== undefined ? input.inboxPollEnabled : existing?.inboxPollEnabled ?? false,
-      inboxPollSeconds: Number.isFinite(input.inboxPollSeconds) ? Math.max(60, Number(input.inboxPollSeconds)) : existing?.inboxPollSeconds ?? 180,
     };
 
     if (existing) {
@@ -130,12 +119,10 @@ export class MailService {
    * nodemailer 的 raw 模式不解析报文头，缺 envelope 会报
    * "No recipients defined"（收件人取报文 To，寄件人取 SMTP 配置的 fromEmail）。
    */
-  async sendRaw(raw: string, envelope: { from: string; to: string[] }): Promise<{ messageId: string | null }> {
+  async sendRaw(raw: string, envelope: { from: string; to: string[] }): Promise<void> {
     const transporter = await this.getTransporter();
     try {
-      const info = await transporter.sendMail({ raw, envelope } as Parameters<Transporter['sendMail']>[0]);
-      const messageId = (info as { messageId?: string }).messageId ?? null;
-      return { messageId };
+      await transporter.sendMail({ raw, envelope } as Parameters<Transporter['sendMail']>[0]);
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
       this.logger.error(`SMTP raw send failed: ${msg}`);

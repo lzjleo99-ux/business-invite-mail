@@ -29,7 +29,6 @@ import type { EmailImageCandidate } from '../projects/image-analysis.service';
 import { ImageAnalysisService } from '../projects/image-analysis.service';
 import { MaterialBlobService } from '../projects/material-blob.service';
 import { MailService } from '@server/common/services/mail.service';
-import { EmailHistoryService } from './email-history.service';
 
 export interface BatchSendSummary {
   eligible: number;
@@ -65,7 +64,6 @@ export class EmailGeneratorService {
     private readonly imageAnalysis: ImageAnalysisService,
     private readonly materialBlobs: MaterialBlobService,
     private readonly mailService: MailService,
-    private readonly emailHistory: EmailHistoryService,
   ) {}
 
   async generateEmail(companyId: string, userId: string): Promise<GeneratedEmail> {
@@ -291,34 +289,9 @@ export class EmailGeneratorService {
     }
 
     const { raw, to: recipient, subject, from } = await this.buildCampaignRaw(company);
-    try {
-      const { messageId } = await this.mailService.sendRaw(raw, { from, to: [recipient] });
-      await this.emailHistory.recordOutbound({
-        companyId: company.id,
-        projectId: company.projectId,
-        fromAddr: from,
-        toAddr: recipient,
-        subject,
-        bodyText: company.emailBodyLocal || company.emailBody || '',
-        messageId,
-        status: 'sent',
-      });
-      await this.markEmailContacted(company.id);
-      return { to: recipient, subject };
-    } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : String(err);
-      await this.emailHistory.recordOutbound({
-        companyId: company.id,
-        projectId: company.projectId,
-        fromAddr: from,
-        toAddr: recipient,
-        subject,
-        bodyText: company.emailBodyLocal || company.emailBody || '',
-        status: 'failed',
-        error: msg.slice(0, 500),
-      });
-      throw err;
-    }
+    await this.mailService.sendRaw(raw, { from, to: [recipient] });
+    await this.markEmailContacted(company.id);
+    return { to: recipient, subject };
   }
 
   /**
@@ -364,8 +337,7 @@ export class EmailGeneratorService {
         summary.skippedNoEmail += 1;
         continue;
       }
-      // 已发送过的绝不重发：手动标记 或 发信历史里有成功记录（双保险）
-      if (contactedAt || (await this.emailHistory.hasOutboundSent(c.id))) {
+      if (contactedAt) {
         summary.skippedAlreadySent += 1;
         continue;
       }
@@ -379,18 +351,8 @@ export class EmailGeneratorService {
         const company = eligible[cursor];
         cursor += 1;
         try {
-          const { raw, to, from, subject } = await this.buildCampaignRaw(company);
-          const { messageId } = await this.mailService.sendRaw(raw, { from, to: [to] });
-          await this.emailHistory.recordOutbound({
-            companyId: company.id,
-            projectId: company.projectId,
-            fromAddr: from,
-            toAddr: to,
-            subject,
-            bodyText: company.emailBodyLocal || company.emailBody || '',
-            messageId,
-            status: 'sent',
-          });
+          const { raw, to, from } = await this.buildCampaignRaw(company);
+          await this.mailService.sendRaw(raw, { from, to: [to] });
           await this.markEmailContacted(company.id);
           summary.sent += 1;
         } catch (err: unknown) {
@@ -398,21 +360,6 @@ export class EmailGeneratorService {
           const msg = err instanceof Error ? err.message : String(err);
           summary.errors.push({ name: company.name, error: msg.slice(0, 200) });
           this.logger.warn(`批量发送失败 ${company.name}: ${msg.split('\n')[0]}`);
-          try {
-            const { to, from, subject } = await this.buildCampaignRaw(company);
-            await this.emailHistory.recordOutbound({
-              companyId: company.id,
-              projectId: company.projectId,
-              fromAddr: from,
-              toAddr: to,
-              subject,
-              bodyText: company.emailBodyLocal || company.emailBody || '',
-              status: 'failed',
-              error: msg.slice(0, 500),
-            });
-          } catch {
-            // 记录失败不阻断
-          }
         }
       }
     };

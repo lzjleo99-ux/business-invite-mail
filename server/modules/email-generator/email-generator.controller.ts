@@ -10,14 +10,12 @@ import {
   Res,
   UseGuards,
 } from '@nestjs/common';
-import { IsArray, IsIn, IsOptional, IsString } from 'class-validator';
+import { IsArray, IsOptional, IsString } from 'class-validator';
 import { Type } from 'class-transformer';
 import type { Response } from 'express';
 import { JwtAuthGuard, type JwtPayload } from '../auth/jwt-auth.guard';
 import { CurrentUser } from '../auth/current-user.decorator';
 import { EmailGeneratorService, type BatchSendSummary } from './email-generator.service';
-import { EmailHistoryService, type EmailHistoryRow } from './email-history.service';
-import { EmailInboxService, type InboxPollResult } from './email-inbox.service';
 import type {
   GeneratedEmail,
   BatchGenerateRequest,
@@ -25,36 +23,6 @@ import type {
   WhatsAppInfo,
   BatchWhatsAppRequest,
 } from '@shared/api.interface';
-
-class EmailHistoryQueryDto {
-  @IsOptional()
-  @IsString()
-  companyId?: string;
-
-  @IsOptional()
-  @IsString()
-  projectId?: string;
-
-  @IsOptional()
-  @IsIn(['outbound', 'inbound'])
-  direction?: 'outbound' | 'inbound';
-
-  @IsOptional()
-  @IsString()
-  status?: string;
-
-  @IsOptional()
-  @IsString()
-  search?: string;
-
-  @IsOptional()
-  @Type(() => Number)
-  page?: number;
-
-  @IsOptional()
-  @Type(() => Number)
-  pageSize?: number;
-}
 
 class BatchGenerateDto implements BatchGenerateRequest {
   @IsOptional()
@@ -101,8 +69,6 @@ class ComposeSaveDto {
 export class EmailGeneratorController {
   constructor(
     private readonly emailGeneratorService: EmailGeneratorService,
-    private readonly emailHistoryService: EmailHistoryService,
-    private readonly emailInboxService: EmailInboxService,
   ) {}
 
   @Post('generate/:companyId')
@@ -201,42 +167,6 @@ export class EmailGeneratorController {
       userId: user.userId,
       role: user.role,
     });
-  }
-
-  /**
-   * 邮件往来历史查询：带 companyId 查单公司（公司行展开面板），
-   * 带 projectId/direction/status/search/page 查全局（往来历史页）。
-   */
-  @Get('histories')
-  async histories(
-    @Query() query: EmailHistoryQueryDto,
-  ): Promise<{ items: EmailHistoryRow[]; total: number }> {
-    return this.emailHistoryService.list({
-      companyId: query.companyId,
-      projectId: query.projectId,
-      direction: query.direction,
-      status: query.status,
-      search: query.search,
-      page: query.page,
-      pageSize: query.pageSize,
-    });
-  }
-
-  /** 单公司往来（公司行下拉/展开面板用，最近 50 条） */
-  @Get('histories/:companyId')
-  async companyHistories(
-    @Param('companyId') companyId: string,
-  ): Promise<{ items: EmailHistoryRow[] }> {
-    if (!companyId) {
-      throw new BadRequestException('companyId 不能为空');
-    }
-    return { items: await this.emailHistoryService.listByCompany(companyId) };
-  }
-
-  /** 手动收取一次收件箱（设置页「立即收取」按钮；后台轮询与此同路径） */
-  @Post('inbox-poll')
-  async inboxPoll(): Promise<InboxPollResult> {
-    return this.emailInboxService.poll();
   }
 
   @Get('compose/:companyId')

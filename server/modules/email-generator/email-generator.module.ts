@@ -4,12 +4,10 @@ import { EmailGeneratorService } from './email-generator.service';
 import { WeatherService } from '../../common/services/weather.service';
 import { SharedMailModule } from '@server/common/mail.module';
 import { ProjectsModule } from '../projects/projects.module';
-import { EmailHistoryService } from './email-history.service';
-import { EmailInboxService } from './email-inbox.service';
 
 @Module({
   imports: [ProjectsModule, SharedMailModule],
   controllers: [EmailGeneratorController],
-  providers: [EmailGeneratorService, WeatherService, EmailHistoryService, EmailInboxService],
+  providers: [EmailGeneratorService, WeatherService],
 })
 export class EmailGeneratorModule {}
