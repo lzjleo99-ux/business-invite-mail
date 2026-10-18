@@ -658,6 +658,7 @@ const WorkbenchTab: React.FC<WorkbenchTabProps> = ({
       generated: 0,
       noEmail: 0,
       failed: 0,
+      notContacted: 0,
       starred: 0,
       pending: 0,
       hasPhone: 0,
@@ -670,7 +671,7 @@ const WorkbenchTab: React.FC<WorkbenchTabProps> = ({
       { key: 'pending' as const, label: t('待分析'), value: data.pending, color: 'text-slate-600' },
       { key: 'generated' as const, label: t('已生成邮件'), value: data.generated, color: 'text-green-600' },
       { key: 'has_email' as const, label: t('有邮箱'), value: data.total - data.noEmail, color: 'text-emerald-600' },
-      { key: 'failed' as const, label: t('失败'), value: data.failed, color: 'text-red-600' },
+      { key: 'not_contacted' as const, label: t('未联系'), value: data.notContacted, color: 'text-red-600' },
     ];
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [stats, t]);
@@ -684,7 +685,8 @@ const WorkbenchTab: React.FC<WorkbenchTabProps> = ({
       generated: t('已生成邮件'),
       has_email: t('有邮箱'),
       no_email: t('缺邮箱'),
-      failed: t('失败'),
+      not_contacted: t('未联系'),
+      failed: t('分析失败'),
     };
     return map[filterKey] || '';
     // eslint-disable-next-line react-hooks/exhaustive-deps

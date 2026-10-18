@@ -283,6 +283,7 @@ export class RestaurantsService {
       generated: number;
       noemail: number;
       failed: number;
+      notcontacted: number;
       starred: number;
       pending: number;
       hasphone: number;
@@ -303,6 +304,18 @@ export class RestaurantsService {
         count(*) FILTER (
           WHERE ${restaurants.status} = 'failed'
         ) AS failed,
+        -- 未联系：既没成功发出过邮件，也没在 WhatsApp / Viber 上联系过。
+        -- 用 NOT EXISTS 子查询而不是 count(distinct) LEFT JOIN，避免和主查询的行重复计数。
+        count(*) FILTER (
+          WHERE NOT EXISTS (
+            SELECT 1 FROM email_histories eh
+            WHERE eh.company_id = ${restaurants.id}
+              AND eh.direction = 'outbound'
+              AND eh.status = 'sent'
+          )
+          AND (${restaurants.contactStatus}->>'whatsappContactedAt') IS NULL
+          AND (${restaurants.contactStatus}->>'viberContactedAt') IS NULL
+        ) AS notcontacted,
         count(*) FILTER (
           WHERE ${restaurants.isStarred} = true
         ) AS starred,
@@ -327,6 +340,7 @@ export class RestaurantsService {
         generated: 0,
         noEmail: 0,
         failed: 0,
+        notContacted: 0,
         starred: 0,
         pending: 0,
         hasPhone: 0,
@@ -340,6 +354,7 @@ export class RestaurantsService {
       generated: Number(row.generated),
       noEmail: Number(row.noemail),
       failed: Number(row.failed),
+      notContacted: Number(row.notcontacted),
       starred: Number(row.starred),
       pending: Number(row.pending),
       hasPhone: Number(row.hasphone),
@@ -453,6 +468,16 @@ export class RestaurantsService {
           and(isNotNull(restaurants.email), ne(restaurants.email, '')),
           and(isNotNull(restaurants.websiteContactEmail), ne(restaurants.websiteContactEmail, '')),
         );
+      case 'not_contacted':
+        // 未联系 = 既没成功发出过邮件，也没在 WhatsApp/Viber 上联系过（与 stats.notContacted 同口径）
+        return sql`NOT EXISTS (
+          SELECT 1 FROM email_histories eh
+          WHERE eh.company_id = ${restaurants.id}
+            AND eh.direction = 'outbound'
+            AND eh.status = 'sent'
+        )
+        AND (${restaurants.contactStatus}->>'whatsappContactedAt') IS NULL
+        AND (${restaurants.contactStatus}->>'viberContactedAt') IS NULL` as unknown as ReturnType<typeof eq>;
       case 'failed':
         return eq(restaurants.status, 'failed');
       default:

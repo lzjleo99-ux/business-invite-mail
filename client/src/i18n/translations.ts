@@ -358,6 +358,8 @@ export const enMessages: Record<string, string> = {
   '电话': 'Phone',
   '正在读取已保存的发信配置...': 'Loading saved mail settings...',
   '已保存：发件邮箱 {addr}，授权码已设置（出于安全不回显，留空即不修改）': 'Saved: sending from {addr}, authorization code is set (never shown for security; leave blank to keep it)',
+  '未联系': 'Not contacted',
+  '分析失败': 'Analysis failed',
   '退信': 'Bounced',
   '使用说明': 'User Guide',
   '全部章节': 'All sections',

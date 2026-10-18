@@ -21,6 +21,7 @@ export type StatsFilterKey =
   | 'generated'
   | 'has_email'
   | 'no_email'
+  | 'not_contacted'
   | 'failed';
 
 export interface Company {
@@ -100,6 +101,8 @@ export interface CompanyStatsResponse {
   pending: number;
   hasPhone: number;
   hasWhatsapp: number;
+  /** 未联系：既没成功发出过邮件，也没在 WhatsApp / Viber 上联系过 */
+  notContacted: number;
 }
 
 export interface ImportResult {
