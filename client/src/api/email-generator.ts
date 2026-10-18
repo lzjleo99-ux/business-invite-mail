@@ -27,7 +27,11 @@ export interface SaveComposeData {
 // --- Legacy Restaurant-named function (backward compatibility) ---
 
 export async function generateEmail(restaurantId: string): Promise<GeneratedEmail> {
-  const response = await axiosForBackend.post(`/api/email-generator/generate/${restaurantId}`);
+  // 服务端模型调用最长 600s × 3 次尝试（含退避）≈ 30min，客户端等待要比服务端更久，
+  // 否则浏览器会先断开，服务端还在跑 → 误判失败。
+  const response = await axiosForBackend.post(`/api/email-generator/generate/${restaurantId}`, undefined, {
+    timeout: 1_950_000,
+  });
   return response.data;
 }
 

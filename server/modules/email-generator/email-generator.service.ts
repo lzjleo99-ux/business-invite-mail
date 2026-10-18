@@ -57,8 +57,10 @@ interface BilingualWhatsAppResult {
 export class EmailGeneratorService {
   private readonly logger = new Logger(EmailGeneratorService.name);
   private readonly CONCURRENCY = 5;
-  private readonly MODEL_TIMEOUT_MS = 180000;
-  private readonly MAX_RETRIES = 1;
+  // TPK/GLM-5.2 是推理模型，重负载公司单条生成可能跑好几分钟；180s 会把这类判为
+  // timeout of 180000ms exceeded 直接失败。放宽到 600s，最多重试 2 次（共 3 次尝试）。
+  private readonly MODEL_TIMEOUT_MS = 600000;
+  private readonly MAX_RETRIES = 2;
 
   constructor(
     @Inject(DRIZZLE_DATABASE) private readonly db: PostgresJsDatabase,
