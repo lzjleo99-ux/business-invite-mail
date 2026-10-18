@@ -530,6 +530,9 @@ const WorkbenchTab: React.FC<WorkbenchTabProps> = ({
   // - whatsAppBatchLang：一键准备 IM 话术后，哪一版作为该公司当前展示/复制的话术
   const [sendLang, setSendLang] = useState<'local' | 'en'>('local');
   const [whatsAppBatchLang, setWhatsAppBatchLang] = useState<'local' | 'en'>('local');
+  // 每家公司当前预览/编辑的语言。既是展开行的显示语言，也是批量发送时该公司的实际语言，
+  // 保证「预览看到哪一版 == 实际发出哪一版」。
+  const [emailDisplayLang, setEmailDisplayLang] = useState<Record<string, 'local' | 'en'>>({});
   // 每家公司当前展示/复制的话术语言（批量准备时按下拉选中的语言写入）
   const [whatsAppLang, setWhatsAppLang] = useState<Record<string, 'local' | 'en'>>({});
 
@@ -595,7 +598,11 @@ const WorkbenchTab: React.FC<WorkbenchTabProps> = ({
   const handleSendAll = useCallback(async () => {
     setSendAllRunning(true);
     try {
-      const summary = await emailGeneratorApi.batchSendEmails(projectId, sendLang);
+      const summary = await emailGeneratorApi.batchSendEmails(
+        projectId,
+        sendLang,
+        emailDisplayLang,
+      );
       void qc.invalidateQueries({ queryKey: ['companies'] });
       void qc.invalidateQueries({ queryKey: ['company-stats'] });
       if (summary.eligible === 0) {
@@ -620,7 +627,7 @@ const WorkbenchTab: React.FC<WorkbenchTabProps> = ({
     } finally {
       setSendAllRunning(false);
     }
-  }, [projectId, t, qc, sendLang]);
+  }, [projectId, t, qc, sendLang, emailDisplayLang]);
 
   const STATUS_OPTIONS: { value: StatusFilterValue; label: string }[] = [
     { value: 'all', label: t('全部') },
@@ -761,10 +768,11 @@ const WorkbenchTab: React.FC<WorkbenchTabProps> = ({
   };
 
   // Per-row display language state for email detail
-  const [emailDisplayLang, setEmailDisplayLang] = useState<Record<string, 'local' | 'en'>>({});
-
   const getEmailDisplayLang = (record: Company): 'local' | 'en' => {
     if (emailDisplayLang[record.id]) return emailDisplayLang[record.id];
+    // 没手动切过的行，默认跟随「一键发送」的批量语言选择（缺该语言版本时回退另一版）。
+    // 这样预览与实际发送永远同源，符合"所见即所发"；服务端 pickEmailVersion 的回退规则与此一致。
+    if (sendLang === 'en') return record.emailSubject ? 'en' : 'local';
     return record.emailSubjectLocal ? 'local' : 'en';
   };
 
@@ -2017,7 +2025,9 @@ const WorkbenchTab: React.FC<WorkbenchTabProps> = ({
               {t('将向所有「已生成邮件、有邮箱且未发送过」的公司实际发送邮件，此操作会真实发出，确认继续？')}
             </p>
             <p className="text-sm text-slate-500">
-              {t('发送语言版本：{lang}', { lang: sendLang === 'en' ? 'English' : t('本地语言') })}
+              {t('发送内容与「邮件内容」里预览的版本一致（默认 {lang}，个别行手动切换过语言则以该行为准）', {
+                lang: sendLang === 'en' ? 'English' : t('本地语言'),
+              })}
             </p>
             <DialogFooter>
               <Button variant="outline" size="sm" onClick={() => setSendConfirmOpen(false)} disabled={sendAllRunning}>

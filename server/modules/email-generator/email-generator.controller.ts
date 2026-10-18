@@ -10,7 +10,7 @@ import {
   Res,
   UseGuards,
 } from '@nestjs/common';
-import { IsArray, IsIn, IsOptional, IsString } from 'class-validator';
+import { IsArray, IsIn, IsObject, IsOptional, IsString } from 'class-validator';
 import { Type } from 'class-transformer';
 import type { Response } from 'express';
 import { JwtAuthGuard, type JwtPayload } from '../auth/jwt-auth.guard';
@@ -75,10 +75,18 @@ class BatchWhatsAppDto implements BatchWhatsAppRequest {
 class BatchSendDto {
   @IsString()
   projectId!: string;
-  /** 发送语言版本：local=收件人本地语言（默认），en=英文 */
+  /** 默认发送语言版本：local=收件人本地语言，en=英文 */
   @IsOptional()
   @IsIn(['local', 'en'])
   lang?: 'local' | 'en';
+  /**
+   * 逐公司语言覆盖 {companyId: 'local'|'en'}，来自用户在该行「邮件内容」里的语言切换。
+   * 目的：保证「预览看到哪一版 == 实际发出哪一版」——批量发送必须尊重每行的预览选择，
+   * 而不是全项目一刀切。没出现在这里的公司用上面的 lang 兜底。
+   */
+  @IsOptional()
+  @IsObject()
+  langOverrides?: Record<string, 'local' | 'en'>;
 }
 
 class ComposeSaveDto {
@@ -212,6 +220,7 @@ export class EmailGeneratorController {
         role: user.role,
       },
       dto.lang ?? 'local',
+      dto.langOverrides,
     );
   }
 

@@ -156,10 +156,11 @@ export async function sendEmail(
 export async function batchSendEmails(
   projectId: string,
   lang: 'local' | 'en' = 'local',
+  langOverrides: Record<string, 'local' | 'en'> = {},
 ): Promise<BatchSendSummary> {
   const response = await axiosForBackend.post(
     '/api/email-generator/batch-send',
-    { projectId, lang },
+    { projectId, lang, langOverrides },
     { timeout: 600_000 },
   );
   return response.data;

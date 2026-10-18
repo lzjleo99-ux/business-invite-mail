@@ -462,7 +462,10 @@ export class EmailGeneratorService {
     projectId: string,
     user: { userId: string; role: 'admin' | 'user' },
     lang: 'local' | 'en' = 'local',
+    langOverrides: Record<string, 'local' | 'en'> = {},
   ): Promise<BatchSendSummary> {
+    /** 该公司实际发哪一版：优先用用户在该行的预览选择（保证所见即所发），否则用批量默认值 */
+    const langFor = (id: string): 'local' | 'en' => langOverrides[id] ?? lang;
     if (user.role !== 'admin') {
       const owned = await this.db
         .select({ id: projects.id })
@@ -513,7 +516,10 @@ export class EmailGeneratorService {
         const company = eligible[cursor];
         cursor += 1;
         try {
-          const { raw, to, from, subject } = await this.buildCampaignRaw(company, lang);
+          const { raw, to, from, subject } = await this.buildCampaignRaw(
+            company,
+            langFor(company.id),
+          );
           const { messageId } = await this.mailService.sendRaw(raw, { from, to: [to] });
           await this.emailHistory.recordOutbound({
             companyId: company.id,
@@ -533,7 +539,10 @@ export class EmailGeneratorService {
           summary.errors.push({ name: company.name, error: msg.slice(0, 200) });
           this.logger.warn(`批量发送失败 ${company.name}: ${msg.split('\n')[0]}`);
           try {
-            const { to, from, subject } = await this.buildCampaignRaw(company, lang);
+            const { to, from, subject } = await this.buildCampaignRaw(
+              company,
+              langFor(company.id),
+            );
             await this.emailHistory.recordOutbound({
               companyId: company.id,
               projectId: company.projectId,
