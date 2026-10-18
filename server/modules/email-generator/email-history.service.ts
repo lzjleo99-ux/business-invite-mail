@@ -82,6 +82,32 @@ export class EmailHistoryService {
           } catch (err) {
             this.logger.warn(`email_histories 索引/授权失败（可忽略于非自建环境）: ${String(err).split('\n')[0]}`);
           }
+          // 补标历史退信：加 'bounce' 状态之前，所有 inbound 一律记成 received，
+          // 导致退信被 UI 标成「收到回复」。这里按同一套特征回填一次（幂等：
+          // 只改仍是 received 且命中特征的 inbound 行，重复执行不会二次命中）。
+          await run(`
+            UPDATE email_histories
+            SET status = 'bounce'
+            WHERE direction = 'inbound'
+              AND status = 'received'
+              AND (
+                lower(from_addr) LIKE 'mailer-daemon%'
+                OR lower(from_addr) LIKE 'postmaster%'
+                OR lower(subject) LIKE '%undeliverable%'
+                OR lower(subject) LIKE '%undelivered mail%'
+                OR lower(subject) LIKE '%returned to sender%'
+                OR lower(subject) LIKE '%returning message to sender%'
+                OR lower(subject) LIKE '%mail delivery failed%'
+                OR lower(subject) LIKE '%delivery status notification%'
+                OR lower(subject) LIKE '%delivery failure%'
+                OR lower(subject) LIKE '%failure notice%'
+                OR lower(subject) LIKE '%returned mail%'
+                OR lower(subject) LIKE '%could not be delivered%'
+                OR lower(subject) LIKE '%warning: could not send%'
+                OR lower(subject) LIKE '%退信%'
+                OR lower(subject) LIKE '%投递失败%'
+              )
+          `);
         },
       )
         .then((via) => {
