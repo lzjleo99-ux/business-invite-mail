@@ -179,7 +179,6 @@ export const enMessages: Record<string, string> = {
   '邮件已生成，点击查看': 'Email generated — click to view',
   '未生成邮件': 'No email generated yet',
   '已标记联系': 'Contacted',
-  '未联系': 'Not contacted',
 
   // ---- Contact status menu ----
   '联系状态': 'Contact status',
