@@ -155,6 +155,10 @@ interface ResizableHeaderCellProps extends React.HTMLAttributes<HTMLTableCellEle
   minWidth?: number;
   resizable?: boolean;
   resizeHint: string;
+  /** 把手在单元格哪一侧。固定右列用 'left'（其右边缘贴着视口右边，用户够不到） */
+  handleSide?: 'left' | 'right';
+  /** 反向拖动：固定右列拖左边缘时，向左拖应变宽 */
+  invert?: boolean;
 }
 
 const ResizableHeaderCell: React.FC<ResizableHeaderCellProps> = ({
@@ -163,6 +167,8 @@ const ResizableHeaderCell: React.FC<ResizableHeaderCellProps> = ({
   minWidth = 60,
   resizable = true,
   resizeHint,
+  handleSide = 'right',
+  invert = false,
   children,
   ...restProps
 }) => {
@@ -176,7 +182,8 @@ const ResizableHeaderCell: React.FC<ResizableHeaderCellProps> = ({
     const onMove = (ev: MouseEvent) => {
       const start = startRef.current;
       if (!start) return;
-      const next = Math.max(minWidth, start.width + (ev.clientX - start.x));
+      const raw = ev.clientX - start.x;
+      const next = Math.max(minWidth, start.width + (invert ? -raw : raw));
       onResize(next);
     };
     const onUp = () => {
@@ -199,7 +206,9 @@ const ResizableHeaderCell: React.FC<ResizableHeaderCellProps> = ({
           aria-orientation="vertical"
           title={resizeHint}
           onMouseDown={handleMouseDown}
-          className="absolute right-0 top-0 z-10 h-full w-3 cursor-col-resize select-none border-r-2 border-slate-300 transition-colors hover:border-blue-500 hover:bg-blue-400/30 active:border-blue-600 active:bg-blue-500/40"
+          className={`absolute top-0 z-10 h-full w-3 cursor-col-resize select-none border-slate-300 transition-colors hover:border-blue-500 hover:bg-blue-400/30 active:border-blue-600 active:bg-blue-500/40 ${
+            handleSide === 'left' ? 'left-0 border-l-2' : 'right-0 border-r-2'
+          }`}
         />
       )}
     </th>
@@ -1136,6 +1145,10 @@ const WorkbenchTab: React.FC<WorkbenchTabProps> = ({
       const key = String((col as { key?: string }).key ?? '');
       const width = colWidths[key] ?? (col as { width?: number }).width;
       const resizable = key !== '' && key !== 'star';
+      // 固定右列（操作）右边缘贴着视口右边，用户够不到；把手改到左边缘并反向拖动。
+      // 同时抬高该表头的 z-index，盖住被它遮住的中列把手（否则那些把手会浮在上层，
+      // 在表头里留下一道道看似可拖、实则错位的竖线）。
+      const isRightFixed = (col as { fixed?: string }).fixed === 'right';
       return {
         ...col,
         width,
@@ -1145,6 +1158,9 @@ const WorkbenchTab: React.FC<WorkbenchTabProps> = ({
             minWidth: COL_MIN_WIDTH[key] ?? 60,
             resizable,
             resizeHint: t('拖动调节列宽'),
+            handleSide: isRightFixed ? 'left' : 'right',
+            invert: isRightFixed,
+            ...(isRightFixed ? { style: { zIndex: 11 } } : {}),
             onResize: (w: number) => setColWidth(key, w),
           }) as React.HTMLAttributes<HTMLTableCellElement>,
       } as unknown as (typeof columns)[number];
