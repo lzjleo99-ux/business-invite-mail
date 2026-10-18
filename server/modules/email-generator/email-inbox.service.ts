@@ -85,6 +85,47 @@ export class EmailInboxService implements OnModuleInit, OnModuleDestroy {
   }
 
   /**
+   * 判断这封收信是不是退信/投递失败通知（而不是客户回复）。
+   * 依据：发件人是标准退信地址，或主题命中各家 MTA 的失败通知标题。
+   * 退信必须单独标记，否则所有 inbound 都被当成"收到回复"，统计和跟进都会错。
+   */
+  private isBounceMail(fromAddr: string, subject: string, headers: string): boolean {
+    const from = fromAddr.toLowerCase();
+    const subj = (subject || '').toLowerCase();
+    // 发件人是退信专用地址
+    if (
+      from.startsWith('mailer-daemon') ||
+      from.startsWith('postmaster') ||
+      from.includes('mailer-daemon@') ||
+      from === 'mail delivery subsystem'
+    ) {
+      return true;
+    }
+    // 主题命中常见 DSN/退信标题
+    const bounceSubjects = [
+      'undeliverable',
+      'undelivered mail',
+      'returned to sender',
+      'returning message to sender',
+      'mail delivery failed',
+      'delivery status notification',
+      'delivery failure',
+      'failure notice',
+      'returned mail',
+      'message could not be delivered',
+      'could not be delivered',
+      'warning: could not send',
+      '退信',
+      '投递失败',
+      '无法投递',
+    ];
+    if (bounceSubjects.some((k) => subj.includes(k))) return true;
+    // RFC 3464 自动生成的退信（Content-Type: multipart/report; report-type=delivery-status）
+    if (/report-type\s*=\s*delivery-status/i.test(headers)) return true;
+    return false;
+  }
+
+  /**
    * 新回复的后续动作：自动星标 + 企业微信提醒。
    * 每一步都独立 try/catch：任何一步失败都不能影响收信入库（外层已入库完成）。
    */
@@ -206,6 +247,12 @@ export class EmailInboxService implements OnModuleInit, OnModuleDestroy {
                 )
                 .limit(1);
 
+              const isBounce = this.isBounceMail(
+                fromAddr,
+                parsed.subject ?? '',
+                typeof parsed.headers === 'string' ? parsed.headers : '',
+              );
+
               const ok = await this.history.recordInbound({
                 companyId: match[0]?.id ?? null,
                 projectId: match[0]?.projectId ?? null,
@@ -217,16 +264,21 @@ export class EmailInboxService implements OnModuleInit, OnModuleDestroy {
                 messageId,
                 inReplyTo,
                 receivedAt: parsed.date ?? new Date(),
+                isBounce,
               });
               if (ok) {
                 saved += 1;
-                // 新回复入库后：自动加星标 + 推企微提醒（都失败也不影响收信）
-                await this.onReplyCaptured(
-                  match[0]?.id ?? null,
-                  fromAddr,
-                  parsed.subject ?? '',
-                  parsed.text ?? '',
-                );
+                // 退信不是客户回复：不加星标、不推企微（免得把投递失败当好消息）
+                if (!isBounce) {
+                  await this.onReplyCaptured(
+                    match[0]?.id ?? null,
+                    fromAddr,
+                    parsed.subject ?? '',
+                    parsed.text ?? '',
+                  );
+                } else {
+                  this.logger.log(`收到退信通知（不计为回复）：${fromAddr} | ${parsed.subject ?? ''}`);
+                }
               }
             } catch (err: unknown) {
               this.logger.warn(

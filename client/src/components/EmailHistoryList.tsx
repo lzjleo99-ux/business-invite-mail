@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Mail, MailCheck, Send, XCircle, Inbox, ChevronDown } from 'lucide-react';
+import { Mail, MailCheck, Send, XCircle, Inbox, ChevronDown, AlertTriangle } from 'lucide-react';
 import type {
   EmailHistoryItem,
   EmailHistoryDetail,
@@ -49,29 +49,41 @@ export const EmailHistoryList: React.FC<Props> = ({
   return (
     <>
       <ul className={`space-y-2 overflow-auto ${maxHeight} pr-1`}>
-        {items.map((h) => {
-          const inbound = h.direction === 'inbound';
-          const failed = h.status === 'failed';
-          return (
-            <li key={h.id}>
-              <button
-                type="button"
-                onClick={() => setOpenId(h.id)}
-                className="w-full cursor-pointer rounded-md border border-slate-200 bg-white p-2.5 text-left text-xs transition-colors hover:border-primary/40 hover:bg-slate-50"
-              >
-                <div className="flex items-center gap-2 flex-wrap">
-                  <span
-                    className={`inline-flex items-center gap-1 rounded px-1.5 py-0.5 font-medium ${
-                      inbound
+      {items.map((h) => {
+        const bounce = h.status === 'bounce';
+        const inbound = h.direction === 'inbound' && !bounce;
+        const failed = h.status === 'failed';
+        const label = bounce ? t('退信') : inbound ? t('收到回复') : failed ? t('发送失败') : t('已发送');
+        return (
+          <li key={h.id}>
+            <button
+              type="button"
+              onClick={() => setOpenId(h.id)}
+              className="w-full cursor-pointer rounded-md border border-slate-200 bg-white p-2.5 text-left text-xs transition-colors hover:border-primary/40 hover:bg-slate-50"
+            >
+              <div className="flex items-center gap-2 flex-wrap">
+                <span
+                  className={`inline-flex items-center gap-1 rounded px-1.5 py-0.5 font-medium ${
+                    bounce
+                      ? 'bg-orange-50 text-orange-700'
+                      : inbound
                         ? 'bg-emerald-50 text-emerald-700'
                         : failed
                           ? 'bg-red-50 text-red-700'
                           : 'bg-blue-50 text-blue-700'
-                    }`}
-                  >
-                    {inbound ? <Inbox size={11} /> : failed ? <XCircle size={11} /> : <Send size={11} />}
-                    {inbound ? t('收到回复') : failed ? t('发送失败') : t('已发送')}
-                  </span>
+                  }`}
+                >
+                  {bounce ? (
+                    <AlertTriangle size={11} />
+                  ) : inbound ? (
+                    <Inbox size={11} />
+                  ) : failed ? (
+                    <XCircle size={11} />
+                  ) : (
+                    <Send size={11} />
+                  )}
+                  {label}
+                </span>
                   <span className="text-slate-500">
                     {new Date(h.at).toLocaleString('zh-CN', { hour12: false })}
                   </span>
@@ -110,11 +122,13 @@ export const EmailHistoryList: React.FC<Props> = ({
               <div className="space-y-1 rounded-md bg-slate-50 p-3 text-xs text-slate-600">
                 <p>
                   <span className="font-medium text-slate-700">{t('类型')}：</span>
-                  {detail.direction === 'inbound'
-                    ? t('收到回复')
-                    : detail.status === 'failed'
-                      ? t('发送失败')
-                      : t('已发送')}
+                  {detail.status === 'bounce'
+                    ? t('退信')
+                    : detail.direction === 'inbound'
+                      ? t('收到回复')
+                      : detail.status === 'failed'
+                        ? t('发送失败')
+                        : t('已发送')}
                 </p>
                 <p>
                   <span className="font-medium text-slate-700">{t('时间')}：</span>

@@ -10,7 +10,7 @@ export interface EmailHistoryRow {
   companyName: string | null;
   projectId: string | null;
   direction: 'outbound' | 'inbound';
-  status: 'sent' | 'failed' | 'received';
+  status: 'sent' | 'failed' | 'received' | 'bounce';
   fromAddr: string;
   toAddr: string;
   subject: string;
@@ -135,6 +135,8 @@ export class EmailHistoryService {
     messageId?: string | null;
     inReplyTo?: string | null;
     receivedAt: Date;
+    /** 'bounce' = 退信/投递失败通知，不是客户回复 */
+    isBounce?: boolean;
   }): Promise<boolean> {
     await this.ensureTable();
     if (input.messageId) {
@@ -149,7 +151,7 @@ export class EmailHistoryService {
       companyId: input.companyId,
       projectId: input.projectId,
       direction: 'inbound',
-      status: 'received',
+      status: input.isBounce ? 'bounce' : 'received',
       fromAddr: input.fromAddr.slice(0, 320),
       toAddr: input.toAddr.slice(0, 320),
       subject: input.subject.slice(0, 500),
@@ -181,8 +183,9 @@ export class EmailHistoryService {
 
   /**
    * 该公司是否「已经联系过」——一键发送的跳过判定。
-   * 口径 = 有成功发信记录 或 收到过回复 或 手动标记过；
+   * 口径 = 有成功发信 / 收到回复 / 退信通知 的记录，或手动标记过；
    * **发送失败不算**（失败记录只是诊断用的，重试时必须还能发出去）。
+   * 退信也算：地址已被对方服务器拒收，自动重发只会再退一次，应由人工换地址。
    */
   async hasCorrespondence(companyId: string): Promise<boolean> {
     await this.ensureTable();
@@ -195,6 +198,7 @@ export class EmailHistoryService {
           or(
             eq(emailHistories.status, 'sent'),
             eq(emailHistories.status, 'received'),
+            eq(emailHistories.status, 'bounce'),
           ),
         ),
       )

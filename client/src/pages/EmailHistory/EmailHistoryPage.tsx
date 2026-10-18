@@ -46,25 +46,6 @@ const EmailHistoryPage: React.FC = () => {
   const total = data?.total ?? 0;
   const totalPages = Math.max(1, Math.ceil(total / pageSize));
 
-  const badge = (h: EmailHistoryItem) => {
-    const inbound = h.direction === 'inbound';
-    const failed = h.status === 'failed';
-    return (
-      <span
-        className={`inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-xs font-medium ${
-          inbound
-            ? 'bg-emerald-50 text-emerald-700'
-            : failed
-              ? 'bg-red-50 text-red-700'
-              : 'bg-blue-50 text-blue-700'
-        }`}
-      >
-        {inbound ? <Inbox size={11} /> : failed ? <XCircle size={11} /> : <Send size={11} />}
-        {inbound ? t('收到回复') : failed ? t('发送失败') : t('已发送')}
-      </span>
-    );
-  };
-
   return (
     <div className="space-y-4">
       <div className="flex flex-wrap items-center gap-2">
@@ -121,6 +102,7 @@ const EmailHistoryPage: React.FC = () => {
             <SelectItem value="all">{t('全部状态')}</SelectItem>
             <SelectItem value="sent">{t('已发送')}</SelectItem>
             <SelectItem value="received">{t('已收到')}</SelectItem>
+            <SelectItem value="bounce">{t('退信')}</SelectItem>
             <SelectItem value="failed">{t('失败')}</SelectItem>
           </SelectContent>
         </Select>

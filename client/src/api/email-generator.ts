@@ -174,7 +174,7 @@ export interface EmailHistoryItem {
   companyName: string | null;
   projectId: string | null;
   direction: 'outbound' | 'inbound';
-  status: 'sent' | 'failed' | 'received';
+  status: 'sent' | 'failed' | 'received' | 'bounce';
   fromAddr: string;
   toAddr: string;
   subject: string;

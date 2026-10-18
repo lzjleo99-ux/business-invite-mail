@@ -931,6 +931,15 @@ export class EmailGeneratorService {
   }): Promise<BilingualEmailResult> {
     const { company, projectContext, sender, languageCode, config, images } = params;
 
+    // 签名要带联系方式：发件邮箱取 SMTP 配置（设置页「发件人邮箱」），就是客户回信时看到的地址
+    let senderEmail = '';
+    try {
+      const smtpCfg = await this.mailService.getSettings();
+      senderEmail = (smtpCfg?.fromEmail || '').trim();
+    } catch {
+      senderEmail = '';
+    }
+
     // 图片别名映射：prompt 里只出现 IMG-1..N（短、好抄），返回后映射回真实
     // materialId —— 模型抄长 UUID 很容易抄错一位，别名化是防幻觉的关键。
     const aliasMap = new Map<string, string>();
@@ -953,15 +962,19 @@ export class EmailGeneratorService {
 
 CORE RULES (non-negotiable):
 1. Pick ONE single most relevant alignment point between the recipient company and what we offer. Build the entire email around that one point. A second point is allowed ONLY if it directly reinforces the first, not if it introduces a separate angle.
-2. No template structure. Every email must have a different opening, different paragraph flow, different closing. Some open with a direct observation, some with a question, some lead with context. Never follow a fixed 4-paragraph formula.
+2. The outer envelope is fixed (salutation → body → closing + signature, see rule 5), but the BODY must not feel templated. Every email has a different first substantive sentence, different paragraph flow, different closing line. Some open with a direct observation, some with a question, some lead with context. Never follow a fixed 4-paragraph formula.
 3. Vary sentence length. Mix short punchy sentences with longer explanatory ones. Occasional very short (3-8 word) sentences are encouraged — real people write that way.
 4. No marketing buzzwords. Absolutely no: "best-in-class", "win-win", "revolutionary", "cutting-edge", "game-changing", "synergize", "leverage", "disrupt", "state-of-the-art". Use plain, credible language instead.
-5. No generic openers. Never start with "I hope this email finds you well", "Hope you're doing well", "I trust you're having a great week", or any variation. Just start with the actual reason you're writing.
-6. No fabricated facts. No made-up compliments about how "impressive" their company is. Only reference what you can verify from the provided data.
-7. Length: 90-160 words total. Not shorter, not longer. Let length be determined by what needs to be said, not by a target word count.
-8. Tone: professional but human. Write like a real person who's done their homework and genuinely thinks there might be a fit. Not like a sales script.
-9. CTA should be natural and low-pressure. One brief sentence. Not a numbered list, not a hard sell.
-10. ALWAYS end with a complete signature block: closing word, sender's full name on its own line, sender's job title on the next line.
+5. FORMATTING IS NOT OPTIONAL — every version MUST be a properly formatted business email:
+   a. BEGIN with a salutation on its own line, in the language of that version, addressed to the recipient ("Dear [Name]," / "Dear Purchasing Team," / "Poštovani," / "Sehr geehrte Damen und Herren,"). Never begin with the first content sentence.
+   b. Then, in short paragraphs separated by blank lines, deliver the substance. This part stays varied and non-templated.
+   c. END with a closing line ("Best regards," / "Kind regards," / "Srdačan pozdrav," / "Mit freundlichen Grüßen,"), then the sender's full name on its own line, then the sender's job title on its own line, then the sender's email address on its own line.
+   d. No headings, no bullet lists, no numbered lists, no markdown, no bold or italic markers. Plain paragraphs only.
+6. No generic openers AFTER the salutation. Never write "I hope this email finds you well", "Hope you're doing well", "I trust you're having a great week", or any variation. The salutation is the formality; the first sentence after it must be the actual reason you're writing.
+7. No fabricated facts. No made-up compliments about how "impressive" their company is. Only reference what you can verify from the provided data.
+8. Length: 110-180 words total, including salutation and signature. Not shorter, not longer.
+9. Tone: professional but human. Write like a real person who's done their homework and genuinely thinks there might be a fit. Not like a sales script.
+10. CTA: exactly one, at the end of the body (before the closing), phrased as a concrete, low-pressure next step.
 11. Subject line: short (under 50 chars), specific to this company. No clickbait. Mention their company name or one specific detail.
 12. Generate TWO complete, standalone versions: one in the local language, one in English. Both follow all the same rules.
 13. Output ONLY valid JSON. No markdown, no commentary.`;
@@ -997,6 +1010,7 @@ ${imagesSection}
 ## SENDER
 Name: ${sender.senderName}
 ${sender.senderTitle ? `Title: ${sender.senderTitle}` : ''}
+Email: ${senderEmail || 'your email address'}
 
 ${ukNote}
 
@@ -1133,6 +1147,15 @@ Return ONLY a JSON object with these exact keys:
   }): Promise<BilingualWhatsAppResult> {
     const { company, projectContext, sender, config, languageCode } = params;
 
+    // IM 话术签名保持随意（规则 7），这里只提供邮箱作为可选信息
+    let senderEmail = '';
+    try {
+      const smtpCfg = await this.mailService.getSettings();
+      senderEmail = (smtpCfg?.fromEmail || '').trim();
+    } catch {
+      senderEmail = '';
+    }
+
     const langName = this.getLanguageName(languageCode);
     const isUK = this.isUKCompany(company.country);
 
@@ -1181,6 +1204,7 @@ ${projectInfo}
 ## SENDER
 Name: ${sender.senderName}
 ${sender.senderTitle ? `Title: ${sender.senderTitle}` : ''}
+Email: ${senderEmail || 'your email address'}
 
 ${ukNote}
 
