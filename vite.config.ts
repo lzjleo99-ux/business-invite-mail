@@ -31,8 +31,38 @@ function dropBrandBadge(): Plugin {
   };
 }
 
+const APP_TITLE = '邮件收发助手';
+
+/**
+ * 把 HTML 壳里的标题占位符 `{{appName}}` 换成真实应用名。
+ *
+ * 平台构建把标题留成 `<title>{{appName}}</title>`，由平台在**响应时**注入 appName。
+ * 自建部署没有在平台后台运营应用，注入的是平台默认名「妙搭应用」，于是用户每次刷新
+ * 都会先看到浏览器标签页写着「妙搭应用」，等 JS 跑完才跳走（甚至不跳）。
+ *
+ * 这里在**构建期**就把标题/og:title 里的占位符替换成字面量，平台就找不到占位符、
+ * 也就不会再注入，标签页从第一帧就是正确的。og:title / og:description 一并处理，
+ * 免得分享出去的链接预览也写着「妙搭应用」。
+ */
+function setAppTitle(): Plugin {
+  return {
+    name: 'set-app-title',
+    // post：平台的 vite preset 自己也会 transformIndexHtml 并注入 {{appName}} 占位符，
+    // 必须排在它之后跑，才能把占位符替换掉（pre 会被平台覆盖回去）。
+    enforce: 'post',
+    transformIndexHtml(html) {
+      return html
+        .replace(/<title>\s*\{\{appName\}\}\s*<\/title>/gi, `<title>${APP_TITLE}</title>`)
+        .replace(
+          /(<meta[^>]+property=["']og:title["'][^>]*content=["'])\s*\{\{appName\}\}\s*(["'])/gi,
+          `$1${APP_TITLE}$2`,
+        );
+    },
+  };
+}
+
 export default defineConfig({
-  plugins: [dropBrandBadge()],
+  plugins: [dropBrandBadge(), setAppTitle()],
   resolve: {
     alias: {
       '@': path.resolve(__dirname, 'client/src'),
