@@ -4,6 +4,7 @@ import { Inbox, Send, XCircle, RefreshCw } from 'lucide-react';
 import { getEmailHistories, type EmailHistoryItem } from '@client/src/api/email-generator';
 import { useI18n } from '@client/src/i18n';
 import { Button } from '@client/src/components/ui/button';
+import { EmailHistoryList } from '@client/src/components/EmailHistoryList';
 import { Input } from '@client/src/components/ui/input';
 import {
   Select,
@@ -143,33 +144,10 @@ const EmailHistoryPage: React.FC = () => {
               <p className="text-xs">{t('发送邮件或后台收到回复后，记录会自动出现在这里')}</p>
             </div>
           ) : (
-            <ul className="divide-y divide-slate-100">
-              {items.map((h) => (
-                <li key={h.id} className="p-4 space-y-1.5">
-                  <div className="flex items-center gap-2 flex-wrap">
-                    {badge(h)}
-                    <span className="text-xs text-slate-500">
-                      {new Date(h.at).toLocaleString('zh-CN', { hour12: false })}
-                    </span>
-                    {h.companyName && (
-                      <span className="text-sm font-medium text-slate-800">{h.companyName}</span>
-                    )}
-                  </div>
-                  <p className="text-sm font-medium text-slate-800 break-all">
-                    {h.subject || t('（无主题）')}
-                  </p>
-                  <p className="text-xs text-slate-500 break-all">
-                    {h.fromAddr} → {h.toAddr}
-                  </p>
-                  {h.snippet && (
-                    <p className="text-xs text-slate-600 line-clamp-2 break-all">{h.snippet}</p>
-                  )}
-                  {h.status === 'failed' && h.error && (
-                    <p className="text-xs text-red-600 break-all">{h.error}</p>
-                  )}
-                </li>
-              ))}
-            </ul>
+            // 复用共享列表：每条可点开看完整正文（与公司行「往来记录」行为一致）
+            <div className="p-3">
+              <EmailHistoryList items={items} maxHeight="max-h-none" showCompany />
+            </div>
           )}
         </CardContent>
       </Card>
