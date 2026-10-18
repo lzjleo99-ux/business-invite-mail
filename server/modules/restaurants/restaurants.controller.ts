@@ -102,6 +102,7 @@ class ListQueryDto {
     'analyzed',
     'pending',
     'generated',
+    'has_email',
     'no_email',
     'failed',
   ])
@@ -111,6 +112,7 @@ class ListQueryDto {
     | 'analyzed'
     | 'pending'
     | 'generated'
+    | 'has_email'
     | 'no_email'
     | 'failed';
 }

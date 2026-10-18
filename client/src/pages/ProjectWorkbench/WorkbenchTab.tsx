@@ -805,12 +805,16 @@ const WorkbenchTab: React.FC<WorkbenchTabProps> = ({
       key: 'email',
       width: 200,
       ellipsis: true,
-      render: (val: string | null) =>
-        val ? (
-          <span className="text-slate-700">{val}</span>
+      // 与「有邮箱」筛选/发送同口径：websiteContactEmail 优先（官网核验/挖掘的结果），
+      // 否则用导入的 email 列
+      render: (val: string | null, record: Company) => {
+        const effective = record.websiteContactEmail || val;
+        return effective ? (
+          <span className="text-slate-700">{effective}</span>
         ) : (
           <span className="text-slate-400">-</span>
-        ),
+        );
+      },
     },
     {
       title: t('状态'),

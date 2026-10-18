@@ -194,8 +194,12 @@ export class RestaurantsService {
       conditions.push(ilike(restaurants.name, `%${params.search}%`));
     }
     if (params.noEmail) {
+      // 与 no_email 筛选同口径：两个邮箱字段都为空
       conditions.push(
-        or(isNull(restaurants.email), eq(restaurants.email, '')),
+        and(
+          or(isNull(restaurants.email), eq(restaurants.email, '')),
+          or(isNull(restaurants.websiteContactEmail), eq(restaurants.websiteContactEmail, '')),
+        ),
       );
     }
     if (params.isStarred !== undefined) {
@@ -272,7 +276,8 @@ export class RestaurantsService {
           WHERE ${restaurants.status} = 'generated'
         ) AS generated,
         count(*) FILTER (
-          WHERE ${restaurants.email} IS NULL OR ${restaurants.email} = ''
+          WHERE (${restaurants.email} IS NULL OR ${restaurants.email} = '')
+            AND (${restaurants.websiteContactEmail} IS NULL OR ${restaurants.websiteContactEmail} = '')
         ) AS noemail,
         count(*) FILTER (
           WHERE ${restaurants.status} = 'failed'
@@ -417,9 +422,16 @@ export class RestaurantsService {
       case 'generated':
         return eq(restaurants.status, 'generated');
       case 'no_email':
-        return or(isNull(restaurants.email), eq(restaurants.email, ''));
+        // 口径与 stats.noemail 一致：email 与 websiteContactEmail 都为空才算缺邮箱
+        return and(
+          or(isNull(restaurants.email), eq(restaurants.email, '')),
+          or(isNull(restaurants.websiteContactEmail), eq(restaurants.websiteContactEmail, '')),
+        );
       case 'has_email':
-        return and(isNotNull(restaurants.email), ne(restaurants.email, ''));
+        return or(
+          and(isNotNull(restaurants.email), ne(restaurants.email, '')),
+          and(isNotNull(restaurants.websiteContactEmail), ne(restaurants.websiteContactEmail, '')),
+        );
       case 'failed':
         return eq(restaurants.status, 'failed');
       default:

@@ -288,20 +288,25 @@ const ProjectWorkbenchInner: React.FC = () => {
   };
 
   const handleStatClick = (statKey: StatsFilterKey) => {
-    setFilterKey(statKey);
+    // 统计卡点击统一走 filterKey —— filterKey 的条件与 stats SQL 同口径
+    // （尤其「已分析」= analyzed/generating/generated 三态，用 statusFilter 会少算）。
     // Keep status/noEmail filter for backward compat with the status select
     if (statKey === 'all') {
+      setFilterKey('all');
       setStatusFilter('all');
       setNoEmailFilter(false);
     } else if (statKey === 'no_email') {
-      setNoEmailFilter(true);
-      setStatusFilter('all');
-    } else if (statKey === 'starred') {
-      setStatusFilter('all');
+      setFilterKey('no_email');
       setNoEmailFilter(false);
-    } else if (statKey === 'analyzed' || statKey === 'pending' || statKey === 'generated' || statKey === 'failed') {
-      setStatusFilter(statKey as StatusFilterValue);
+      setStatusFilter('all');
+    } else if (statKey === 'has_email') {
+      setFilterKey('has_email');
       setNoEmailFilter(false);
+      setStatusFilter('all');
+    } else if (statKey === 'analyzed' || statKey === 'pending' || statKey === 'generated' || statKey === 'failed' || statKey === 'starred') {
+      setFilterKey(statKey);
+      setNoEmailFilter(false);
+      setStatusFilter('all');
     }
     setPage(1);
   };
