@@ -210,6 +210,20 @@ export async function getEmailHistories(
   return response.data;
 }
 
+/** 单条往来详情（含完整正文） */
+export interface EmailHistoryDetail extends EmailHistoryItem {
+  bodyText: string;
+}
+
+export async function getEmailHistoryDetail(
+  id: string,
+): Promise<EmailHistoryDetail> {
+  const response = await axiosForBackend.get(
+    `/api/email-generator/histories/detail/${id}`,
+  );
+  return response.data;
+}
+
 /** 单公司往来（公司行展开面板） */
 export async function getCompanyEmailHistories(
   companyId: string,

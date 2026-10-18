@@ -501,8 +501,9 @@ export class EmailGeneratorService {
         summary.skippedNoEmail += 1;
         continue;
       }
-      // 已发送过的绝不重发：手动标记 或 发信历史里有成功记录（双保险）
-      if (contactedAt || (await this.emailHistory.hasOutboundSent(c.id))) {
+      // 已经联系过的绝不重发：手动标记过，或有成功发信/收到回复的往来记录。
+      // 注意：发送**失败**的记录不算"已联系"——它只是诊断用的，必须还能重试。
+      if (contactedAt || (await this.emailHistory.hasCorrespondence(c.id))) {
         summary.skippedAlreadySent += 1;
         continue;
       }

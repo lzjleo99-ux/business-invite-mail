@@ -7,6 +7,7 @@ import {
   Body,
   Query,
   BadRequestException,
+  NotFoundException,
   Res,
   UseGuards,
 } from '@nestjs/common';
@@ -16,7 +17,7 @@ import type { Response } from 'express';
 import { JwtAuthGuard, type JwtPayload } from '../auth/jwt-auth.guard';
 import { CurrentUser } from '../auth/current-user.decorator';
 import { EmailGeneratorService, type BatchSendSummary } from './email-generator.service';
-import { EmailHistoryService, type EmailHistoryRow } from './email-history.service';
+import { EmailHistoryService, type EmailHistoryRow, type EmailHistoryDetail } from './email-history.service';
 import { EmailInboxService, type InboxPollResult } from './email-inbox.service';
 import type {
   GeneratedEmail,
@@ -241,6 +242,18 @@ export class EmailGeneratorController {
       page: query.page,
       pageSize: query.pageSize,
     });
+  }
+
+  /** 单条往来详情（点开看完整正文；列表只返回 140 字摘要） */
+  @Get('histories/detail/:id')
+  async historyDetail(
+    @Param('id') id: string,
+  ): Promise<EmailHistoryDetail> {
+    const detail = await this.emailHistoryService.getDetail(id);
+    if (!detail) {
+      throw new NotFoundException('该往来记录不存在');
+    }
+    return detail;
   }
 
   /** 单公司往来（公司行下拉/展开面板用，最近 50 条） */

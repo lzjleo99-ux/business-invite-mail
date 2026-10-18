@@ -1,11 +1,12 @@
 import { Injectable, Inject, Logger, OnModuleDestroy, OnModuleInit } from '@nestjs/common';
 import { DRIZZLE_DATABASE, type PostgresJsDatabase } from '@lark-apaas/fullstack-nestjs-core';
-import { or, sql } from 'drizzle-orm';
+import { eq, or, sql } from 'drizzle-orm';
 import { ImapFlow } from 'imapflow';
 import { simpleParser } from 'mailparser';
 import { restaurants } from '@server/database/schema';
 import { MailService } from '@server/common/services/mail.service';
 import { EmailHistoryService } from './email-history.service';
+import { WeComNotifyService } from './wecom-notify.service';
 
 export interface InboxPollResult {
   fetched: number;
@@ -14,8 +15,8 @@ export interface InboxPollResult {
   error?: string;
 }
 
-/**
- * 收信（IMAP）后台自动抓取：
+  /**
+   * 收信（IMAP）后台自动抓取：
  * - 用设置里同一套账号（客户端专用密码对 SMTP/IMAP 通用），默认 imap.exmail.qq.com:993
  * - 轮询间隔 inbox_poll_seconds（默认 180s，最小 60s），只抓 uid 大于 inbox_last_uid 的新邮件
  * - mailparser 解析 RFC822，message_id 去重（已入库的跳过）
@@ -33,6 +34,7 @@ export class EmailInboxService implements OnModuleInit, OnModuleDestroy {
     @Inject(DRIZZLE_DATABASE) private readonly db: PostgresJsDatabase,
     private readonly mail: MailService,
     private readonly history: EmailHistoryService,
+    private readonly wecom: WeComNotifyService,
   ) {}
 
   onModuleInit(): void {
@@ -78,6 +80,54 @@ export class EmailInboxService implements OnModuleInit, OnModuleDestroy {
     } catch (err: unknown) {
       this.logger.warn(
         `刷新收信轮询失败（不影响主服务）：${err instanceof Error ? err.message : String(err)}`,
+      );
+    }
+  }
+
+  /**
+   * 新回复的后续动作：自动星标 + 企业微信提醒。
+   * 每一步都独立 try/catch：任何一步失败都不能影响收信入库（外层已入库完成）。
+   */
+  private async onReplyCaptured(
+    companyId: string | null,
+    fromAddr: string,
+    subject: string,
+    body: string,
+  ): Promise<void> {
+    try {
+      const cfg = await this.wecom.getConfig();
+      if (companyId && cfg.autoStarOnReply) {
+        await this.db
+          .update(restaurants)
+          .set({ isStarred: true, updatedAt: new Date() })
+          .where(eq(restaurants.id, companyId));
+        this.logger.log(`客户回复已自动加星标：${fromAddr}`);
+      }
+    } catch (err: unknown) {
+      this.logger.warn(
+        `自动加星标失败（不影响收信）：${err instanceof Error ? err.message : String(err)}`,
+      );
+    }
+    try {
+      const name =
+        companyId
+          ? (
+              await this.db
+                .select({ name: restaurants.name })
+                .from(restaurants)
+                .where(eq(restaurants.id, companyId))
+                .limit(1)
+            )[0]?.name ?? null
+          : null;
+      await this.wecom.notifyReply({
+        companyName: name,
+        fromAddr,
+        subject,
+        snippet: (body || '').replace(/\s+/g, ' ').trim(),
+      });
+    } catch (err: unknown) {
+      this.logger.warn(
+        `企微提醒失败（不影响收信）：${err instanceof Error ? err.message : String(err)}`,
       );
     }
   }
@@ -168,7 +218,16 @@ export class EmailInboxService implements OnModuleInit, OnModuleDestroy {
                 inReplyTo,
                 receivedAt: parsed.date ?? new Date(),
               });
-              if (ok) saved += 1;
+              if (ok) {
+                saved += 1;
+                // 新回复入库后：自动加星标 + 推企微提醒（都失败也不影响收信）
+                await this.onReplyCaptured(
+                  match[0]?.id ?? null,
+                  fromAddr,
+                  parsed.subject ?? '',
+                  parsed.text ?? '',
+                );
+              }
             } catch (err: unknown) {
               this.logger.warn(
                 `解析 uid=${uid} 邮件失败：${err instanceof Error ? err.message : String(err)}`,

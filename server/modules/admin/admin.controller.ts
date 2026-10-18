@@ -12,6 +12,7 @@ import { AdminService } from './admin.service';
 import { AuthService } from '@server/modules/auth/auth.service';
 import { MailService } from '@server/common/services/mail.service';
 import { EmailInboxService } from '@server/modules/email-generator/email-inbox.service';
+import { WeComNotifyService } from '@server/modules/email-generator/wecom-notify.service';
 import { JwtAuthGuard } from '@server/modules/auth/jwt-auth.guard';
 import { AdminGuard } from '@server/common/guards/admin.guard';
 import { CurrentUser } from '@server/modules/auth/current-user.decorator';
@@ -111,7 +112,44 @@ export class AdminController {
     private readonly authService: AuthService,
     private readonly mailService: MailService,
     private readonly emailInboxService: EmailInboxService,
+    private readonly wecomNotifyService: WeComNotifyService,
   ) {}
+
+  /** 企业微信群机器人通知配置（webhook 只写不读，只回 webhookSet） */
+  @Get('wecom-notify-config')
+  async getWecomNotifyConfig(): Promise<{
+    enabled: boolean;
+    autoStarOnReply: boolean;
+    includeSnippet: boolean;
+    webhookSet: boolean;
+  }> {
+    const cfg = await this.wecomNotifyService.getConfig();
+    return {
+      enabled: cfg.enabled,
+      autoStarOnReply: cfg.autoStarOnReply,
+      includeSnippet: cfg.includeSnippet,
+      webhookSet: cfg.webhookSet,
+    };
+  }
+
+  @Post('wecom-notify-config')
+  async saveWecomNotifyConfig(
+    @Body() dto: {
+      webhookUrl?: string;
+      enabled?: boolean;
+      autoStarOnReply?: boolean;
+      includeSnippet?: boolean;
+    },
+  ): Promise<{ success: boolean }> {
+    await this.wecomNotifyService.saveConfig(dto);
+    return { success: true };
+  }
+
+  /** 测试企微推送（会真实发一条消息到群里） */
+  @Post('wecom-notify-test')
+  async testWecomNotify(): Promise<{ ok: boolean; message: string }> {
+    return this.wecomNotifyService.test();
+  }
 
   /** 读取 SMTP 配置（密码只返回是否已设置） */
   @Get('smtp-config')

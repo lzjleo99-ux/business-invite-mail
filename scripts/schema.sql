@@ -275,3 +275,16 @@ CREATE TABLE IF NOT EXISTS mail_inbox_settings (
   _updated_at          timestamptz(3) NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 GRANT ALL PRIVILEGES ON TABLE mail_inbox_settings TO anon_, authenticated_, service_role_;
+
+-- ---------- 企业微信群机器人通知配置（单行全局） ----------
+-- 自建表：smtp_config / platform 管理的表不能 ALTER（must be owner 踩过两次）
+CREATE TABLE IF NOT EXISTS wecom_notify_settings (
+  id                 uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  webhook_url        text,
+  enabled            boolean NOT NULL DEFAULT false,
+  auto_star_on_reply boolean NOT NULL DEFAULT true,
+  include_snippet    boolean NOT NULL DEFAULT true,
+  _created_at        timestamptz(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  _updated_at        timestamptz(3) NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+GRANT ALL PRIVILEGES ON TABLE wecom_notify_settings TO anon_, authenticated_, service_role_;

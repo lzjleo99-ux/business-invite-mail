@@ -378,6 +378,24 @@ export const mailInboxSettings = pgTable("mail_inbox_settings", {
 });
 
 /**
+ * 企业微信群机器人通知配置（单行全局）。
+ * 客户回复被 IMAP 抓到时，往这个 webhook 推一条 markdown 提醒。
+ * 自建表：平台管理的表不能 ALTER（见 mail_inbox_settings 注释）。
+ * webhook 是敏感信息，只写不读（接口只回 webhookSet 布尔）。
+ */
+export const wecomNotifySettings = pgTable("wecom_notify_settings", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  webhookUrl: text("webhook_url"),
+  enabled: boolean("enabled").notNull().default(false),
+  /** 收到回复时自动给该公司加星标 */
+  autoStarOnReply: boolean("auto_star_on_reply").notNull().default(true),
+  /** 提醒里是否带正文摘要（超长截断） */
+  includeSnippet: boolean("include_snippet").notNull().default(true),
+  createdAt: customTimestamptz("_created_at", { precision: 3 }).notNull().default(sql`CURRENT_TIMESTAMP`),
+  updatedAt: customTimestamptz("_updated_at", { precision: 3 }).notNull().default(sql`CURRENT_TIMESTAMP`),
+});
+
+/**
  * 邮件往来历史（发信 + 收信全量留痕，后台真实数据）。
  * 自建表：平台管理的表不能 ALTER（project_materials 加列踩过 must be owner），
  * 独立新表 + FK cascade 是既定模式（material_blobs / material_image_descriptions 同款）。

@@ -20,6 +20,11 @@ export interface EmailHistoryRow {
   at: string; // 发信时间或收信时间
 }
 
+/** 单条往来详情：列表字段 + 完整正文 */
+export interface EmailHistoryDetail extends EmailHistoryRow {
+  bodyText: string;
+}
+
 export interface EmailHistoryQuery {
   companyId?: string;
   projectId?: string;
@@ -172,6 +177,55 @@ export class EmailHistoryService {
       )
       .limit(1);
     return rows.length > 0;
+  }
+
+  /**
+   * 该公司是否「已经联系过」——一键发送的跳过判定。
+   * 口径 = 有成功发信记录 或 收到过回复 或 手动标记过；
+   * **发送失败不算**（失败记录只是诊断用的，重试时必须还能发出去）。
+   */
+  async hasCorrespondence(companyId: string): Promise<boolean> {
+    await this.ensureTable();
+    const rows = await this.db
+      .select({ id: emailHistories.id })
+      .from(emailHistories)
+      .where(
+        and(
+          eq(emailHistories.companyId, companyId),
+          or(
+            eq(emailHistories.status, 'sent'),
+            eq(emailHistories.status, 'received'),
+          ),
+        ),
+      )
+      .limit(1);
+    return rows.length > 0;
+  }
+
+  /** 单条往来详情：列表只给 140 字摘要，详情页要完整正文（body_text 最多存了 2 万字） */
+  async getDetail(id: string): Promise<EmailHistoryDetail | null> {
+    await this.ensureTable();
+    const rows = await this.db
+      .select()
+      .from(emailHistories)
+      .where(eq(emailHistories.id, id))
+      .limit(1);
+    const r = rows[0];
+    if (!r) return null;
+    const companyName = r.companyId
+      ? await this.companyNameOf(r.companyId)
+      : null;
+    const row = this.toRow(r, companyName);
+    return { ...row, bodyText: r.bodyText || '' };
+  }
+
+  private async companyNameOf(companyId: string): Promise<string | null> {
+    const rows = await this.db
+      .select({ name: restaurants.name })
+      .from(restaurants)
+      .where(eq(restaurants.id, companyId))
+      .limit(1);
+    return rows[0]?.name ?? null;
   }
 
   /** 按公司查往来（公司行下拉/展开面板） */

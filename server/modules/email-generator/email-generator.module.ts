@@ -6,13 +6,20 @@ import { SharedMailModule } from '@server/common/mail.module';
 import { ProjectsModule } from '../projects/projects.module';
 import { EmailHistoryService } from './email-history.service';
 import { EmailInboxService } from './email-inbox.service';
+import { WeComNotifyService } from './wecom-notify.service';
 
 @Module({
   imports: [ProjectsModule, SharedMailModule],
   controllers: [EmailGeneratorController],
-  providers: [EmailGeneratorService, WeatherService, EmailHistoryService, EmailInboxService],
+  providers: [
+    EmailGeneratorService,
+    WeatherService,
+    EmailHistoryService,
+    EmailInboxService,
+    WeComNotifyService,
+  ],
   // AdminModule 的设置保存要热更新收信轮询，必须显式导出，
   // 否则 Nest 启动时解析不了 AdminController 的依赖 → 容器崩溃循环（503）。
-  exports: [EmailInboxService],
+  exports: [EmailInboxService, WeComNotifyService],
 })
 export class EmailGeneratorModule {}
