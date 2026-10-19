@@ -1,7 +1,7 @@
-import { Injectable, Inject, Logger } from '@nestjs/common';
+import { Injectable, Inject, Logger, BadRequestException } from '@nestjs/common';
 import { DRIZZLE_DATABASE, type PostgresJsDatabase } from '@lark-apaas/fullstack-nestjs-core';
 import { and, desc, eq, or, ilike, sql } from 'drizzle-orm';
-import { emailHistories, restaurants } from '@server/database/schema';
+import { emailHistories, projects, restaurants } from '@server/database/schema';
 import { runIdempotentMigration } from '@server/common/utils/ddl-runner';
 
 export interface EmailHistoryRow {
@@ -30,6 +30,8 @@ export interface EmailHistoryDetail extends EmailHistoryRow {
 export interface EmailHistoryQuery {
   companyId?: string;
   projectId?: string;
+  /** 调用者；非 admin 只能看自己项目的数据（多租户隔离） */
+  user?: { userId: string; role: 'admin' | 'user' };
   direction?: 'outbound' | 'inbound';
   status?: string;
   search?: string;
@@ -262,18 +264,28 @@ export class EmailHistoryService {
   }
 
   /** 单条往来详情：列表只给 140 字摘要，详情页要完整正文（body_text 最多存了 2 万字） */
-  async getDetail(id: string): Promise<EmailHistoryDetail | null> {
+  async getDetail(
+    id: string,
+    user?: { userId: string; role: 'admin' | 'user' },
+  ): Promise<EmailHistoryDetail | null> {
     await this.ensureTable();
-    const rows = await this.db
+    const row = await this.db
       .select()
       .from(emailHistories)
       .where(eq(emailHistories.id, id))
       .limit(1);
-    const r = rows[0];
-    if (!r) return null;
-    const companyName = r.companyId
-      ? await this.companyNameOf(r.companyId)
-      : null;
+    if (row.length === 0) return null;
+    // 先查行，再按它归属的公司/项目鉴权（detail 只有一个 id，没有 projectId 可传）
+    await this.assertCanRead(
+      { companyId: row[0].companyId ?? undefined, projectId: row[0].projectId ?? undefined },
+      user,
+    );
+    return this.buildDetail(row[0]);
+  }
+
+  /** 行 → 详情（含正文兜底与退信解析）；不含鉴权，调用方自行保证有权读这一行 */
+  private async buildDetail(r: typeof emailHistories.$inferSelect): Promise<EmailHistoryDetail> {
+    const companyName = r.companyId ? await this.companyNameOf(r.companyId) : null;
     const row = this.toRow(r, companyName);
     // 不少 MTA（腾讯企业邮箱、部分国际网关）退信**只有 HTML 没有纯文本**，
     // body_text 是空的，直接展示 = 空白弹窗，也没法解析。从 HTML 兜底出纯文本。
@@ -374,7 +386,12 @@ export class EmailHistoryService {
   }
 
   /** 按公司查往来（公司行下拉/展开面板） */
-  async listByCompany(companyId: string, limit = 50): Promise<EmailHistoryRow[]> {
+  async listByCompany(
+    companyId: string,
+    user?: { userId: string; role: 'admin' | 'user' },
+    limit = 50,
+  ): Promise<EmailHistoryRow[]> {
+    await this.assertCanRead({ companyId }, user);
     await this.ensureTable();
     const rows = await this.db
       .select()
@@ -386,7 +403,42 @@ export class EmailHistoryService {
   }
 
   /** 全局往来记录（往来历史页）：可按项目/方向/状态/公司名搜索 + 分页 */
+  /**
+   * 校验调用者是否有权看这批往来记录。
+   * 之前 list/detail/byCompany 三个接口都**不做任何归属校验**，任意登录用户
+   * 传个 projectId/companyId 就能读到别人的全部邮件往来——这是数据隔离漏洞。
+   * 口径与 restaurants 一致：admin 全量，其他人只能看自己项目。
+   */
+  private async assertCanRead(
+    query: { companyId?: string; projectId?: string },
+    user?: { userId: string; role: 'admin' | 'user' },
+  ): Promise<void> {
+    if (!user || user.role === 'admin') return;
+    if (query.projectId) {
+      const owned = await this.db
+        .select({ id: projects.id })
+        .from(projects)
+        .where(and(eq(projects.id, query.projectId), eq(projects.ownerId, user.userId)))
+        .limit(1);
+      if (owned.length === 0) throw new BadRequestException('项目不存在或无权访问');
+      return;
+    }
+    if (query.companyId) {
+      const owned = await this.db
+        .select({ id: restaurants.id })
+        .from(restaurants)
+        .innerJoin(projects, eq(projects.id, restaurants.projectId))
+        .where(and(eq(restaurants.id, query.companyId), eq(projects.ownerId, user.userId)))
+        .limit(1);
+      if (owned.length === 0) throw new BadRequestException('公司不存在或无权访问');
+      return;
+    }
+    // 既没给项目也没给公司 = 想看全站历史，非 admin 一律拒绝
+    throw new BadRequestException('无权访问');
+  }
+
   async list(query: EmailHistoryQuery): Promise<{ items: EmailHistoryRow[]; total: number }> {
+    await this.assertCanRead(query, query.user);
     await this.ensureTable();
     const conditions = [];
     if (query.companyId) conditions.push(eq(emailHistories.companyId, query.companyId));

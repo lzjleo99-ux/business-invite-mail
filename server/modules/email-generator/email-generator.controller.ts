@@ -246,6 +246,7 @@ export class EmailGeneratorController {
   @Get('histories')
   async histories(
     @Query() query: EmailHistoryQueryDto,
+    @CurrentUser() user: JwtPayload,
   ): Promise<{ items: EmailHistoryRow[]; total: number }> {
     return this.emailHistoryService.list({
       companyId: query.companyId,
@@ -255,6 +256,7 @@ export class EmailGeneratorController {
       search: query.search,
       page: query.page,
       pageSize: query.pageSize,
+      user: { userId: user.userId, role: user.role },
     });
   }
 
@@ -262,8 +264,12 @@ export class EmailGeneratorController {
   @Get('histories/detail/:id')
   async historyDetail(
     @Param('id') id: string,
+    @CurrentUser() user: JwtPayload,
   ): Promise<EmailHistoryDetail> {
-    const detail = await this.emailHistoryService.getDetail(id);
+    const detail = await this.emailHistoryService.getDetail(id, {
+      userId: user.userId,
+      role: user.role,
+    });
     if (!detail) {
       throw new NotFoundException('该往来记录不存在');
     }
@@ -274,11 +280,17 @@ export class EmailGeneratorController {
   @Get('histories/:companyId')
   async companyHistories(
     @Param('companyId') companyId: string,
+    @CurrentUser() user: JwtPayload,
   ): Promise<{ items: EmailHistoryRow[] }> {
     if (!companyId) {
       throw new BadRequestException('companyId 不能为空');
     }
-    return { items: await this.emailHistoryService.listByCompany(companyId) };
+    return {
+      items: await this.emailHistoryService.listByCompany(companyId, {
+        userId: user.userId,
+        role: user.role,
+      }),
+    };
   }
 
   /** 手动收取一次收件箱（设置页「立即收取」按钮；后台轮询与此同路径） */
