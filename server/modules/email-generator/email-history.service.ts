@@ -56,6 +56,8 @@ const BOUNCE_REASON_RULES: { re: RegExp; zh: string }[] = [
   { re: /收件人地址不存在|用户不存在|邮箱地址不存在|邮件地址不存在/, zh: '收件邮箱不存在（地址写错或已停用）' },
   { re: /域名不存在|域名无法解析|邮件域不存在/, zh: '收件域名不存在（对方可能已换域名）' },
   { re: /被拒收|拒收|黑名单|反垃圾/, zh: '被对方拒收（多为反垃圾策略）' },
+  // MX 查询失败：邮件系统找不到收件域的邮件服务器（纯 ASCII，国内网关也这么写）
+  { re: /host not found|name service error|type\s*=\s*MX|nxdomain/i, zh: '收件域名不存在或未配置邮件服务器（对方可能已停用该域名）' },
   { re: /wasn't found at|does not exist|domain.*not found|no such domain|unknown domain/i, zh: '收件域名不存在（对方可能已换域名）' },
   { re: /user unknown|recipient address rejected|no such user|mailbox not found|does not exist/i, zh: '该邮箱账号不存在' },
   { re: /mailbox unavailable|mailbox full|quota exceeded/i, zh: '对方邮箱不可用或已满' },
@@ -282,7 +284,7 @@ export class EmailHistoryService {
     const detail: EmailHistoryDetail = { ...row, bodyText };
     // 退信额外给出结构化失败原因（读取时算，不落库）
     if (r.status === 'bounce' || r.direction === 'inbound') {
-      detail.bounce = this.parseBounce(bodyText, r.subject || '');
+      detail.bounce = this.parseBounce(bodyText, r.subject || '', r.fromAddr || '');
     }
     return detail;
   }
@@ -311,7 +313,7 @@ export class EmailHistoryService {
    * 直接把 RFC822 原文（含 Office365 图标链接、原邮件全文引用）倒给用户等于没解析。
    * 只在读取时算，不加字段：正文已经存了，算比存更省事也不会写脏历史数据。
    */
-  parseBounce(bodyText: string, subject: string): BounceInfo {
+  parseBounce(bodyText: string, subject: string, fromAddr = ''): BounceInfo {
     const text = `${subject}\n${bodyText || ''}`;
 
     // 失败地址：Final-Recipient / Original-Recipient 最准，其次是各家的人话句式
@@ -326,6 +328,17 @@ export class EmailHistoryService {
     );
     failedAddress = (finalRecip?.[1] || origRecip?.[1] || yourMsg?.[1] || undeliverableTo?.[1] || cnBounce?.[1] || '')
       .trim() || null;
+
+    // 兜底：正文里第一个"不是发件人自己"的邮箱。多语言/各家格式差异太大时，
+    // 英文地址本身是纯 ASCII，即使中文部分乱码也仍然完好可用。
+    if (!failedAddress) {
+      const all = text.match(/[A-Za-z0-9._%+-]+@[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)+/g);
+      if (all && all.length > 0) {
+        const fromLower = (fromAddr || '').toLowerCase();
+        const candidate = all.find((e) => e.toLowerCase() !== fromLower);
+        if (candidate) failedAddress = candidate.toLowerCase();
+      }
+    }
     if (failedAddress) failedAddress = failedAddress.replace(/[.,;:<>]+$/, '').toLowerCase();
 
     // 失败原因：优先取诊断行（Diagnostic-Code / Status），否则套规则
