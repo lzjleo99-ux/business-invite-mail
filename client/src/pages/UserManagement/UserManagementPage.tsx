@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { Search, Shield, UserX, UserCheck, Users } from 'lucide-react';
+import { Crown, Search, Shield, UserCheck, UserX, Users } from 'lucide-react';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import {
@@ -46,6 +46,22 @@ const UserManagementPage: React.FC = () => {
   const { data, isLoading } = useQuery({
     queryKey: ['admin-users', page, pageSize, search],
     queryFn: () => adminApi.listUsers({ page, pageSize, search: search || undefined }),
+  });
+
+  // 授予超级管理员（全系统唯一）：只有现任超级管理员看得到这个按钮
+  const currentRole = (user?.role ?? 'user') as string;
+  const isSuperAdmin = currentRole === 'super_admin';
+  const superAdminMutation = useMutation({
+    mutationFn: (userId: string) => adminApi.setSuperAdmin(userId),
+    onSuccess: () => {
+      toast.success(t('已设为超级管理员，原超级管理员已降级为管理员'));
+      void queryClient.invalidateQueries({ queryKey: ['admin-users'] });
+    },
+    onError: (err: unknown) => {
+      toast.error(t('设置失败'), {
+        description: err instanceof Error ? err.message : String(err),
+      });
+    },
   });
 
   const roleMutation = useMutation({
@@ -238,7 +254,12 @@ const UserManagementPage: React.FC = () => {
                         {item.displayName}
                       </TableCell>
                       <TableCell>
-                        {item.role === 'admin' ? (
+                        {item.role === 'super_admin' ? (
+                          <Badge className="bg-purple-100 text-purple-700 hover:bg-purple-100">
+                            <Crown size={12} className="mr-1" />
+                            {t('超级管理员')}
+                          </Badge>
+                        ) : item.role === 'admin' ? (
                           <Badge className="bg-amber-100 text-amber-700 hover:bg-amber-100">
                             <Shield size={12} className="mr-1" />
                             {t('管理员')}
@@ -263,10 +284,24 @@ const UserManagementPage: React.FC = () => {
                       </TableCell>
                       <TableCell className="text-right">
                         <div className="flex justify-end gap-2">
+                          {isSuperAdmin && item.role !== 'super_admin' && (
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              className="text-purple-600 border-purple-200 hover:bg-purple-50"
+                              disabled={superAdminMutation.isPending}
+                              onClick={() => superAdminMutation.mutate(item.id)}
+                              title={t('全系统只能有一个超级管理员')}
+                            >
+                              <Crown size={12} className="mr-1" />
+                              {t('设为超级管理员')}
+                            </Button>
+                          )}
                           <Button
                             size="sm"
                             variant="outline"
-                            disabled={isSelf(item) || roleMutation.isPending}
+                            // 超级管理员身份不能在这里改（全系统唯一，走专用接口）
+                            disabled={isSelf(item) || item.role === 'super_admin' || roleMutation.isPending}
                             onClick={() =>
                               roleMutation.mutate({
                                 userId: item.id,

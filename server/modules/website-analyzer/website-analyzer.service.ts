@@ -1,3 +1,4 @@
+import type { UserRole } from '@shared/api.interface';
 import { Injectable, Inject, Logger, BadRequestException } from '@nestjs/common';
 import {
   DRIZZLE_DATABASE,
@@ -864,7 +865,7 @@ ${content}`;
 
   async rescanProjectEmails(
     projectId: string,
-    user: { userId: string; role: 'admin' | 'user' },
+    user: { userId: string; role: UserRole },
   ): Promise<EmailRescanSummary> {
     // 项目访问权：admin 全量，普通用户须是项目 owner（与 restaurants.findAll 同语义）
     if (user.role !== 'admin') {

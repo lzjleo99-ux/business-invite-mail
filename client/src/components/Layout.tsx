@@ -1,16 +1,17 @@
 import React, { useState } from 'react';
 import { NavLink, Outlet } from 'react-router-dom';
 import {
-  FolderKanban,
-  Settings,
-  Languages,
-  Shield,
-  LogOut,
-  KeyRound,
-  ChevronDown,
-  Menu,
-  Mail,
   BookOpen,
+  ChevronDown,
+  Crown,
+  FolderKanban,
+  KeyRound,
+  Languages,
+  LogOut,
+  Mail,
+  Menu,
+  Settings,
+  Shield,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { useForm } from 'react-hook-form';
@@ -66,7 +67,8 @@ const Layout: React.FC = () => {
     { to: '/guide', label: t('使用说明'), icon: BookOpen },
   ];
 
-  if (user?.role === 'admin') {
+  // 用户管理：admin 与 super_admin 可见（super_admin 还多一个"授权"入口）
+  if (user?.role === 'admin' || user?.role === 'super_admin') {
     navItems.push({ to: '/admin/users', label: t('用户管理'), icon: Shield });
   }
 
@@ -178,7 +180,12 @@ const Layout: React.FC = () => {
                         </span>
                       </div>
                       <div className="mt-0.5">
-                        {user.role === 'admin' ? (
+                        {user.role === 'super_admin' ? (
+                          <Badge className="bg-purple-100 text-purple-700 hover:bg-purple-100 text-[10px] px-1.5 py-0">
+                            <Crown size={10} className="mr-0.5" />
+                            {t('超级管理员')}
+                          </Badge>
+                        ) : user.role === 'admin' ? (
                           <Badge className="bg-amber-100 text-amber-700 hover:bg-amber-100 text-[10px] px-1.5 py-0">
                             <Shield size={10} className="mr-0.5" />
                             {t('管理员')}

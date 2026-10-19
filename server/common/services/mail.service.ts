@@ -1,7 +1,7 @@
 import { Injectable, Logger, BadRequestException } from '@nestjs/common';
 import { Inject } from '@nestjs/common';
 import { DRIZZLE_DATABASE, type PostgresJsDatabase } from '@lark-apaas/fullstack-nestjs-core';
-import { asc, desc, eq, sql, and } from 'drizzle-orm';
+import { asc, desc, eq, sql, and, or, isNull } from 'drizzle-orm';
 import nodemailer, { type Transporter } from 'nodemailer';
 import { smtpConfig, mailInboxSettings, smtpAccounts } from '@server/database/schema';
 import { runIdempotentMigration } from '@server/common/utils/ddl-runner';
@@ -38,6 +38,7 @@ export class MailService {
   private transporterKey = '';
   private inboxTablePromise: Promise<void> | null = null;
   private accountsTablePromise: Promise<void> | null = null;
+  private ownerColumnPromise: Promise<void> | null = null;
   /** 每个账号一个 transport，key = id:password 前几位，避免串号 */
   private accountTransporters = new Map<string, { key: string; transporter: Transporter }>();
 
@@ -49,7 +50,12 @@ export class MailService {
    * 只 select 基础列：IMAP 列由 ensureImapColumns() 后加创建，
    * 全量 select 在列缺失时会直接 500（读设置是启动路径也会走的）。
    */
-  async getSettings(): Promise<SmtpBaseRow | null> {
+  /**
+   * 取发信配置：优先当前用户自己那份，取不到再回退旧的全局行（owner_id IS NULL）。
+   * 这样升级后老配置仍然可用，且每个用户可以配自己的 SMTP。
+   */
+  async getSettings(userId?: string): Promise<SmtpBaseRow | null> {
+    await this.ensureOwnerColumn();
     const rows = await this.db
       .select({
         id: smtpConfig.id,
@@ -62,13 +68,20 @@ export class MailService {
         fromEmail: smtpConfig.fromEmail,
       })
       .from(smtpConfig)
-      .orderBy(desc(smtpConfig.createdAt))
+      // 先找自己的；没有则回退旧的全局行（owner_id IS NULL）
+      .where(
+        userId
+          ? or(eq(smtpConfig.ownerId, userId), isNull(smtpConfig.ownerId))
+          : isNull(smtpConfig.ownerId),
+      )
+      // 自己的排前面，保证"取到自己的"而不是"取到全局的"
+      .orderBy(desc(smtpConfig.ownerId), desc(smtpConfig.createdAt))
       .limit(1);
     return rows[0] ?? null;
   }
 
-  async isConfigured(): Promise<boolean> {
-    const s = await this.getSettings();
+  async isConfigured(userId?: string): Promise<boolean> {
+    const s = await this.getSettings(userId);
     return !!s && !!s.host && !!s.fromEmail;
   }
 
@@ -207,6 +220,8 @@ export class MailService {
     password?: string | null;
     fromName?: string | null;
     fromEmail: string;
+    /** 保存为该用户的私有配置；不传 = 旧的全局单行行为 */
+    userId?: string;
   }): Promise<void> {
     if (!input.host || !input.host.trim()) {
       throw new BadRequestException('SMTP 服务器不能为空');
@@ -215,9 +230,12 @@ export class MailService {
       throw new BadRequestException('发件人邮箱格式不正确');
     }
 
-    const existing = await this.getSettings();
+    await this.ensureOwnerColumn();
+    const existing = await this.getSettings(input.userId);
     const values = {
       host: input.host.trim(),
+      // 新保存的行归属当前用户（老行没有这个字段，update 时会一并补上）
+      ...(input.userId ? { ownerId: input.userId } : {}),
       port: Number.isFinite(input.port) ? Number(input.port) : 465,
       secure: input.secure !== false,
       // 密码是只写字段：留空表示不修改
@@ -263,6 +281,29 @@ export class MailService {
   /** 发一封纯文本+HTML 邮件；SMTP 报原文错误由调用方决定如何呈现 */
 
   // ==================== 多个发信账号（邮箱后台） ====================
+
+  /**
+   * 给 smtp_config 加 owner_id（幂等）。表是自建的，owner 是自己，可以 ALTER。
+   * 老行 owner_id 为 NULL = 旧全局配置，读取时作为回退，保证升级不破坏现有发信。
+   */
+  private async ensureOwnerColumn(): Promise<void> {
+    if (!this.ownerColumnPromise) {
+      this.ownerColumnPromise = runIdempotentMigration(
+        this.db,
+        'smtp_config_owner_id',
+        async (run) => {
+          await run('ALTER TABLE smtp_config ADD COLUMN IF NOT EXISTS owner_id varchar(64)');
+          await run('CREATE INDEX IF NOT EXISTS idx_smtp_config_owner ON smtp_config (owner_id)');
+        },
+      )
+        .then(() => undefined)
+        .catch((err: unknown) => {
+          this.ownerColumnPromise = null;
+          throw err;
+        });
+    }
+    return this.ownerColumnPromise;
+  }
 
   private async ensureAccountsTable(): Promise<void> {
     if (!this.accountsTablePromise) {

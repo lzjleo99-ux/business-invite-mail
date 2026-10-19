@@ -201,6 +201,8 @@ CREATE INDEX IF NOT EXISTS idx_password_reset_codes_expires ON password_reset_co
 -- ---------- smtp_config（发信服务配置，全局单行，密码只写） ----------
 CREATE TABLE IF NOT EXISTS smtp_config (
   id           uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  -- 归属用户；NULL = 旧的全局配置（升级期回退用，见 MailService.getSettings）
+  owner_id     varchar(64),
   host         varchar(255) NOT NULL,
   port         integer      NOT NULL DEFAULT 465,
   secure       boolean      NOT NULL DEFAULT true,
@@ -211,6 +213,9 @@ CREATE TABLE IF NOT EXISTS smtp_config (
   _created_at  timestamptz(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
   _updated_at  timestamptz(3) NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
+-- 老库补列（幂等）：每用户独立发信配置
+ALTER TABLE smtp_config ADD COLUMN IF NOT EXISTS owner_id varchar(64);
+CREATE INDEX IF NOT EXISTS idx_smtp_config_owner ON smtp_config (owner_id);
 
 -- ---------- material_blobs（素材文件字节，自建部署无平台对象存储，落库持久） ----------
 -- 与 project_materials 一一对应；行删除时级联清理。授权给平台三角色见下。

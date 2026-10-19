@@ -1,3 +1,4 @@
+import type { UserRole } from '@shared/api.interface';
 import {
   Injectable,
   CanActivate,
@@ -10,7 +11,7 @@ import jwt from 'jsonwebtoken';
 export interface JwtPayload {
   userId: string;
   email: string;
-  role: 'admin' | 'user';
+  role: UserRole;
   displayName: string;
 }
 

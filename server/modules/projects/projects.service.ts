@@ -1,3 +1,4 @@
+import type { UserRole } from '@shared/api.interface';
 import {
   Injectable,
   Inject,
@@ -21,7 +22,7 @@ import type {
 
 export interface UserContext {
   userId: string;
-  role: 'admin' | 'user';
+  role: UserRole;
 }
 
 interface ProjectStatsRow {
@@ -40,7 +41,7 @@ export class ProjectsService {
   ) {}
 
   private isAdmin(user: UserContext): boolean {
-    return user.role === 'admin';
+    return user.role === 'super_admin';
   }
 
   private ownerCondition(user: UserContext) {

@@ -1,3 +1,4 @@
+import type { UserRole } from '@shared/api.interface';
 import {
   Injectable,
   Inject,
@@ -59,7 +60,7 @@ export class AuthService {
     email: string,
     password: string,
     displayName: string,
-    forcedRole: 'admin' | 'user' | null,
+    forcedRole: UserRole | null,
   ): Promise<AuthResponse> {
     const normalizedEmail = email.toLowerCase().trim();
 
@@ -87,7 +88,8 @@ export class AuthService {
       .select({ userCount: count() })
       .from(appUsers);
 
-    const role = forcedRole ?? (userCount === 0 ? 'admin' : 'user');
+    // 第一个用户直接是超级管理员（系统里唯一的那个）
+    const role: UserRole = forcedRole ?? (userCount === 0 ? 'super_admin' : 'user');
     const passwordHash = await bcrypt.hash(password, BCRYPT_SALT_ROUNDS);
 
     const inserted = await this.db
@@ -105,7 +107,7 @@ export class AuthService {
     const user = this.toAuthUser(newUser);
     const token = this.signToken(user);
 
-    if (role === 'admin') {
+    if (role === 'super_admin') {
       try {
         await this.db
           .update(projects)
@@ -199,12 +201,12 @@ export class AuthService {
     return { success: true };
   }
 
-  validateToken(token: string): { userId: string; email: string; role: 'admin' | 'user'; displayName: string } | null {
+  validateToken(token: string): { userId: string; email: string; role: UserRole; displayName: string } | null {
     try {
       const payload = jwt.verify(token, JWT_SECRET) as {
         userId: string;
         email: string;
-        role: 'admin' | 'user';
+        role: UserRole;
         displayName: string;
       };
       return payload;
@@ -243,7 +245,7 @@ export class AuthService {
       id: row.id,
       email: row.email,
       displayName: row.displayName,
-      role: row.role as 'admin' | 'user',
+      role: row.role as UserRole,
       isActive: row.isActive,
     };
   }

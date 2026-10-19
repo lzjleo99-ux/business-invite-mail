@@ -24,6 +24,8 @@ export type StatsFilterKey =
   | 'not_contacted'
   | 'failed';
 
+export type UserRole = 'super_admin' | 'admin' | 'user';
+
 export interface Company {
   id: string;
   projectId: string | null;
@@ -356,7 +358,7 @@ export interface AuthUser {
   id: string;
   email: string;
   displayName: string;
-  role: 'admin' | 'user';
+  role: UserRole;
   isActive: boolean;
 }
 
@@ -392,7 +394,7 @@ export interface AdminUserListResponse {
 }
 
 export interface UpdateUserRoleRequest {
-  role: 'admin' | 'user';
+  role: UserRole;
 }
 
 export interface UpdateUserActiveRequest {

@@ -156,3 +156,9 @@ export async function deleteSmtpAccount(id: string): Promise<void> {
 export async function setDefaultSmtpAccount(id: string): Promise<void> {
   await axiosForBackend.post(`/api/admin/smtp-accounts/${id}/default`, {});
 }
+
+/** 授予超级管理员（全系统唯一，只能由现任超级管理员操作） */
+export async function setSuperAdmin(userId: string): Promise<{ ok: true }> {
+  const response = await axiosForBackend.post(`/api/admin/super-admin/${userId}`, {});
+  return response.data;
+}

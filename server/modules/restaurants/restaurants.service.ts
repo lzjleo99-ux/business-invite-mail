@@ -1,3 +1,4 @@
+import type { UserRole } from '@shared/api.interface';
 import {
   Injectable,
   Inject,
@@ -39,7 +40,7 @@ import { tmpdir } from 'os';
 
 export interface UserContext {
   userId: string;
-  role: 'admin' | 'user';
+  role: UserRole;
 }
 
 const execFileAsync = promisify(execFile);
@@ -150,15 +151,20 @@ export class RestaurantsService {
     @Inject(DRIZZLE_DATABASE) private readonly db: PostgresJsDatabase,
   ) {}
 
-  private isAdmin(user: UserContext): boolean {
-    return user.role === 'admin';
+  /**
+   * 只有超级管理员能看全量数据。
+   * 之前 admin 也能看全部——按用户要求收窄：admin 只管用户和验证码邮箱，
+   * 数据上跟普通用户一样只能看自己的项目。
+   */
+  private isSuperAdmin(user: UserContext): boolean {
+    return user.role === 'super_admin';
   }
 
   private async ensureProjectAccess(
     projectId: string,
     user: UserContext,
   ): Promise<void> {
-    if (this.isAdmin(user)) return;
+    if (this.isSuperAdmin(user)) return;
     const rows = await this.db
       .select({ id: projects.id })
       .from(projects)
@@ -176,7 +182,7 @@ export class RestaurantsService {
   }
 
   private projectOwnerWhere(projectId: string, user: UserContext) {
-    if (this.isAdmin(user)) return eq(restaurants.projectId, projectId);
+    if (this.isSuperAdmin(user)) return eq(restaurants.projectId, projectId);
     return sql`${restaurants.projectId} IN (
       SELECT ${projects.id} FROM ${projects}
       WHERE ${projects.id} = ${projectId} AND ${projects.ownerId} = ${user.userId}
@@ -257,7 +263,7 @@ export class RestaurantsService {
     if (projectCheck.length === 0) {
       throw new NotFoundException('项目不存在');
     }
-    if (!this.isAdmin(user)) {
+    if (!this.isSuperAdmin(user)) {
       const ownerCheck = await this.db
         .select({ id: projects.id })
         .from(projects)
@@ -559,7 +565,7 @@ export class RestaurantsService {
     id: string,
     user: UserContext,
   ): Promise<void> {
-    if (this.isAdmin(user)) return;
+    if (this.isSuperAdmin(user)) return;
     const rows = await this.db
       .select({ id: restaurants.id })
       .from(restaurants)

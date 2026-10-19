@@ -1,3 +1,4 @@
+import type { UserRole } from '@shared/api.interface';
 import {
   Controller,
   Post,

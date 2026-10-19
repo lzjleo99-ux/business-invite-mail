@@ -1,3 +1,4 @@
+import type { UserRole } from '@shared/api.interface';
 import { Injectable, Inject, Logger, BadRequestException } from '@nestjs/common';
 import { DRIZZLE_DATABASE, type PostgresJsDatabase } from '@lark-apaas/fullstack-nestjs-core';
 import { and, desc, eq, or, ilike, sql } from 'drizzle-orm';
@@ -31,7 +32,7 @@ export interface EmailHistoryQuery {
   companyId?: string;
   projectId?: string;
   /** 调用者；非 admin 只能看自己项目的数据（多租户隔离） */
-  user?: { userId: string; role: 'admin' | 'user' };
+  user?: { userId: string; role: UserRole };
   direction?: 'outbound' | 'inbound';
   status?: string;
   search?: string;
@@ -266,7 +267,7 @@ export class EmailHistoryService {
   /** 单条往来详情：列表只给 140 字摘要，详情页要完整正文（body_text 最多存了 2 万字） */
   async getDetail(
     id: string,
-    user?: { userId: string; role: 'admin' | 'user' },
+    user?: { userId: string; role: UserRole },
   ): Promise<EmailHistoryDetail | null> {
     await this.ensureTable();
     const row = await this.db
@@ -388,7 +389,7 @@ export class EmailHistoryService {
   /** 按公司查往来（公司行下拉/展开面板） */
   async listByCompany(
     companyId: string,
-    user?: { userId: string; role: 'admin' | 'user' },
+    user?: { userId: string; role: UserRole },
     limit = 50,
   ): Promise<EmailHistoryRow[]> {
     await this.assertCanRead({ companyId }, user);
@@ -411,9 +412,10 @@ export class EmailHistoryService {
    */
   private async assertCanRead(
     query: { companyId?: string; projectId?: string },
-    user?: { userId: string; role: 'admin' | 'user' },
+    user?: { userId: string; role: UserRole },
   ): Promise<void> {
-    if (!user || user.role === 'admin') return;
+    // 只有超级管理员能看全量；admin 与普通用户一样只能看自己项目
+    if (!user || user.role === 'super_admin') return;
     if (query.projectId) {
       const owned = await this.db
         .select({ id: projects.id })

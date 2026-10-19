@@ -1,3 +1,4 @@
+import type { UserRole } from '@shared/api.interface';
 import {
   Injectable,
   Inject,
@@ -58,7 +59,7 @@ export class AdminService {
   async updateRole(
     targetUserId: string,
     currentUserId: string,
-    role: 'admin' | 'user',
+    role: UserRole,
   ): Promise<AdminUser> {
     if (targetUserId === currentUserId) {
       throw new ForbiddenException('不能修改自己的角色');
@@ -66,6 +67,16 @@ export class AdminService {
 
     if (role !== 'admin' && role !== 'user') {
       throw new BadRequestException('角色值无效');
+    }
+
+    // 超级管理员身份只能通过专用接口转移，这里不允许直接改动
+    const target = await this.db
+      .select({ role: appUsers.role })
+      .from(appUsers)
+      .where(eq(appUsers.id, targetUserId))
+      .limit(1);
+    if (target[0]?.role === 'super_admin') {
+      throw new ForbiddenException('不能修改超级管理员的角色');
     }
 
     const updated = await this.db
@@ -79,6 +90,23 @@ export class AdminService {
     }
 
     return this.toAdminUser(updated[0]);
+  }
+
+  /**
+   * 把指定用户设为唯一的超级管理员：先把现任 super_admin 降级为 admin，
+   * 再提升目标用户。保证任何时刻全系统只有一个 super_admin。
+   */
+  async setSuperAdmin(targetUserId: string): Promise<void> {
+    const target = await this.db
+      .select({ id: appUsers.id })
+      .from(appUsers)
+      .where(eq(appUsers.id, targetUserId))
+      .limit(1);
+    if (target.length === 0) throw new NotFoundException('用户不存在');
+
+    // 先降级现任（可能有多个历史遗留，统一处理）
+    await this.db.update(appUsers).set({ role: 'admin' }).where(eq(appUsers.role, 'super_admin'));
+    await this.db.update(appUsers).set({ role: 'super_admin' }).where(eq(appUsers.id, targetUserId));
   }
 
   async updateActive(
@@ -108,7 +136,7 @@ export class AdminService {
       id: row.id,
       email: row.email,
       displayName: row.displayName,
-      role: row.role as 'admin' | 'user',
+      role: row.role as UserRole,
       isActive: row.isActive,
       createdAt: row.createdAt.toISOString(),
       updatedAt: row.updatedAt.toISOString(),

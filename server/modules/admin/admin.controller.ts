@@ -1,3 +1,4 @@
+import type { UserRole } from '@shared/api.interface';
 import {
   Controller,
   Get,
@@ -15,8 +16,9 @@ import { AuthService } from '@server/modules/auth/auth.service';
 import { MailService } from '@server/common/services/mail.service';
 import { EmailInboxService } from '@server/modules/email-generator/email-inbox.service';
 import { WeComNotifyService } from '@server/modules/email-generator/wecom-notify.service';
-import { JwtAuthGuard } from '@server/modules/auth/jwt-auth.guard';
+import { JwtAuthGuard, type JwtPayload } from '@server/modules/auth/jwt-auth.guard';
 import { AdminGuard } from '@server/common/guards/admin.guard';
+import { SuperAdminGuard } from '@server/common/guards/super-admin.guard';
 import { CurrentUser } from '@server/modules/auth/current-user.decorator';
 import { IsString, IsBoolean, IsIn, IsOptional, IsNumber, MinLength, IsEmail } from 'class-validator';
 import { Type } from 'class-transformer';
@@ -29,6 +31,7 @@ import type {
 
 class UpdateUserRoleDto implements UpdateUserRoleRequest {
   @IsString()
+  // super_admin 不在这里发放：只能由现有超级管理员在专用接口授予，且全系统唯一
   @IsIn(['admin', 'user'])
   role!: 'admin' | 'user';
 }
@@ -118,6 +121,8 @@ export class AdminController {
   ) {}
 
   /** 企业微信群机器人通知配置（webhook 只写不读，只回 webhookSet） */
+  // 每用户独立的设置：只需登录，不需要管理员
+  @UseGuards(JwtAuthGuard)
   @Get('wecom-notify-config')
   async getWecomNotifyConfig(): Promise<{
     enabled: boolean;
@@ -136,11 +141,15 @@ export class AdminController {
 
   // ==================== 多个发信账号（邮箱后台） ====================
 
+  // 每用户独立的设置：只需登录，不需要管理员
+  @UseGuards(JwtAuthGuard)
   @Get('smtp-accounts')
   async listSmtpAccounts(): Promise<{ items: Awaited<ReturnType<MailService['listAccounts']>> }> {
     return { items: await this.mailService.listAccounts() };
   }
 
+  // 每用户独立的设置：只需登录，不需要管理员
+  @UseGuards(JwtAuthGuard)
   @Post('smtp-accounts')
   async addSmtpAccount(
     @Body()
@@ -159,18 +168,24 @@ export class AdminController {
     return this.mailService.addAccount(body);
   }
 
+  // 每用户独立的设置：只需登录，不需要管理员
+  @UseGuards(JwtAuthGuard)
   @Delete('smtp-accounts/:id')
   async deleteSmtpAccount(@Param('id') id: string): Promise<{ ok: true }> {
     await this.mailService.deleteAccount(id);
     return { ok: true };
   }
 
+  // 每用户独立的设置：只需登录，不需要管理员
+  @UseGuards(JwtAuthGuard)
   @Post('smtp-accounts/:id/default')
   async setDefaultSmtpAccount(@Param('id') id: string): Promise<{ ok: true }> {
     await this.mailService.setDefaultAccount(id);
     return { ok: true };
   }
 
+  // 每用户独立的设置：只需登录，不需要管理员
+  @UseGuards(JwtAuthGuard)
   @Post('wecom-notify-config')
   async saveWecomNotifyConfig(
     @Body() dto: {
@@ -185,6 +200,8 @@ export class AdminController {
   }
 
   /** 测试企微推送（会真实发一条消息到群里） */
+  // 每用户独立的设置：只需登录，不需要管理员
+  @UseGuards(JwtAuthGuard)
   @Post('wecom-notify-test')
   async testWecomNotify(
     @Body() body: { webhookUrl?: string },
@@ -193,8 +210,10 @@ export class AdminController {
   }
 
   /** 读取 SMTP 配置（密码只返回是否已设置） */
+  // 每用户独立的设置：只需登录，不需要管理员
+  @UseGuards(JwtAuthGuard)
   @Get('smtp-config')
-  async getSmtpConfig(): Promise<{
+  async getSmtpConfig(@CurrentUser() user: JwtPayload): Promise<{
     configured: boolean;
     host?: string;
     port?: number;
@@ -209,7 +228,8 @@ export class AdminController {
     inboxPollEnabled?: boolean;
     inboxPollSeconds?: number;
   }> {
-    const s = await this.mailService.getSettings();
+    // 每用户独立：读自己的 SMTP（没有则回退旧的全局行）
+    const s = await this.mailService.getSettings(user.userId);
     if (!s) {
       return { configured: false };
     }
@@ -231,8 +251,14 @@ export class AdminController {
     };
   }
 
+  // 每用户独立的设置：只需登录，不需要管理员
+  @UseGuards(JwtAuthGuard)
   @Post('smtp-config')
-  async saveSmtpConfig(@Body() dto: SaveSmtpConfigDto): Promise<{ success: boolean }> {
+  async saveSmtpConfig(
+    @Body() dto: SaveSmtpConfigDto,
+    @CurrentUser() user: JwtPayload,
+  ): Promise<{ success: boolean }> {
+    // 每用户独立：写自己的那一行，不再覆盖别人的配置
     await this.mailService.saveSettings({
       host: dto.host,
       port: dto.port ? parseInt(dto.port, 10) : 465,
@@ -241,6 +267,7 @@ export class AdminController {
       password: dto.password,
       fromName: dto.fromName,
       fromEmail: dto.fromEmail,
+      userId: user.userId,
     });
     // IMAP 收信配置走自建表（smtp_config 是平台表，不能加列）
     await this.mailService.saveInboxSettings({
@@ -255,6 +282,8 @@ export class AdminController {
     return { success: true };
   }
 
+  // 每用户独立的设置：只需登录，不需要管理员
+  @UseGuards(JwtAuthGuard)
   @Post('smtp-test')
   async testSmtp(@Body() dto: SendTestMailDto): Promise<{ success: boolean }> {
     await this.mailService.sendTestMail(dto.to);
@@ -267,7 +296,7 @@ export class AdminController {
     id: string;
     email: string;
     displayName: string;
-    role: 'admin' | 'user';
+    role: UserRole;
     isActive: boolean;
   }> {
     const { user } = await this.authService.createUserByAdmin(
@@ -276,6 +305,24 @@ export class AdminController {
       dto.displayName,
     );
     return user;
+  }
+
+  /**
+   * 授予/收回超级管理员（全系统唯一）。
+   * 只能由现有超级管理员调用；授予前会先把现任降级，保证同时只有一个。
+   */
+  @Post('super-admin/:userId')
+  @UseGuards(JwtAuthGuard, SuperAdminGuard)
+  async setSuperAdmin(
+    @Param('userId') userId: string,
+    @CurrentUser() current: JwtPayload,
+  ): Promise<{ ok: true }> {
+    if (!userId) throw new BadRequestException('userId 不能为空');
+    if (userId === current.userId) {
+      throw new BadRequestException('不能对自己执行此操作');
+    }
+    await this.adminService.setSuperAdmin(userId);
+    return { ok: true };
   }
 
   @Get('users')

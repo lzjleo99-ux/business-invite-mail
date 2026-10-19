@@ -1,3 +1,4 @@
+import type { UserRole } from '@shared/api.interface';
 import {
   Injectable,
   Inject,
@@ -473,7 +474,7 @@ export class EmailGeneratorService {
    */
   async batchSendProjectEmails(
     projectId: string,
-    user: { userId: string; role: 'admin' | 'user' },
+    user: { userId: string; role: UserRole },
     lang: 'local' | 'en' = 'local',
     langOverrides: Record<string, 'local' | 'en'> = {},
     /** 只发这些公司；为空 = 整个项目 */

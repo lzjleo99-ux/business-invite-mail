@@ -349,6 +349,8 @@ export const passwordResetCodes = pgTable("password_reset_codes", {
 
 export const smtpConfig = pgTable("smtp_config", {
   id: uuid("id").primaryKey().defaultRandom(),
+  /** 归属用户；NULL = 旧的全局配置（迁移期兼容，读取时按当前用户取，取不到再回退全局） */
+  ownerId: varchar("owner_id", { length: 64 }),
   host: varchar("host", { length: 255 }).notNull(),
   port: integer("port").notNull().default(465),
   secure: boolean("secure").notNull().default(true),
