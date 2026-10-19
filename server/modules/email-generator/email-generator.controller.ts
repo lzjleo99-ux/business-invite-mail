@@ -203,6 +203,7 @@ export class EmailGeneratorController {
   async sendEmail(
     @Param('companyId') companyId: string,
     @Query('lang') lang?: string,
+    @Query('accountId') accountId?: string,
   ): Promise<{ to: string; subject: string }> {
     if (!companyId) {
       throw new BadRequestException('companyId 不能为空');
@@ -210,6 +211,7 @@ export class EmailGeneratorController {
     return this.emailGeneratorService.sendCompanyEmail(
       companyId,
       lang === 'en' ? 'en' : 'local',
+      accountId,
     );
   }
 

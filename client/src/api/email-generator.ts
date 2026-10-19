@@ -145,9 +145,12 @@ export interface BatchSendSummary {
 export async function sendEmail(
   companyId: string,
   lang: 'local' | 'en' = 'local',
+  accountId?: string,
 ): Promise<{ to: string; subject: string }> {
+  const q = new URLSearchParams({ lang });
+  if (accountId) q.set('accountId', accountId);
   const response = await axiosForBackend.post(
-    `/api/email-generator/send/${companyId}?lang=${lang}`,
+    `/api/email-generator/send/${companyId}?${q.toString()}`,
   );
   return response.data;
 }
