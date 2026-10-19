@@ -33,6 +33,7 @@ import {
 
 import * as websiteAnalyzerApi from '@client/src/api/website-analyzer';
 import { getCompanyContacts } from '@client/src/api/website-analyzer';
+import { canonicalizeCountry, countryFlag } from '@shared/countries';
 import * as emailGeneratorApi from '@client/src/api/email-generator';
 import { getCompanies } from '@client/src/api/restaurants';
 import EmailBodyView from './EmailBodyView';
@@ -943,6 +944,20 @@ const WorkbenchTab: React.FC<WorkbenchTabProps> = ({
       key: 'country',
       width: 100,
       ellipsis: true,
+      // 显示国旗 + 归并后的规范名：导入时塞尔维亚可能被填成 Serbia / Srbija /
+      // Србија / 塞尔维亚，列里应该都是同一个国旗 + 同一个名字。
+      render: (val: string | null) => {
+        if (!val) return <span className="text-slate-400">-</span>;
+        const canonical = canonicalizeCountry(val);
+        const flag = countryFlag(val);
+        const label = canonical ?? val;
+        return (
+          <span className="whitespace-nowrap">
+            {flag && <span className="mr-1">{flag}</span>}
+            {label}
+          </span>
+        );
+      },
     },
     {
       title: t('业务类型'),
@@ -1909,6 +1924,7 @@ const WorkbenchTab: React.FC<WorkbenchTabProps> = ({
                          <SelectItem value="all">{t('全部')}</SelectItem>
                          {(stats?.countries ?? []).map((c) => (
                            <SelectItem key={c.name} value={c.name}>
+                             {c.flag ? `${c.flag} ` : ''}
                              {c.name}（{c.count}）
                            </SelectItem>
                          ))}

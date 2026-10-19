@@ -106,7 +106,7 @@ export interface CompanyStatsResponse {
   /** 未联系：既没成功发出过邮件，也没在 WhatsApp / Viber 上联系过 */
   notContacted: number;
   /** 该项目下实际出现过的国家及各自数量（只含已存在的） */
-  countries: { name: string; count: number }[];
+  countries: { name: string; count: number; flag: string }[];
 }
 
 export interface ImportResult {

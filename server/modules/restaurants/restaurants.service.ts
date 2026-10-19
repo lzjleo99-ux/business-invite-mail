@@ -12,6 +12,11 @@ import {
 } from '@lark-apaas/fullstack-nestjs-core';
 import { eq, and, count, desc, ilike, sql, inArray, or, isNull, isNotNull, ne } from 'drizzle-orm';
 import { restaurants, projects } from '@server/database/schema';
+import {
+  canonicalizeCountry,
+  countryFlag,
+  rawAliasesFor,
+} from '@shared/countries';
 import type {
   Company,
   CompanyStatus,
@@ -205,9 +210,11 @@ export class RestaurantsService {
     if (params.isStarred !== undefined) {
       conditions.push(eq(restaurants.isStarred, params.isStarred));
     }
-    // 国家筛选：列表接口独立参数（与 filterKey 统计卡筛选可叠加）
+    // 国家筛选：列表接口独立参数（与 filterKey 统计卡筛选可叠加）。
+    // 库里存的是原始写法，必须拿该规范名的**全部已知别名**去匹配，
+    // 否则选 "Serbia" 会漏掉当时填成 "Srbija" / "Србија" 的公司。
     if (params.country) {
-      conditions.push(eq(restaurants.country, params.country));
+      conditions.push(inArray(restaurants.country, rawAliasesFor(params.country)));
     }
     if (params.filterKey && params.filterKey !== 'all') {
       const filterConditions = this.buildFilterKeyCondition(params.filterKey);
@@ -337,7 +344,8 @@ export class RestaurantsService {
     `);
 
     // 该项目下实际出现过的国家 + 各自数量（筛选下拉只列已存在的，不列空国家）
-    const countries: { name: string; count: number }[] = await this.listCountries(projectId);
+    const countries: { name: string; count: number; flag: string }[] =
+      await this.listCountries(projectId);
 
     const row = result[0];
     if (!row) {
@@ -375,7 +383,9 @@ export class RestaurantsService {
    * 该项目下实际出现过的国家及各自数量。
    * 只返回已存在的（空值不列），供工作台「总数量」旁的国家筛选用。
    */
-  async listCountries(projectId: string): Promise<{ name: string; count: number }[]> {
+  async listCountries(projectId: string): Promise<
+    { name: string; count: number; flag: string }[]
+  > {
     const rows = await this.db
       .select({
         name: restaurants.country,
@@ -391,7 +401,19 @@ export class RestaurantsService {
       )
       .groupBy(restaurants.country)
       .orderBy(sql`count(*) DESC`);
-    return rows.map((r) => ({ name: r.name as string, count: Number(r.count) }));
+
+    // 归并同义写法：Serbia / Srbija / Србија / 塞尔维亚 → Serbia（50）。
+    // 在 JS 侧做而不是 SQL，因为别名表是代码里的常量，SQL 里没法引用。
+    const merged = new Map<string, number>();
+    for (const r of rows) {
+      const raw = (r.name as string) || '';
+      const canonical = canonicalizeCountry(raw) ?? raw.trim();
+      if (!canonical) continue;
+      merged.set(canonical, (merged.get(canonical) ?? 0) + Number(r.count));
+    }
+    return [...merged.entries()]
+      .map(([name, count]) => ({ name, count, flag: countryFlag(name) }))
+      .sort((a, b) => b.count - a.count);
   }
 
   async toggleStar(id: string, isStarred: boolean, user: UserContext): Promise<Company> {
