@@ -407,7 +407,17 @@ export class MailService {
     | { kind: 'legacy'; email: string; fromName: string | null; transporter: Transporter }
   > {
     let row: typeof smtpAccounts.$inferSelect | null = null;
-    if (accountId) row = await this.getAccount(accountId);
+    if (accountId) {
+      row = await this.getAccount(accountId);
+      // 明确指定了账号却找不到 → 直接报错。
+      // 静默回退会让"选错/删错账号"变成用另一个地址发信，客户看到意外的发件人，
+      // 而且事后无法从发送记录里发现（From 会是默认账号）。
+      if (!row) {
+        throw new BadRequestException(
+          `发信账号不存在（id=${accountId}），可能已被删除。请在设置里重新选择。`,
+        );
+      }
+    }
     if (!row && domain) row = await this.getAccountByDomain(domain);
     if (!row) {
       const rows = await this.db.select().from(smtpAccounts).where(eq(smtpAccounts.isDefault, true)).limit(1);
