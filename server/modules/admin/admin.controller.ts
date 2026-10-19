@@ -144,8 +144,8 @@ export class AdminController {
   // 每用户独立的设置：只需登录，不需要管理员
   @UseGuards(JwtAuthGuard)
   @Get('smtp-accounts')
-  async listSmtpAccounts(): Promise<{ items: Awaited<ReturnType<MailService['listAccounts']>> }> {
-    return { items: await this.mailService.listAccounts() };
+  async listSmtpAccounts(@CurrentUser() user: JwtPayload): Promise<{ items: Awaited<ReturnType<MailService['listAccounts']>> }> {
+    return { items: await this.mailService.listAccounts(user.userId) };
   }
 
   // 每用户独立的设置：只需登录，不需要管理员
@@ -161,26 +161,33 @@ export class AdminController {
       secure: boolean;
       fromName?: string;
     },
+    @CurrentUser() user: JwtPayload,
   ): Promise<{ id: string }> {
     if (!body?.email || !body?.password || !body?.host) {
       throw new BadRequestException('邮箱、授权码/密码、SMTP 服务器都不能为空');
     }
-    return this.mailService.addAccount(body);
+    return this.mailService.addAccount({ ...body, ownerId: user.userId });
   }
 
   // 每用户独立的设置：只需登录，不需要管理员
   @UseGuards(JwtAuthGuard)
   @Delete('smtp-accounts/:id')
-  async deleteSmtpAccount(@Param('id') id: string): Promise<{ ok: true }> {
-    await this.mailService.deleteAccount(id);
+  async deleteSmtpAccount(
+    @Param('id') id: string,
+    @CurrentUser() user: JwtPayload,
+  ): Promise<{ ok: true }> {
+    await this.mailService.deleteAccount(id, user.userId);
     return { ok: true };
   }
 
   // 每用户独立的设置：只需登录，不需要管理员
   @UseGuards(JwtAuthGuard)
   @Post('smtp-accounts/:id/default')
-  async setDefaultSmtpAccount(@Param('id') id: string): Promise<{ ok: true }> {
-    await this.mailService.setDefaultAccount(id);
+  async setDefaultSmtpAccount(
+    @Param('id') id: string,
+    @CurrentUser() user: JwtPayload,
+  ): Promise<{ ok: true }> {
+    await this.mailService.setDefaultAccount(id, user.userId);
     return { ok: true };
   }
 

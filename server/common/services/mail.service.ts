@@ -81,6 +81,31 @@ export class MailService {
    */
   async getSettings(userId?: string): Promise<SmtpBaseRow | null> {
     await this.ensureOwnerColumn();
+    // 1) 自己的 SMTP（在自建的 smtp_accounts 里，优先默认账号）
+    if (userId) {
+      const own = await this.db.execute(sql`
+        SELECT id, host, port, secure, username, password, from_name AS "fromName", email AS "fromEmail"
+        FROM smtp_accounts
+        WHERE owner_id = ${userId}
+        ORDER BY is_default DESC, _created_at ASC
+        LIMIT 1
+      `);
+      const row = own[0] as Record<string, unknown> | undefined;
+      if (row) {
+        return {
+          id: String(row.id),
+          host: String(row.host ?? ''),
+          port: Number(row.port) || 465,
+          secure: row.secure !== false,
+          username: (row.username as string | null) ?? String(row.email ?? ''),
+          password: (row.password as string | null) ?? null,
+          fromName: (row.fromName as string | null) ?? null,
+          fromEmail: String(row.fromEmail ?? ''),
+        };
+      }
+    }
+
+    // 2) 回退：旧的全局单行（smtp_config）
     const rows = await this.db
       .select({
         id: smtpConfig.id,
@@ -93,14 +118,7 @@ export class MailService {
         fromEmail: smtpConfig.fromEmail,
       })
       .from(smtpConfig)
-      // 先找自己的；没有则回退旧的全局行（owner_id IS NULL）
-      .where(
-        userId
-          ? or(eq(smtpConfig.ownerId, userId), isNull(smtpConfig.ownerId))
-          : isNull(smtpConfig.ownerId),
-      )
-      // 自己的排前面，保证"取到自己的"而不是"取到全局的"
-      .orderBy(desc(smtpConfig.ownerId), desc(smtpConfig.createdAt))
+      .orderBy(desc(smtpConfig.createdAt))
       .limit(1);
     return rows[0] ?? null;
   }
@@ -270,18 +288,59 @@ export class MailService {
     }
 
     await this.ensureOwnerColumn();
-    const existing = await this.getSettings(input.userId);
+
+    // 有 userId → 存进自建的 smtp_accounts（每人一行，is_default）
+    if (input.userId) {
+      const rows = await this.db.execute(sql`
+        SELECT id FROM smtp_accounts
+        WHERE owner_id = ${input.userId}
+        ORDER BY is_default DESC, _created_at ASC
+        LIMIT 1
+      `);
+      const existingRow = rows[0] as { id: string } | undefined;
+      const fromName = input.fromName !== undefined ? input.fromName : null;
+      const email = input.fromEmail.trim();
+
+      if (existingRow) {
+        // 密码是只写字段：留空表示不修改
+        await this.db.execute(sql`
+          UPDATE smtp_accounts SET
+            email = ${email},
+            host = ${input.host.trim()},
+            port = ${Number.isFinite(input.port) ? Number(input.port) : 465},
+            secure = ${input.secure !== false},
+            from_name = ${fromName},
+            username = COALESCE(${input.username ?? null}, email),
+            password = COALESCE(NULLIF(${input.password ?? null}, ''), password)
+          WHERE id = ${existingRow.id}
+        `);
+      } else {
+        await this.db.execute(sql`
+          INSERT INTO smtp_accounts
+            (owner_id, email, host, port, secure, from_name, username, password, is_default)
+          VALUES
+            (${input.userId}, ${email}, ${input.host.trim()},
+             ${Number.isFinite(input.port) ? Number(input.port) : 465},
+             ${input.secure !== false}, ${fromName}, ${input.username ?? email},
+             ${input.password ?? ''}, true)
+        `);
+      }
+      this.transporter = null;
+      this.transporterKey = '';
+      return;
+    }
+
+    // 无 userId → 旧的全局单行
+    const existing = await this.getSettings();
     const values = {
       host: input.host.trim(),
-      // 新保存的行归属当前用户（老行没有这个字段，update 时会一并补上）
-      ...(input.userId ? { ownerId: input.userId } : {}),
       port: Number.isFinite(input.port) ? Number(input.port) : 465,
       secure: input.secure !== false,
-      // 密码是只写字段：留空表示不修改
       username: input.username !== undefined ? input.username : existing?.username ?? null,
-      password: input.password !== undefined && input.password !== null && input.password !== ''
-        ? input.password
-        : existing?.password ?? null,
+      password:
+        input.password !== undefined && input.password !== null && input.password !== ''
+          ? input.password
+          : existing?.password ?? null,
       fromName: input.fromName !== undefined ? input.fromName : existing?.fromName ?? null,
       fromEmail: input.fromEmail.trim(),
     };
@@ -331,8 +390,10 @@ export class MailService {
         this.db,
         'smtp_config_owner_id',
         async (run) => {
-          await run('ALTER TABLE smtp_config ADD COLUMN IF NOT EXISTS owner_id varchar(64)');
-          await run('CREATE INDEX IF NOT EXISTS idx_smtp_config_owner ON smtp_config (owner_id)');
+          // smtp_config 是平台建的表，ALTER 会报 must be owner → 不能加列。
+          // 每用户 SMTP 存自建的 smtp_accounts（owner_id），smtp_config 只当全局回退。
+          await run('ALTER TABLE smtp_accounts ADD COLUMN IF NOT EXISTS owner_id varchar(64)');
+          await run('CREATE INDEX IF NOT EXISTS idx_smtp_accounts_owner ON smtp_accounts (owner_id)');
         },
       )
         .then(() => undefined)
@@ -377,12 +438,17 @@ export class MailService {
   }
 
   /** 列出全部发信账号（密码不外泄，只给 passwordSet） */
-  async listAccounts(): Promise<
+  async listAccounts(ownerId?: string): Promise<
     { id: string; email: string; host: string; port: number; secure: boolean; fromName: string | null; isDefault: boolean }[]
   > {
     try {
       await this.ensureAccountsTable();
-      const rows = await this.db.select().from(smtpAccounts).orderBy(desc(smtpAccounts.isDefault), asc(smtpAccounts.createdAt));
+      const rows = ownerId
+        ? await this.db.select().from(smtpAccounts).where(eq(smtpAccounts.ownerId, ownerId))
+            .orderBy(desc(smtpAccounts.isDefault), asc(smtpAccounts.createdAt))
+        : await this.db.select().from(smtpAccounts)
+            .where(isNull(smtpAccounts.ownerId))
+            .orderBy(desc(smtpAccounts.isDefault), asc(smtpAccounts.createdAt));
       return rows.map((r) => ({
         id: r.id,
         email: r.email,
@@ -400,6 +466,7 @@ export class MailService {
 
   /** 新增账号。同一邮箱只能有一个（重复后缀会让人分不清用哪个） */
   async addAccount(input: {
+    ownerId?: string;
     email: string;
     password: string;
     host: string;
@@ -412,12 +479,15 @@ export class MailService {
     if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) {
       throw new BadRequestException('邮箱地址格式不正确');
     }
+    // 同一邮箱全局只能有一个（否则用户分不清用哪个）
     const dup = await this.db.select({ id: smtpAccounts.id }).from(smtpAccounts).where(eq(smtpAccounts.email, email)).limit(1);
     if (dup.length > 0) throw new BadRequestException(`发信账号 ${email} 已存在`);
 
-    const existing = await this.db.select({ id: smtpAccounts.id }).from(smtpAccounts).limit(1);
+    const existing = await this.db.select({ id: smtpAccounts.id }).from(smtpAccounts)
+      .where(input.ownerId ? eq(smtpAccounts.ownerId, input.ownerId) : isNull(smtpAccounts.ownerId)).limit(1);
     const isFirst = existing.length === 0;
     const rows = await this.db.insert(smtpAccounts).values({
+      ownerId: input.ownerId ?? null,
       email,
       password: input.password,
       host: input.host.trim(),
@@ -429,9 +499,11 @@ export class MailService {
     return { id: rows[0].id };
   }
 
-  async deleteAccount(id: string): Promise<void> {
+  async deleteAccount(id: string, ownerId?: string): Promise<void> {
     await this.ensureAccountsTable();
-    await this.db.delete(smtpAccounts).where(eq(smtpAccounts.id, id));
+    await this.db.delete(smtpAccounts).where(
+      ownerId ? and(eq(smtpAccounts.id, id), eq(smtpAccounts.ownerId, ownerId)) : eq(smtpAccounts.id, id),
+    );
     // 删的是默认账号就把剩下的第一个设为默认，避免"没有默认账号"
     const left = await this.db.select({ id: smtpAccounts.id }).from(smtpAccounts).limit(1);
     if (left.length > 0) {
@@ -441,10 +513,12 @@ export class MailService {
   }
 
   /** 设默认账号（发信时不指定就用它） */
-  async setDefaultAccount(id: string): Promise<void> {
+  async setDefaultAccount(id: string, ownerId?: string): Promise<void> {
     await this.ensureAccountsTable();
-    await this.db.update(smtpAccounts).set({ isDefault: false });
-    await this.db.update(smtpAccounts).set({ isDefault: true }).where(eq(smtpAccounts.id, id));
+    const scope = ownerId ? eq(smtpAccounts.ownerId, ownerId) : isNull(smtpAccounts.ownerId);
+    await this.db.update(smtpAccounts).set({ isDefault: false }).where(scope);
+    await this.db.update(smtpAccounts).set({ isDefault: true })
+      .where(ownerId ? and(eq(smtpAccounts.id, id), scope) : eq(smtpAccounts.id, id));
   }
 
   /** 供邮件生成器取账号的收发信息（不含密码） */
@@ -461,9 +535,13 @@ export class MailService {
   }
 
   /** 按邮箱后缀（域名）取账号——下拉里选的就是后缀 */
-  async getAccountByDomain(domain: string): Promise<typeof smtpAccounts.$inferSelect | null> {
+  async getAccountByDomain(domain: string, ownerId?: string): Promise<typeof smtpAccounts.$inferSelect | null> {
     await this.ensureAccountsTable();
-    const rows = await this.db.select().from(smtpAccounts).orderBy(desc(smtpAccounts.isDefault), asc(smtpAccounts.createdAt));
+    const rows = ownerId
+      ? await this.db.select().from(smtpAccounts).where(eq(smtpAccounts.ownerId, ownerId))
+          .orderBy(desc(smtpAccounts.isDefault), asc(smtpAccounts.createdAt))
+      : await this.db.select().from(smtpAccounts).where(isNull(smtpAccounts.ownerId))
+          .orderBy(desc(smtpAccounts.isDefault), asc(smtpAccounts.createdAt));
     return rows.find((r) => r.email.toLowerCase().endsWith(`@${domain.trim().toLowerCase()}`)) ?? null;
   }
 
@@ -482,7 +560,7 @@ export class MailService {
   }
 
   /** 解析出实际要用的账号：指定 id > 指定域名 > 默认账号 > 旧全局 smtp_config */
-  async resolveSender(accountId?: string, domain?: string): Promise<
+  async resolveSender(accountId?: string, domain?: string, ownerId?: string): Promise<
     | { kind: 'account'; id: string; email: string; fromName: string | null; transporter: Transporter }
     | { kind: 'legacy'; email: string; fromName: string | null; transporter: Transporter }
   > {
@@ -498,9 +576,15 @@ export class MailService {
         );
       }
     }
-    if (!row && domain) row = await this.getAccountByDomain(domain);
+    if (!row && domain) row = await this.getAccountByDomain(domain, ownerId);
+    if (!row && ownerId) {
+      const rows = await this.db.select().from(smtpAccounts)
+        .where(and(eq(smtpAccounts.isDefault, true), eq(smtpAccounts.ownerId, ownerId))).limit(1);
+      row = rows[0] ?? null;
+    }
     if (!row) {
-      const rows = await this.db.select().from(smtpAccounts).where(eq(smtpAccounts.isDefault, true)).limit(1);
+      const rows = await this.db.select().from(smtpAccounts)
+        .where(and(eq(smtpAccounts.isDefault, true), isNull(smtpAccounts.ownerId))).limit(1);
       row = rows[0] ?? null;
     }
     if (row) {

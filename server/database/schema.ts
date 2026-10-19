@@ -354,10 +354,14 @@ export const passwordResetCodes = pgTable("password_reset_codes", {
   createdAt: customTimestamptz("_created_at", { precision: 3 }).notNull().default(sql`CURRENT_TIMESTAMP`),
 });
 
+/**
+ * 全局 SMTP 配置（单行）。
+ * 注意：这是**平台迁移建的表**——应用用户 ALTER 报 "must be owner of table smtp_config"，
+ * 所以不能给它加 owner_id 做每用户隔离（曾经试过，把 /api/admin/smtp-config 打成 500）。
+ * 每人的 SMTP 存在自建的 smtp_accounts（owner_id），这张表只作为全局回退。
+ */
 export const smtpConfig = pgTable("smtp_config", {
   id: uuid("id").primaryKey().defaultRandom(),
-  /** 归属用户；NULL = 旧的全局配置（迁移期兼容，读取时按当前用户取，取不到再回退全局） */
-  ownerId: varchar("owner_id", { length: 64 }),
   host: varchar("host", { length: 255 }).notNull(),
   port: integer("port").notNull().default(465),
   secure: boolean("secure").notNull().default(true),
@@ -423,6 +427,8 @@ export const wecomNotifySettings = pgTable("wecom_notify_settings", {
  */
 export const smtpAccounts = pgTable("smtp_accounts", {
   id: uuid("id").primaryKey().defaultRandom(),
+  /** 归属用户；NULL = 未绑定到具体用户 */
+  ownerId: varchar("owner_id", { length: 64 }),
   email: varchar("email", { length: 320 }).notNull(),
   password: text("password").notNull(),
   host: varchar("host", { length: 255 }).notNull(),
