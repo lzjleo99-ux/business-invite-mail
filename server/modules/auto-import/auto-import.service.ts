@@ -11,8 +11,8 @@ import {
   DRIZZLE_DATABASE,
   type PostgresJsDatabase,
 } from '@lark-apaas/fullstack-nestjs-core';
-import { eq, sql, ilike, max, inArray } from 'drizzle-orm';
-import { modelConfig, projects, restaurants } from '@server/database/schema';
+import { eq, sql, ilike, max, inArray, and, asc } from 'drizzle-orm';
+import { modelConfig, projects, restaurants, appUsers } from '@server/database/schema';
 import { RestaurantsService } from '../restaurants/restaurants.service';
 import type { UserContext } from '../restaurants/restaurants.service';
 import type {
@@ -225,8 +225,10 @@ export class AutoImportService {
       throw new BadRequestException('leads 必须是数组');
     }
 
-    // Find or create project (case-insensitive)
-    const projectId = await this.findOrCreateProject(projectName.trim());
+    // 机器人导入的项目归属一个真实用户（原来传的是字符串 'system_auto_import'）
+    const owner = await this.resolveAutoImportOwner();
+    // Find or create project, scoped to that owner (case-insensitive)
+    const projectId = await this.findOrCreateProject(projectName.trim(), owner.userId);
 
     // Map raw leads to AutoImportLead
     const leads: AutoImportLead[] = rawLeads.map(
@@ -273,8 +275,8 @@ export class AutoImportService {
       if (websiteKey) seenBatchWebsites.add(websiteKey);
 
       await this.restaurantsService.createLead(projectId, lead, {
-        userId: 'system_auto_import',
-        role: 'admin',
+        userId: owner.userId,
+        role: owner.role,
       });
       imported += 1;
     }
@@ -354,11 +356,58 @@ export class AutoImportService {
     }
   }
 
-  private async findOrCreateProject(name: string): Promise<string> {
+  /**
+   * 自动导入的项目归谁所有。
+   *
+   * 之前这里给 createLead 传的是 `userId: 'system_auto_import'` —— 一个**字符串**，
+   * 而 projects.owner_id 是 uuid 列，于是 ensureProjectAccess 拼出来的
+   * `owner_id = $2` 在 Postgres 报 22P02 invalid input syntax for type uuid，
+   * 整个导入 500。（而且就算能跑通也不对：改版之后只有 super_admin 能跨用户，
+   * role:'admin' 一样过不了归属校验。）
+   *
+   * 现在解析成一个**真实用户的 uuid**：超级管理员 → 管理员 → 最早注册的用户。
+   * 机器人导入的线索要落在某个真人名下，否则项目 owner_id 为 NULL，谁都看不到。
+   */
+  private async resolveAutoImportOwner(): Promise<{ userId: string; role: 'super_admin' | 'admin' | 'user' }> {
+    const pick = async (role: 'super_admin' | 'admin' | 'user'): Promise<string | null> => {
+      const rows = await this.db
+        .select({ id: appUsers.id })
+        .from(appUsers)
+        .where(eq(appUsers.role, role))
+        .orderBy(asc(appUsers.createdAt))
+        .limit(1);
+      return rows[0]?.id ?? null;
+    };
+
+    const superAdmin = await pick('super_admin');
+    if (superAdmin) return { userId: superAdmin, role: 'super_admin' };
+
+    const admin = await pick('admin');
+    if (admin) return { userId: admin, role: 'admin' };
+
+    const rows = await this.db
+      .select({ id: appUsers.id })
+      .from(appUsers)
+      .orderBy(asc(appUsers.createdAt))
+      .limit(1);
+    const fallback = rows[0]?.id ?? null;
+    if (!fallback) {
+      throw new BadRequestException(
+        '系统里还没有任何用户，无法确定机器人导入项目的归属。请先创建用户。',
+      );
+    }
+    return { userId: fallback, role: 'user' };
+  }
+
+  /**
+   * 按名字找或建项目，**只在给定 owner 名下查找**。
+   * 同名但属于别人的项目不会被借用——否则机器人会往同事的项目里写线索。
+   */
+  private async findOrCreateProject(name: string, ownerId: string): Promise<string> {
     const rows = await this.db
       .select({ id: projects.id })
       .from(projects)
-      .where(ilike(projects.name, name));
+      .where(and(ilike(projects.name, name), eq(projects.ownerId, ownerId)));
 
     if (rows.length > 0) {
       return rows[0].id;
@@ -376,6 +425,7 @@ export class AutoImportService {
         name,
         description: 'Auto-created by auto-import',
         sortOrder: nextSortOrder,
+        ownerId,
       })
       .returning({ id: projects.id });
 
