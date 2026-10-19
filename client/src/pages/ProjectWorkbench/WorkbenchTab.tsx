@@ -1,4 +1,4 @@
-import React, { useCallback, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Table, TableProps } from '@lark-apaas/client-toolkit/antd-table';
 import { toast } from 'sonner';
 import { logger } from '@lark-apaas/client-toolkit/logger';
@@ -35,6 +35,7 @@ import * as websiteAnalyzerApi from '@client/src/api/website-analyzer';
 import { getCompanyContacts } from '@client/src/api/website-analyzer';
 import { canonicalizeCountry, countryFlag } from '@shared/countries';
 import * as emailGeneratorApi from '@client/src/api/email-generator';
+import * as adminApi from '@client/src/api/admin';
 import { getCompanies } from '@client/src/api/restaurants';
 import EmailBodyView from './EmailBodyView';
 import { hasImageMarkers } from '@client/src/utils/email-body';
@@ -699,6 +700,15 @@ const WorkbenchTab: React.FC<WorkbenchTabProps> = ({
   // 服务端圈定目标：已生成邮件 + 有邮箱 + 未发送过（emailContactedAt 为空）。
   const [sendAllRunning, setSendAllRunning] = useState(false);
   const [sendConfirmOpen, setSendConfirmOpen] = useState(false);
+  // 发信账号（多邮箱后缀）：'' = 用默认账号
+  const [sendAccountId, setSendAccountId] = useState('');
+  const [sendAccounts, setSendAccounts] = useState<adminApi.SmtpAccount[]>([]);
+  useEffect(() => {
+    void adminApi
+      .listSmtpAccounts()
+      .then(setSendAccounts)
+      .catch(() => setSendAccounts([]));
+  }, []);
   const handleSendAll = useCallback(async () => {
     setSendAllRunning(true);
     try {
@@ -707,6 +717,7 @@ const WorkbenchTab: React.FC<WorkbenchTabProps> = ({
         sendLang,
         emailDisplayLang,
         selectedIds.length > 0 ? selectedIds : undefined,
+        sendAccountId || undefined,
       );
       void qc.invalidateQueries({ queryKey: ['companies'] });
       void qc.invalidateQueries({ queryKey: ['company-stats'] });
@@ -2210,6 +2221,7 @@ const WorkbenchTab: React.FC<WorkbenchTabProps> = ({
                   </Button>
                 </DropdownMenuTrigger>
                 <DropdownMenuContent align="end">
+                  <DropdownMenuLabel>{t('发送语言')}</DropdownMenuLabel>
                   <DropdownMenuItem onClick={() => setSendLang('local')}>
                     {t('本地语言')}
                     {sendLang === 'local' ? <Check size={14} className="ml-auto" /> : null}
@@ -2218,6 +2230,32 @@ const WorkbenchTab: React.FC<WorkbenchTabProps> = ({
                     English
                     {sendLang === 'en' ? <Check size={14} className="ml-auto" /> : null}
                   </DropdownMenuItem>
+                  <DropdownMenuSeparator />
+                  <DropdownMenuLabel>{t('发信账号（邮箱后缀）')}</DropdownMenuLabel>
+                  {sendAccounts.length === 0 ? (
+                    <DropdownMenuItem disabled>
+                      {t('未配置，将使用设置里的默认账号')}
+                    </DropdownMenuItem>
+                  ) : (
+                    <>
+                      <DropdownMenuCheckboxItem
+                        checked={sendAccountId === ''}
+                        onCheckedChange={() => setSendAccountId('')}
+                      >
+                        {t('默认账号')}
+                      </DropdownMenuCheckboxItem>
+                      {sendAccounts.map((a) => (
+                        <DropdownMenuCheckboxItem
+                          key={a.id}
+                          checked={sendAccountId === a.id}
+                          onCheckedChange={() => setSendAccountId(a.id)}
+                        >
+                          {a.email}
+                          {a.isDefault ? ` ${t('（默认）')}` : ''}
+                        </DropdownMenuCheckboxItem>
+                      ))}
+                    </>
+                  )}
                 </DropdownMenuContent>
               </DropdownMenu>
             </div>

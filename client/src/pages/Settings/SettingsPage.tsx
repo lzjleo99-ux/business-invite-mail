@@ -1,10 +1,19 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useForm } from 'react-hook-form';
 import { z } from 'zod';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { toast } from 'sonner';
-import { Cpu, User, Bot, Copy, KeyRound, Mail, Bell } from 'lucide-react';
+import {
+  Bell,
+  Bot,
+  Copy,
+  Cpu,
+  KeyRound,
+  Loader2,
+  Mail,
+  User,
+} from 'lucide-react';
 import { resolveAppUrl } from '@lark-apaas/client-toolkit/utils/resolveAppUrl';
 import {
   Form,
@@ -68,6 +77,29 @@ const SettingsPage = () => {
   // 看起来像"什么都没填"（占位符 noreply@… 会被误认成真实值）。
   const [smtpLoading, setSmtpLoading] = useState(true);
 
+  // ---- 多个发信账号（邮箱后台）----
+  const [accounts, setAccounts] = useState<adminApi.SmtpAccount[]>([]);
+  const [accountsLoading, setAccountsLoading] = useState(true);
+  const [newAccount, setNewAccount] = useState({
+    email: '',
+    password: '',
+    host: '',
+    port: '465',
+    secure: true,
+    fromName: '',
+  });
+  const [accountBusy, setAccountBusy] = useState(false);
+  const refreshAccounts = useCallback(async () => {
+    try {
+      setAccounts(await adminApi.listSmtpAccounts());
+    } catch {
+      // 非管理员或表还没建：静默为空，不打扰
+    } finally {
+      setAccountsLoading(false);
+    }
+  }, []);
+  useEffect(() => { void refreshAccounts(); }, [refreshAccounts]);
+
   // 企业微信群机器人通知（webhook 只写不读，回读只给 webhookSet）
   const [wecom, setWecom] = useState({
     webhookUrl: '',
@@ -93,6 +125,56 @@ const SettingsPage = () => {
       )
       .catch(() => undefined);
   }, [isAdmin]);
+
+  const handleAddAccount = async () => {
+    if (!newAccount.email.trim() || !newAccount.password || !newAccount.host.trim()) {
+      toast.error(t('邮箱、授权码/密码、SMTP 服务器都不能为空'));
+      return;
+    }
+    setAccountBusy(true);
+    try {
+      await adminApi.addSmtpAccount({
+        email: newAccount.email.trim(),
+        password: newAccount.password,
+        host: newAccount.host.trim(),
+        port: Number(newAccount.port) || 465,
+        secure: newAccount.secure,
+        fromName: newAccount.fromName.trim() || undefined,
+      });
+      toast.success(t('发信账号已添加'));
+      setNewAccount({ email: '', password: '', host: '', port: '465', secure: true, fromName: '' });
+      await refreshAccounts();
+    } catch (err: unknown) {
+      toast.error(t('添加失败'), { description: err instanceof Error ? err.message : String(err) });
+    } finally {
+      setAccountBusy(false);
+    }
+  };
+
+  const handleDeleteAccount = async (id: string, email: string) => {
+    setAccountBusy(true);
+    try {
+      await adminApi.deleteSmtpAccount(id);
+      toast.success(t('已删除 {e}', { e: email }));
+      await refreshAccounts();
+    } catch (err: unknown) {
+      toast.error(t('删除失败'), { description: err instanceof Error ? err.message : String(err) });
+    } finally {
+      setAccountBusy(false);
+    }
+  };
+
+  const handleSetDefaultAccount = async (id: string) => {
+    setAccountBusy(true);
+    try {
+      await adminApi.setDefaultSmtpAccount(id);
+      await refreshAccounts();
+    } catch (err: unknown) {
+      toast.error(t('设置默认失败'), { description: err instanceof Error ? err.message : String(err) });
+    } finally {
+      setAccountBusy(false);
+    }
+  };
 
   // 读取已保存的 SMTP 配置（密码不回显，只标记是否已设置）
   useEffect(() => {
@@ -880,6 +962,130 @@ const SettingsPage = () => {
                 </p>
               ) : (
                 <>
+              {/* 邮箱后台：多个发信账号 */}
+              <div className="rounded-lg border border-slate-200 bg-white p-4">
+                <div className="flex items-start justify-between gap-3">
+                  <div>
+                    <h2 className="text-lg font-semibold text-slate-800">{t('邮箱后台')}</h2>
+                    <p className="mt-1 text-sm text-slate-500">
+                      {t('可添加多个发信账号（不同邮箱后缀）。发送时在「一键发送」旁选择用哪个。')}
+                    </p>
+                  </div>
+                </div>
+
+                {accountsLoading ? (
+                  <p className="mt-3 text-sm text-slate-400">{t('正在读取发信账号...')}</p>
+                ) : accounts.length === 0 ? (
+                  <p className="mt-3 rounded-md bg-amber-50 px-3 py-2 text-xs text-amber-800">
+                    {t('还没有发信账号。添加后即可在发送时选择邮箱后缀；未添加时沿用下方「发信服务」的旧配置。')}
+                  </p>
+                ) : (
+                  <ul className="mt-3 space-y-2">
+                    {accounts.map((a) => (
+                      <li
+                        key={a.id}
+                        className="flex flex-wrap items-center gap-2 rounded-md border border-slate-200 px-3 py-2 text-sm"
+                      >
+                        <span className="font-medium text-slate-800">{a.email}</span>
+                        {a.isDefault && (
+                          <span className="rounded bg-blue-50 px-1.5 py-0.5 text-[10px] text-blue-700">
+                            {t('默认')}
+                          </span>
+                        )}
+                        <span className="text-xs text-slate-400">
+                          {a.host}:{a.port}
+                          {a.secure ? ` ${t('SSL')}` : ''}
+                        </span>
+                        <span className="ml-auto flex items-center gap-2">
+                          {!a.isDefault && (
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              className="h-7 px-2 text-xs"
+                              disabled={accountBusy}
+                              onClick={() => void handleSetDefaultAccount(a.id)}
+                            >
+                              {t('设为默认')}
+                            </Button>
+                          )}
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            className="h-7 px-2 text-xs text-red-500 hover:bg-red-50 hover:text-red-600"
+                            disabled={accountBusy}
+                            onClick={() => void handleDeleteAccount(a.id, a.email)}
+                          >
+                            {t('删除')}
+                          </Button>
+                        </span>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+
+                <div className="mt-4 grid gap-3 md:grid-cols-2">
+                  <div className="space-y-1">
+                    <Label htmlFor="acc-email">{t('发件邮箱')}</Label>
+                    <Input
+                      id="acc-email"
+                      value={newAccount.email}
+                      onChange={(e) => setNewAccount({ ...newAccount, email: e.target.value })}
+                      placeholder="name@company.com"
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <Label htmlFor="acc-pwd">{t('授权码 / 密码')}</Label>
+                    <Input
+                      id="acc-pwd"
+                      type="password"
+                      value={newAccount.password}
+                      onChange={(e) => setNewAccount({ ...newAccount, password: e.target.value })}
+                      placeholder="••••••••"
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <Label htmlFor="acc-host">{t('SMTP 服务器')}</Label>
+                    <Input
+                      id="acc-host"
+                      value={newAccount.host}
+                      onChange={(e) => setNewAccount({ ...newAccount, host: e.target.value })}
+                      placeholder="smtp.exmail.qq.com"
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <Label htmlFor="acc-port">{t('端口')}</Label>
+                    <Input
+                      id="acc-port"
+                      value={newAccount.port}
+                      onChange={(e) => setNewAccount({ ...newAccount, port: e.target.value })}
+                      placeholder="465"
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <Label htmlFor="acc-name">{t('发件人显示名（可选）')}</Label>
+                    <Input
+                      id="acc-name"
+                      value={newAccount.fromName}
+                      onChange={(e) => setNewAccount({ ...newAccount, fromName: e.target.value })}
+                    />
+                  </div>
+                  <div className="flex items-end gap-3">
+                    <label className="flex items-center gap-2 text-sm text-slate-600">
+                      <input
+                        type="checkbox"
+                        checked={newAccount.secure}
+                        onChange={(e) => setNewAccount({ ...newAccount, secure: e.target.checked })}
+                      />
+                      {t('SSL')}
+                    </label>
+                    <Button size="sm" disabled={accountBusy} onClick={() => void handleAddAccount()}>
+                      {accountBusy ? <Loader2 className="animate-spin" size={14} /> : null}
+                      {t('添加账号')}
+                    </Button>
+                  </div>
+                </div>
+              </div>
+
               <div>
                 <h2 className="text-lg font-semibold text-slate-800">{t('发信服务（SMTP）')}</h2>
                 <p className="mt-1 text-sm text-slate-500">

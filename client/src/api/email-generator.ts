@@ -159,6 +159,8 @@ export async function batchSendEmails(
   langOverrides: Record<string, 'local' | 'en'> = {},
   /** 只发这些公司；不传 = 整个项目 */
   companyIds?: string[],
+  /** 用哪个发信账号；不传 = 默认账号 */
+  accountId?: string,
 ): Promise<BatchSendSummary> {
   const response = await axiosForBackend.post(
     '/api/email-generator/batch-send',

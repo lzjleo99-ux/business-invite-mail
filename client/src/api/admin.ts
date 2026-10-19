@@ -119,3 +119,40 @@ export async function testWecomNotify(
   );
   return response.data;
 }
+
+// --- 多个发信账号（邮箱后台） ---
+
+export interface SmtpAccount {
+  id: string;
+  email: string;
+  host: string;
+  port: number;
+  secure: boolean;
+  fromName: string | null;
+  isDefault: boolean;
+}
+
+export async function listSmtpAccounts(): Promise<SmtpAccount[]> {
+  const response = await axiosForBackend.get('/api/admin/smtp-accounts');
+  return (response.data?.items ?? []) as SmtpAccount[];
+}
+
+export async function addSmtpAccount(input: {
+  email: string;
+  password: string;
+  host: string;
+  port: number;
+  secure: boolean;
+  fromName?: string;
+}): Promise<{ id: string }> {
+  const response = await axiosForBackend.post('/api/admin/smtp-accounts', input);
+  return response.data;
+}
+
+export async function deleteSmtpAccount(id: string): Promise<void> {
+  await axiosForBackend.delete(`/api/admin/smtp-accounts/${id}`);
+}
+
+export async function setDefaultSmtpAccount(id: string): Promise<void> {
+  await axiosForBackend.post(`/api/admin/smtp-accounts/${id}/default`, {});
+}
