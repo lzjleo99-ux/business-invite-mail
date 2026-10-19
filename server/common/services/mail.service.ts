@@ -83,13 +83,23 @@ export class MailService {
     await this.ensureOwnerColumn();
     // 1) 自己的 SMTP（在自建的 smtp_accounts 里，优先默认账号）
     if (userId) {
-      const own = await this.db.execute(sql`
-        SELECT id, host, port, secure, username, password, from_name AS "fromName", email AS "fromEmail"
-        FROM smtp_accounts
-        WHERE owner_id = ${userId}
-        ORDER BY is_default DESC, _created_at ASC
-        LIMIT 1
-      `);
+      // 包 try/catch：owner_id 迁移若因权限/时序没跑完，就当"这个人还没配过"，
+      // 绝不能因此把整个发信服务页打成 500。
+      let own: unknown[] = [];
+      try {
+        own = (await this.db.execute(sql`
+          SELECT id, host, port, secure, username, password, from_name AS "fromName", email AS "fromEmail"
+          FROM smtp_accounts
+          WHERE owner_id = ${userId}
+          ORDER BY is_default DESC, _created_at ASC
+          LIMIT 1
+        `)) as unknown[];
+      } catch (err: unknown) {
+        this.logger.warn(
+          `读取用户 SMTP 账号失败，回退全局配置：${err instanceof Error ? err.message : String(err)}`,
+        );
+        own = [];
+      }
       const row = own[0] as Record<string, unknown> | undefined;
       if (row) {
         return {
@@ -416,6 +426,8 @@ export class MailService {
           await run(`
             CREATE TABLE IF NOT EXISTS smtp_accounts (
               id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+              -- 归属用户；NULL = 未绑定到具体用户
+              owner_id varchar(64),
               email varchar(320) NOT NULL,
               password text NOT NULL,
               host varchar(255) NOT NULL,
@@ -425,6 +437,7 @@ export class MailService {
               is_default boolean NOT NULL DEFAULT false,
               _created_at timestamptz(3) NOT NULL DEFAULT CURRENT_TIMESTAMP
             )`);
+          await run('ALTER TABLE smtp_accounts ADD COLUMN IF NOT EXISTS owner_id varchar(64)');
           await run(
             'GRANT ALL PRIVILEGES ON TABLE smtp_accounts TO anon_, authenticated_, service_role_',
           );
