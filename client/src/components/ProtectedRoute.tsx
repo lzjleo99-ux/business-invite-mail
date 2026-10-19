@@ -9,12 +9,13 @@ interface ProtectedRouteProps {
 
 const ProtectedRoute: React.FC<ProtectedRouteProps> = ({ children }) => {
   const { user, isLoading } = useAuth();
+  // 必须在任何 early return 之前调用：hook 的调用顺序不能随条件变化
+  const { t } = useI18n();
 
   if (isLoading) {
-  const { t } = useI18n();
     return (
       <div className="flex h-screen w-screen items-center justify-center bg-slate-50">
-        <p className="text-sm text-slate-400">t('加载中...')</p>
+        <p className="text-sm text-slate-400">{t('加载中...')}</p>
       </div>
     );
   }
