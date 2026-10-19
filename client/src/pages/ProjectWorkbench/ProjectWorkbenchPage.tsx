@@ -303,7 +303,10 @@ const ProjectWorkbenchInner: React.FC = () => {
       setFilterKey('has_email');
       setNoEmailFilter(false);
       setStatusFilter('all');
-    } else if (statKey === 'analyzed' || statKey === 'pending' || statKey === 'generated' || statKey === 'failed' || statKey === 'starred') {
+    } else {
+      // 其余全部（analyzed / pending / generated / failed / starred / not_contacted …）
+      // 都只需要 setFilterKey。**必须走兜底分支**：之前这里把 key 一个个列出来，
+      // 新加的 not_contacted 漏掉 → 点卡片完全没反应（用户报的 bug）。
       setFilterKey(statKey);
       setNoEmailFilter(false);
       setStatusFilter('all');
