@@ -211,8 +211,16 @@ export async function getEmailHistories(
 }
 
 /** 单条往来详情（含完整正文） */
+export interface BounceInfo {
+  failedAddress: string | null;
+  reason: string | null;
+  reasonZh: string | null;
+}
+
 export interface EmailHistoryDetail extends EmailHistoryItem {
   bodyText: string;
+  /** 仅退信有：解析出的失败地址与原因 */
+  bounce?: BounceInfo | null;
 }
 
 export async function getEmailHistoryDetail(

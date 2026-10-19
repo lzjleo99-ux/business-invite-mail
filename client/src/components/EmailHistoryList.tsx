@@ -30,6 +30,8 @@ export const EmailHistoryList: React.FC<Props> = ({
 }) => {
   const { t } = useI18n();
   const [openId, setOpenId] = useState<string | null>(null);
+  // 退信原文默认折叠（是一大坨追踪图片 + 退回邮件全文）
+  const [showRaw, setShowRaw] = useState(false);
 
   // 详情按需拉取：列表只带 140 字摘要，正文最多 2 万字，不能一次性全塞回来
   const { data: detail } = useQuery({
@@ -155,16 +157,63 @@ export const EmailHistoryList: React.FC<Props> = ({
                   </p>
                 )}
               </div>
+              {detail.status === 'bounce' && detail.bounce && (
+                <div className="rounded-md border border-orange-200 bg-orange-50 p-3 text-xs">
+                  <p className="font-semibold text-orange-800">{t('投递失败原因')}</p>
+                  <dl className="mt-1.5 space-y-1 text-orange-800">
+                    {detail.bounce.failedAddress && (
+                      <div className="flex gap-2">
+                        <dt className="shrink-0 font-medium">{t('失败地址')}：</dt>
+                        <dd className="break-all">{detail.bounce.failedAddress}</dd>
+                      </div>
+                    )}
+                    {detail.bounce.reasonZh && (
+                      <div className="flex gap-2">
+                        <dt className="shrink-0 font-medium">{t('原因')}：</dt>
+                        <dd>{detail.bounce.reasonZh}</dd>
+                      </div>
+                    )}
+                    {detail.bounce.reason && (
+                      <div className="flex gap-2">
+                        <dt className="shrink-0 font-medium">{t('服务器代码')}：</dt>
+                        <dd className="break-all">{detail.bounce.reason}</dd>
+                      </div>
+                    )}
+                  </dl>
+                  <p className="mt-2 text-orange-700">
+                    {t('该地址已自动标记为不再重发，请到公司官网或往来记录里找新的联系方式。')}
+                  </p>
+                </div>
+              )}
               {detail.error && (
                 <p className="rounded-md bg-red-50 p-2 text-xs text-red-700 break-all">
                   {detail.error}
                 </p>
               )}
               <div>
-                <p className="mb-1 text-xs font-medium text-slate-500">{t('正文')}</p>
-                <pre className="max-h-[50vh] overflow-auto whitespace-pre-wrap break-words rounded-md border border-slate-200 bg-white p-3 text-xs leading-relaxed text-slate-700">
-                  {(detail.bodyText || '').trim() || t('（无正文）')}
-                </pre>
+                <div className="mb-1 flex items-center justify-between">
+                  <p className="text-xs font-medium text-slate-500">
+                    {detail.status === 'bounce' ? t('原始报告') : t('正文')}
+                  </p>
+                  {detail.status === 'bounce' && (
+                    <button
+                      type="button"
+                      onClick={() => setShowRaw((v) => !v)}
+                      className="text-xs text-primary hover:underline"
+                    >
+                      {showRaw ? t('收起') : t('展开')}
+                    </button>
+                  )}
+                </div>
+                {detail.status === 'bounce' && !showRaw ? (
+                  <p className="rounded-md border border-slate-200 bg-slate-50 p-3 text-xs text-slate-500">
+                    {t('退信原文包含追踪图片与被退回的邮件全文，此处已折叠。')}
+                  </p>
+                ) : (
+                  <pre className="max-h-[50vh] overflow-auto whitespace-pre-wrap break-words rounded-md border border-slate-200 bg-white p-3 text-xs leading-relaxed text-slate-700">
+                    {(detail.bodyText || '').trim() || t('（无正文）')}
+                  </pre>
+                )}
               </div>
             </div>
           ) : (

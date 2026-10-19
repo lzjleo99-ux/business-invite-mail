@@ -23,6 +23,8 @@ export interface EmailHistoryRow {
 /** 单条往来详情：列表字段 + 完整正文 */
 export interface EmailHistoryDetail extends EmailHistoryRow {
   bodyText: string;
+  /** 仅退信有：解析出的失败地址与原因 */
+  bounce?: BounceInfo | null;
 }
 
 export interface EmailHistoryQuery {
@@ -39,6 +41,27 @@ export interface EmailHistoryQuery {
  * 邮件往来历史：系统发信 + IMAP 收信全量留痕。
  * 建表走查询路径幂等 CREATE（platform 表不可 ALTER，自建表 owner 是自己）。
  */
+/** 退信解析结果：退信正文是原始报告 + 原邮件引用，直接给人看等于没解析 */
+export interface BounceInfo {
+  /** 投递失败的地址 */
+  failedAddress: string | null;
+  /** 机器原因（保留原文，便于排查） */
+  reason: string | null;
+  /** 中文说明 */
+  reasonZh: string | null;
+}
+
+const BOUNCE_REASON_RULES: { re: RegExp; zh: string }[] = [
+  { re: /wasn't found at|does not exist|domain.*not found|no such domain|unknown domain/i, zh: '收件域名不存在（对方可能已换域名）' },
+  { re: /user unknown|recipient address rejected|no such user|mailbox not found|does not exist/i, zh: '该邮箱账号不存在' },
+  { re: /mailbox unavailable|mailbox full|quota exceeded/i, zh: '对方邮箱不可用或已满' },
+  { re: /blocked|blacklist|spam|policy|rejected by recipient/i, zh: '被对方服务器/反垃圾策略拒收' },
+  { re: /authentication|auth failed|5\.7\./i, zh: '认证失败或被 SPF/DKIM 拒收' },
+  { re: /timed? ?out|connection (timed out|refused)|try again later/i, zh: '对方服务器超时或拒连（临时性，可稍后重试）' },
+  { re: /too many|rate limit|throttl/i, zh: '触发对方频率限制' },
+  { re: /message too large|size limit/i, zh: '邮件超出对方大小限制（附件过大）' },
+];
+
 @Injectable()
 export class EmailHistoryService {
   private readonly logger = new Logger(EmailHistoryService.name);
@@ -246,7 +269,52 @@ export class EmailHistoryService {
       ? await this.companyNameOf(r.companyId)
       : null;
     const row = this.toRow(r, companyName);
-    return { ...row, bodyText: r.bodyText || '' };
+    const detail: EmailHistoryDetail = { ...row, bodyText: r.bodyText || '' };
+    // 退信额外给出结构化失败原因（读取时算，不落库）
+    if (r.status === 'bounce' || r.direction === 'inbound') {
+      detail.bounce = this.parseBounce(r.bodyText || '', r.subject || '');
+    }
+    return detail;
+  }
+
+  /**
+   * 解析退信正文，抽出"哪个地址失败了 / 为什么"——这是退信里唯一有用的信息。
+   * 直接把 RFC822 原文（含 Office365 图标链接、原邮件全文引用）倒给用户等于没解析。
+   * 只在读取时算，不加字段：正文已经存了，算比存更省事也不会写脏历史数据。
+   */
+  parseBounce(bodyText: string, subject: string): BounceInfo {
+    const text = `${subject}\n${bodyText || ''}`;
+
+    // 失败地址：Final-Recipient / Original-Recipient 最准，其次是各家的人话句式
+    let failedAddress: string | null = null;
+    const finalRecip = text.match(/Final-Recipient:\s*rfc822;\s*([^\s<>]+@[^\s<>]+)/i);
+    const origRecip = text.match(/Original-Recipient:\s*rfc822;\s*([^\s<>]+@[^\s<>]+)/i);
+    const yourMsg = text.match(/Your message to\s+([^\s,]+@[^\s,]+)\s+couldn't be delivered/i);
+    const undeliverableTo = text.match(/undeliverable to\s+([^\s<>]+@[^\s<>]+)/i);
+    failedAddress = (finalRecip?.[1] || origRecip?.[1] || yourMsg?.[1] || undeliverableTo?.[1] || '').trim() || null;
+    if (failedAddress) failedAddress = failedAddress.replace(/[.,;:<>]+$/, '').toLowerCase();
+
+    // 失败原因：优先取诊断行（Diagnostic-Code / Status），否则套规则
+    let reason: string | null = null;
+    const diag = text.match(/Diagnostic-Code:\s*(smtp;\s*[^\r\n]+)/i);
+    const status = text.match(/\b(5\.\d{1,3}\.\d{1,3})\b/);
+    if (diag) reason = diag[1].trim();
+    else if (status) reason = `SMTP ${status[1]}`;
+
+    let reasonZh: string | null = null;
+    for (const rule of BOUNCE_REASON_RULES) {
+      if (rule.re.test(text)) {
+        reasonZh = rule.zh;
+        break;
+      }
+    }
+    if (!reasonZh) {
+      reasonZh = /5\.\d/.test(text)
+        ? '对方服务器拒收（原因见下方原文）'
+        : null;
+    }
+    if (!reason && !reasonZh) return { failedAddress, reason: null, reasonZh: null };
+    return { failedAddress, reason, reasonZh };
   }
 
   private async companyNameOf(companyId: string): Promise<string | null> {
