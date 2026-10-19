@@ -385,6 +385,8 @@ export class MailService {
    * 老行 owner_id 为 NULL = 旧全局配置，读取时作为回退，保证升级不破坏现有发信。
    */
   private async ensureOwnerColumn(): Promise<void> {
+    // smtp_accounts 可能是全新库，先确保它存在，否则 ALTER 会报 relation does not exist
+    await this.ensureAccountsTable();
     if (!this.ownerColumnPromise) {
       this.ownerColumnPromise = runIdempotentMigration(
         this.db,
