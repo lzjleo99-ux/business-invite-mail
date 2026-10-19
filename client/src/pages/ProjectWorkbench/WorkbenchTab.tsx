@@ -2368,6 +2368,19 @@ const WorkbenchTab: React.FC<WorkbenchTabProps> = ({
             onChange: (keys) => setSelectedIds(keys as string[]),
             preserveSelectedRowKeys: true,
           }}
+          // antd 自带文案不受 t() 管：TableLocale 只覆盖表格自身的（空状态、全选、排序提示），
+          // 分页的"共 x 条 / 第 x 页"由 ConfigProvider 的 locale 负责（见 App.tsx）。
+          locale={{
+            emptyText: t('暂无数据'),
+            selectAll: t('全选本页'),
+            selectNone: t('取消选择'),
+            selectInvert: t('反选'),
+            sortTitle: t('点击排序'),
+            expand: t('展开'),
+            collapse: t('收起'),
+            triggerAsc: t('升序'),
+            triggerDesc: t('降序'),
+          }}
         />
       </div>
     </div>

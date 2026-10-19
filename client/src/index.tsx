@@ -4,9 +4,12 @@ import { BrowserRouter } from 'react-router-dom';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { TooltipProvider } from '@client/src/components/ui/tooltip';
 import { Toaster } from '@client/src/components/ui/sonner';
+import { ConfigProvider } from 'antd';
+import zhCN from 'antd/locale/zh_CN';
+import enUS from 'antd/locale/en_US';
 
 import RoutesComponent from '@client/src/app';
-import { I18nProvider } from '@client/src/i18n';
+import { I18nProvider, useI18n } from '@client/src/i18n';
 import { axiosForBackend } from '@lark-apaas/client-toolkit/utils/getAxiosForBackend';
 import { installOfflineIfStatic } from '@client/src/offline/offlineAdapter';
 
@@ -31,9 +34,19 @@ const queryClient = new QueryClient({
   },
 });
 
+/**
+ * antd 组件自带的文案（分页的"共 x 条 / 第 x 页"、日期、空状态等）不受我们的 t() 管，
+ * 只认 ConfigProvider 的 locale。不包这层的话，英文界面里表格分页永远是中文。
+ */
+const AntdLocaleProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
+  const { lang } = useI18n();
+  return <ConfigProvider locale={lang === 'en' ? enUS : zhCN}>{children}</ConfigProvider>;
+};
+
 ReactDOM.createRoot(document.getElementById('root')!).render(
   <React.StrictMode>
     <I18nProvider>
+      <AntdLocaleProvider>
       <QueryClientProvider client={queryClient}>
         <TooltipProvider delayDuration={200}>
           <BrowserRouter basename={routerBasename}>
@@ -42,6 +55,7 @@ ReactDOM.createRoot(document.getElementById('root')!).render(
           <Toaster position="top-center" richColors closeButton />
         </TooltipProvider>
       </QueryClientProvider>
+      </AntdLocaleProvider>
     </I18nProvider>
   </React.StrictMode>,
 );
