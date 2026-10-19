@@ -1,5 +1,6 @@
 import { Controller, Get, Patch, Body, UseGuards } from '@nestjs/common';
-import { JwtAuthGuard } from '../auth/jwt-auth.guard';
+import { JwtAuthGuard, type JwtPayload } from '../auth/jwt-auth.guard';
+import { CurrentUser } from '../auth/current-user.decorator';
 import { IsOptional, IsString } from 'class-validator';
 import { SenderConfigService } from './sender-config.service';
 import type {
@@ -27,14 +28,15 @@ export class SenderConfigController {
   constructor(private readonly senderConfigService: SenderConfigService) {}
 
   @Get()
-  async getConfig(): Promise<SenderConfig> {
-    return this.senderConfigService.getConfig();
+  async getConfig(@CurrentUser() user: JwtPayload): Promise<SenderConfig> {
+    return this.senderConfigService.getConfig(user.userId);
   }
 
   @Patch()
   async updateConfig(
     @Body() dto: UpdateSenderConfigDto,
+    @CurrentUser() user: JwtPayload,
   ): Promise<SenderConfig> {
-    return this.senderConfigService.updateConfig(dto);
+    return this.senderConfigService.updateConfig(dto, user.userId);
   }
 }

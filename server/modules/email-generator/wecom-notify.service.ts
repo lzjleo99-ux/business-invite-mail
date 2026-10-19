@@ -1,6 +1,6 @@
 import { Injectable, Inject, Logger, BadRequestException } from '@nestjs/common';
 import { DRIZZLE_DATABASE, type PostgresJsDatabase } from '@lark-apaas/fullstack-nestjs-core';
-import { asc, eq, sql } from 'drizzle-orm';
+import { asc, eq, isNull, or, sql } from 'drizzle-orm';
 import axios from 'axios';
 import { wecomNotifySettings } from '@server/database/schema';
 import { runIdempotentMigration } from '@server/common/utils/ddl-runner';
@@ -53,6 +53,8 @@ export class WeComNotifyService {
           await run(
             `CREATE TABLE IF NOT EXISTS wecom_notify_settings (
               id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+              -- 归属用户；NULL = 旧的全局配置（读取时回退）
+              owner_id varchar(64),
               webhook_url text,
               enabled boolean NOT NULL DEFAULT false,
               auto_star_on_reply boolean NOT NULL DEFAULT true,
@@ -75,14 +77,24 @@ export class WeComNotifyService {
     return this.ensurePromise;
   }
 
-  async getConfig(): Promise<WeComNotifyConfig> {
+  async getConfig(userId?: string): Promise<WeComNotifyConfig> {
     try {
       await this.ensureTable();
-      const rows = await this.db
-        .select()
-        .from(wecomNotifySettings)
-        .orderBy(asc(wecomNotifySettings.createdAt))
-        .limit(1);
+      // 每用户独立：自己的行优先，没有再回退旧的全局行（owner_id IS NULL）
+      const rows = userId
+        ? await this.db
+            .select()
+            .from(wecomNotifySettings)
+            .where(
+              or(eq(wecomNotifySettings.ownerId, userId), isNull(wecomNotifySettings.ownerId)),
+            )
+            .orderBy(isNull(wecomNotifySettings.ownerId), asc(wecomNotifySettings.createdAt))
+            .limit(1)
+        : await this.db
+            .select()
+            .from(wecomNotifySettings)
+            .where(isNull(wecomNotifySettings.ownerId))
+            .limit(1);
       const r = rows[0];
       if (!r) return { ...DEFAULTS };
       return {
@@ -102,9 +114,9 @@ export class WeComNotifyService {
     enabled?: boolean;
     autoStarOnReply?: boolean;
     includeSnippet?: boolean;
-  }): Promise<void> {
+  }, userId?: string): Promise<void> {
     await this.ensureTable();
-    const prev = await this.getConfig();
+    const prev = await this.getConfig(userId);
     const url =
       input.webhookUrl !== undefined && input.webhookUrl !== null
         ? input.webhookUrl.trim()
@@ -126,16 +138,25 @@ export class WeComNotifyService {
         input.includeSnippet !== undefined ? input.includeSnippet : prev.includeSnippet,
       updatedAt: new Date(),
     };
-    const rows = await this.db
-      .select({ id: wecomNotifySettings.id })
-      .from(wecomNotifySettings)
-      .orderBy(asc(wecomNotifySettings.createdAt))
-      .limit(1);
+    // 只在"自己的行"里找，命中旧的全局行时就地认领，避免两个用户改同一行
+    const rows = userId
+      ? await this.db
+          .select({ id: wecomNotifySettings.id })
+          .from(wecomNotifySettings)
+          .where(eq(wecomNotifySettings.ownerId, userId))
+          .limit(1)
+      : await this.db
+          .select({ id: wecomNotifySettings.id })
+          .from(wecomNotifySettings)
+          .where(isNull(wecomNotifySettings.ownerId))
+          .limit(1);
     if (rows[0]) {
       await this.db
         .update(wecomNotifySettings)
-        .set(values)
+        .set({ ...values, ownerId: userId ?? null })
         .where(eq(wecomNotifySettings.id, rows[0].id));
+    } else if (userId) {
+      await this.db.insert(wecomNotifySettings).values({ ...values, ownerId: userId });
     } else {
       await this.db.insert(wecomNotifySettings).values(values);
     }

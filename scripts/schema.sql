@@ -270,6 +270,8 @@ GRANT ALL PRIVILEGES ON TABLE email_histories TO anon_, authenticated_, service_
 -- 独立新表：smtp_config 归平台迁移用户所有，ALTER 加列报 must be owner
 CREATE TABLE IF NOT EXISTS mail_inbox_settings (
   id                   uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  -- 归属用户；NULL = 旧的全局配置（读取时回退）
+  owner_id             varchar(64),
   imap_host            varchar(255),
   imap_port            integer NOT NULL DEFAULT 993,
   imap_secure          boolean NOT NULL DEFAULT true,
@@ -279,18 +281,22 @@ CREATE TABLE IF NOT EXISTS mail_inbox_settings (
   _created_at          timestamptz(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
   _updated_at          timestamptz(3) NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
+);
 GRANT ALL PRIVILEGES ON TABLE mail_inbox_settings TO anon_, authenticated_, service_role_;
 
 -- ---------- 企业微信群机器人通知配置（单行全局） ----------
 -- 自建表：smtp_config / platform 管理的表不能 ALTER（must be owner 踩过两次）
 CREATE TABLE IF NOT EXISTS wecom_notify_settings (
   id                 uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  -- 归属用户；NULL = 旧的全局配置（读取时回退）
+  owner_id           varchar(64),
   webhook_url        text,
   enabled            boolean NOT NULL DEFAULT false,
   auto_star_on_reply boolean NOT NULL DEFAULT true,
   include_snippet    boolean NOT NULL DEFAULT true,
   _created_at        timestamptz(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
   _updated_at        timestamptz(3) NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
 );
 GRANT ALL PRIVILEGES ON TABLE wecom_notify_settings TO anon_, authenticated_, service_role_;
 

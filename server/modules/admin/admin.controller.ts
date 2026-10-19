@@ -124,7 +124,7 @@ export class AdminController {
   // 每用户独立的设置：只需登录，不需要管理员
   @UseGuards(JwtAuthGuard)
   @Get('wecom-notify-config')
-  async getWecomNotifyConfig(): Promise<{
+  async getWecomNotifyConfig(@CurrentUser() user: JwtPayload): Promise<{
     enabled: boolean;
     autoStarOnReply: boolean;
     includeSnippet: boolean;
@@ -194,8 +194,9 @@ export class AdminController {
       autoStarOnReply?: boolean;
       includeSnippet?: boolean;
     },
+    @CurrentUser() user: JwtPayload,
   ): Promise<{ success: boolean }> {
-    await this.wecomNotifyService.saveConfig(dto);
+    await this.wecomNotifyService.saveConfig(dto, user.userId);
     return { success: true };
   }
 
@@ -233,7 +234,7 @@ export class AdminController {
     if (!s) {
       return { configured: false };
     }
-    const imap = await this.mailService.getImapSettings();
+    const imap = await this.mailService.getImapSettings(user.userId);
     return {
       configured: true,
       host: s.host,
@@ -276,7 +277,7 @@ export class AdminController {
       imapSecure: dto.imapSecure,
       inboxPollEnabled: dto.inboxPollEnabled,
       inboxPollSeconds: dto.inboxPollSeconds,
-    });
+    }, user.userId);
     // 收信轮询开关/间隔热更新（保存即生效，不用重启服务）
     await this.emailInboxService.refreshSchedule();
     return { success: true };

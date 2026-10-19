@@ -56,17 +56,57 @@ export class EmailInboxService implements OnModuleInit, OnModuleDestroy {
 
   /** 启动路径：只读设置，默认关闭时直接返回（零 DDL、零连接） */
   private async bootstrap(): Promise<void> {
+    // 只要有任意用户开启了收取就走定时任务（各自用自己的配置）
+    const owners = await this.listPollOwners();
     const imap = await this.mail.getImapSettings();
-    if (!imap.inboxPollEnabled) return;
+    if (owners.length === 0 && !imap.inboxPollEnabled) return;
     const seconds = Math.max(60, imap.inboxPollSeconds || 180);
-    this.logger.log(`收信轮询已启动：每 ${seconds}s 抓取一次新邮件`);
+    this.logger.log(
+      `收信轮询已启动：每 ${seconds}s 抓取一次新邮件（${owners.length} 个用户独立收取）`,
+    );
     this.timer = setInterval(() => {
-      void this.poll().catch((err: unknown) => {
+      void this.pollAll().catch((err: unknown) => {
         this.logger.warn(`收信轮询异常（不影响主服务）：${err instanceof Error ? err.message : String(err)}`);
       });
     }, seconds * 1000);
     // 启动后先跑一次，别干等一个间隔
-    void this.poll().catch(() => undefined);
+    void this.pollAll().catch(() => undefined);
+  }
+
+  /**
+   * 轮询所有开启了收取的用户（每人用自己的 IMAP 配置）。
+   * 单个用户失败只记录，不影响其他人。
+   */
+  async pollAll(): Promise<InboxPollResult> {
+    const owners = await this.listPollOwners();
+    const total: InboxPollResult = { fetched: 0, saved: 0, lastUid: 0 };
+    const errors: string[] = [];
+    for (const userId of owners) {
+      try {
+        const r = await this.poll(userId);
+        total.fetched += r.fetched;
+        total.saved += r.saved;
+        if (r.error) errors.push(r.error);
+      } catch (err: unknown) {
+        errors.push(err instanceof Error ? err.message : String(err));
+      }
+    }
+    total.lastUid = Math.max(total.lastUid, ...owners.map(() => 0));
+    return errors.length > 0 ? { ...total, error: errors.join('；') } : total;
+  }
+
+  /** 当前开启了收取的用户 id（含未单独配置、依赖全局行的） */
+  private async listPollOwners(): Promise<string[]> {
+    try {
+      await this.mail.ensureInboxTable();
+      const rows = (await this.db.execute(sql`
+        SELECT owner_id AS "ownerId" FROM mail_inbox_settings
+        WHERE inbox_poll_enabled = true AND owner_id IS NOT NULL
+      `)) as unknown as Array<{ ownerId?: string }>;
+      return rows.map((r) => r.ownerId).filter((v): v is string => !!v);
+    } catch {
+      return [];
+    }
   }
 
   /** 设置保存后热更新轮询开关/间隔（任何失败都不能让设置保存接口 500） */
@@ -174,11 +214,12 @@ export class EmailInboxService implements OnModuleInit, OnModuleDestroy {
   }
 
   /** 手动触发一次（设置页「立即收取」按钮） */
-  async poll(): Promise<InboxPollResult> {
+  async poll(userId?: string): Promise<InboxPollResult> {
     if (this.polling) return { fetched: 0, saved: 0, lastUid: 0, error: '正在收取中' };
     this.polling = true;
     try {
-      const s = await this.mail.getSettings();
+      // userId 决定用哪一份 SMTP + IMAP 配置（每人独立）
+      const s = await this.mail.getSettings(userId);
       if (!s || !s.host || !s.fromEmail) {
         return { fetched: 0, saved: 0, lastUid: 0, error: '发信服务未配置' };
       }
@@ -187,7 +228,7 @@ export class EmailInboxService implements OnModuleInit, OnModuleDestroy {
       }
       // IMAP 配置表在写/轮询路径补齐（请求期 DDL 已验证可行），失败就明说
       await this.mail.ensureInboxTable();
-      const imap = await this.mail.getImapSettings();
+      const imap = await this.mail.getImapSettings(userId);
 
       // IMAP 主机：优先设置里的 imap_host；否则按 SMTP 域名推导（smtp.exmail.qq.com → imap.exmail.qq.com）
       const imapHost =

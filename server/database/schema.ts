@@ -155,6 +155,13 @@ export const emailThreads = pgTable("email_threads", {
   index("idx_email_threads_thread_date").on(table.threadDate),
 ]);
 
+/**
+ * 发件人签名配置。
+ * 注意：这是**平台表**（带 _created_by 系统列），应用用户 ALTER 报 must be owner，
+ * 所以不能像 smtp_config 那样加 owner_id 列。改用平台自带的 _created_by 复合类型
+ * 做归属：插入写 ROW('uid'::text)，过滤用 (_created_by).user_id = 'uid'，
+ * 老行 _created_by IS NULL 仍是全局回退。与 model_config 每用户一行的做法一致。
+ */
 export const senderConfig = pgTable("sender_config", {
   id: uuid("id").primaryKey().defaultRandom(),
   senderName: varchar("sender_name", { length: 255 }).notNull(),
@@ -369,6 +376,8 @@ export const smtpConfig = pgTable("smtp_config", {
  */
 export const mailInboxSettings = pgTable("mail_inbox_settings", {
   id: uuid("id").primaryKey().defaultRandom(),
+  /** 归属用户；NULL = 旧的全局配置（读取时回退），保证升级不破坏现有设置 */
+  ownerId: varchar("owner_id", { length: 64 }),
   imapHost: varchar("imap_host", { length: 255 }),
   imapPort: integer("imap_port").notNull().default(993),
   imapSecure: boolean("imap_secure").notNull().default(true),
@@ -387,6 +396,8 @@ export const mailInboxSettings = pgTable("mail_inbox_settings", {
  */
 export const wecomNotifySettings = pgTable("wecom_notify_settings", {
   id: uuid("id").primaryKey().defaultRandom(),
+  /** 归属用户；NULL = 旧的全局配置（读取时回退），保证升级不破坏现有设置 */
+  ownerId: varchar("owner_id", { length: 64 }),
   webhookUrl: text("webhook_url"),
   enabled: boolean("enabled").notNull().default(false),
   /** 收到回复时自动给该公司加星标 */

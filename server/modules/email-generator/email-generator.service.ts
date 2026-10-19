@@ -191,7 +191,7 @@ export class EmailGeneratorService {
 
     try {
       const config = await this.getModelConfig(userId);
-      const sender = await this.getSenderConfig();
+      const sender = await this.getSenderConfig(userId);
       const projectContext = await this.getProjectContext(company.projectId);
 
       // 图片候选：项目素材里的图片 + AI 视觉描述（缓存），供模型挑选贴合正文的图。
@@ -293,7 +293,7 @@ export class EmailGeneratorService {
     return { total };
   }
 
-  async getEml(companyId: string): Promise<EmlDownloadResponse> {
+  async getEml(companyId: string, userId?: string): Promise<EmlDownloadResponse> {
     const company = await this.getCompanyById(companyId);
     if (!company) {
       throw new BadRequestException('公司不存在');
@@ -303,7 +303,7 @@ export class EmailGeneratorService {
     }
 
     const toEmail = company.websiteContactEmail || company.email || '';
-    const sender = await this.getSenderConfig();
+    const sender = await this.getSenderConfig(userId);
     const fromLine = sender.senderTitle
       ? `${sender.senderName} <${sender.senderName.toLowerCase().replace(/\s+/g, '.')}@example.com>`
       : sender.senderName;
@@ -380,6 +380,8 @@ export class EmailGeneratorService {
     lang: 'local' | 'en' = 'local',
     /** 指定发信账号（多邮箱后缀） */
     accountId?: string,
+    /** 当前用户：决定用谁的发件人签名 */
+    userId?: string,
   ): Promise<{
     raw: string;
     to: string;
@@ -400,7 +402,7 @@ export class EmailGeneratorService {
       );
     }
     const smtp = await this.mailService.getSettings();
-    const sender = await this.getSenderConfig();
+    const sender = await this.getSenderConfig(userId);
     const fromName = acct?.fromName?.trim() || smtp?.fromName?.trim() || sender.senderName;
     const fromEmail = (acct?.email || smtp?.fromEmail || '').trim();
     const fromLine = fromEmail
@@ -677,7 +679,7 @@ export class EmailGeneratorService {
     }
 
     const config = await this.getModelConfig(userId);
-    const sender = await this.getSenderConfig();
+    const sender = await this.getSenderConfig(userId);
     const projectContext = await this.getProjectContext(company.projectId);
 
     const languageCode = this.getLocalLanguageCode(company.country);
@@ -859,8 +861,28 @@ export class EmailGeneratorService {
     };
   }
 
-  private async getSenderConfig() {
-    const rows = await this.db.select().from(senderConfig).limit(1);
+  /**
+   * 发件人签名：优先取当前用户的（每人一份），没有则回退全局行，
+   * 都没有就用内置默认值。之前这里是 limit 1 全局取，改签名会覆盖所有人。
+   */
+  private async getSenderConfig(userId?: string) {
+    const rows = userId
+      ? await this.db
+          .select()
+          .from(senderConfig)
+          .where(
+            or(
+              sql`(${senderConfig.createdBy}).user_id = ${userId}`,
+              isNull(senderConfig.createdBy),
+            ),
+          )
+          .orderBy(sql`(${senderConfig.createdBy}) is null asc`)
+          .limit(1)
+      : await this.db
+          .select()
+          .from(senderConfig)
+          .where(isNull(senderConfig.createdBy))
+          .limit(1);
     if (rows.length > 0) {
       return rows[0];
     }

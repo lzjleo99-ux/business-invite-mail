@@ -39,6 +39,31 @@ export class MailService {
   private inboxTablePromise: Promise<void> | null = null;
   private accountsTablePromise: Promise<void> | null = null;
   private ownerColumnPromise: Promise<void> | null = null;
+  private inboxOwnerColumnPromise: Promise<void> | null = null;
+
+  /**
+   * 收件箱 IMAP 配置改为每用户一份：给 mail_inbox_settings 加 owner_id（幂等）。
+   * 表是自建的，owner 是自己，可以 ALTER。读/写都按 userId 过滤，
+   * 老行 owner_id IS NULL 作为全局回退，保证升级不破坏现有收信。
+   */
+  private async ensureInboxOwnerColumn(): Promise<void> {
+    if (!this.inboxOwnerColumnPromise) {
+      this.inboxOwnerColumnPromise = runIdempotentMigration(
+        this.db,
+        'mail_inbox_settings_owner_id',
+        async (run) => {
+          await run('ALTER TABLE mail_inbox_settings ADD COLUMN IF NOT EXISTS owner_id varchar(64)');
+          await run('CREATE INDEX IF NOT EXISTS idx_mail_inbox_owner ON mail_inbox_settings (owner_id)');
+        },
+      )
+        .then(() => undefined)
+        .catch((err: unknown) => {
+          this.inboxOwnerColumnPromise = null;
+          throw err;
+        });
+    }
+    return this.inboxOwnerColumnPromise;
+  }
   /** 每个账号一个 transport，key = id:password 前几位，避免串号 */
   private accountTransporters = new Map<string, { key: string; transporter: Transporter }>();
 
@@ -129,8 +154,10 @@ export class MailService {
   }
 
   /** IMAP 收信配置读取：表/行不存在时返回默认值（未开启），绝不抛错 */
-  async getImapSettings(): Promise<ImapSettings> {
+  async getImapSettings(userId?: string): Promise<ImapSettings> {
     try {
+      await this.ensureInboxOwnerColumn();
+      // 有 userId：自己的行优先，没有再回退旧的全局行（owner_id IS NULL）
       const result = (await this.db.execute(sql`
         SELECT imap_host AS "imapHost",
                imap_port AS "imapPort",
@@ -139,7 +166,8 @@ export class MailService {
                inbox_poll_seconds AS "inboxPollSeconds",
                inbox_last_uid AS "inboxLastUid"
         FROM mail_inbox_settings
-        ORDER BY _created_at ASC
+        WHERE owner_id IS NULL OR owner_id = ${userId ?? ''}
+        ORDER BY (owner_id IS NULL) ASC, _created_at ASC
         LIMIT 1
       `)) as unknown as Array<Record<string, unknown>>;
       const row = result[0];
@@ -165,9 +193,10 @@ export class MailService {
     imapSecure?: boolean;
     inboxPollEnabled?: boolean;
     inboxPollSeconds?: number;
-  }): Promise<void> {
+  }, userId?: string): Promise<void> {
     await this.ensureInboxTable();
-    const prev = await this.getImapSettings();
+    await this.ensureInboxOwnerColumn();
+    const prev = await this.getImapSettings(userId);
     const values = {
       imapHost: input.imapHost !== undefined ? input.imapHost : prev.imapHost,
       imapPort: Number.isFinite(input.imapPort) ? Number(input.imapPort) : prev.imapPort,
@@ -179,16 +208,26 @@ export class MailService {
         : prev.inboxPollSeconds,
     };
     // drizzle 构建器（与 email_histories 同款已验证路径；raw execute 的 UPDATE 在生产库上会挂）
-    const existing = await this.db
-      .select({ id: mailInboxSettings.id })
-      .from(mailInboxSettings)
-      .orderBy(asc(mailInboxSettings.createdAt))
-      .limit(1);
+    // 只在"自己的行"里找：命中旧的全局行时就地认领，避免两个用户改同一行
+    const existing = userId
+      ? await this.db
+          .select({ id: mailInboxSettings.id, ownerId: mailInboxSettings.ownerId })
+          .from(mailInboxSettings)
+          .where(eq(mailInboxSettings.ownerId, userId))
+          .limit(1)
+      : await this.db
+          .select({ id: mailInboxSettings.id, ownerId: mailInboxSettings.ownerId })
+          .from(mailInboxSettings)
+          .where(isNull(mailInboxSettings.ownerId))
+          .limit(1);
+
     if (existing[0]) {
       await this.db
         .update(mailInboxSettings)
-        .set({ ...values, updatedAt: new Date() })
+        .set({ ...values, ownerId: userId ?? null, updatedAt: new Date() })
         .where(eq(mailInboxSettings.id, existing[0].id));
+    } else if (userId) {
+      await this.db.insert(mailInboxSettings).values({ ...values, ownerId: userId });
     } else {
       await this.db.insert(mailInboxSettings).values(values);
     }
