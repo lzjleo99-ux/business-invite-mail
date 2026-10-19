@@ -54,6 +54,8 @@ const ProjectWorkbenchInner: React.FC = () => {
   const [statusFilter, setStatusFilter] = useState<StatusFilterValue>('all');
   const [noEmailFilter, setNoEmailFilter] = useState(false);
   const [filterKey, setFilterKey] = useState<StatsFilterKey>('all');
+  // 国家筛选：选项由 stats.countries 动态生成（只列已存在的国家），'' = 全部
+  const [countryFilter, setCountryFilter] = useState('');
   const [searchText, setSearchText] = useState('');
   const [searchInput, setSearchInput] = useState('');
 
@@ -122,7 +124,7 @@ const ProjectWorkbenchInner: React.FC = () => {
   });
 
   const { data: listData, isLoading: listLoading } = useQuery({
-    queryKey: ['companies', id, page, pageSize, statusFilter, noEmailFilter, filterKey, searchText],
+    queryKey: ['companies', id, page, pageSize, statusFilter, noEmailFilter, filterKey, searchText, countryFilter],
     queryFn: () =>
       restaurantsApi.getCompanies({
         projectId: id,
@@ -132,6 +134,7 @@ const ProjectWorkbenchInner: React.FC = () => {
         noEmail: noEmailFilter || undefined,
         filterKey: filterKey === 'all' ? undefined : filterKey,
         search: searchText || undefined,
+        country: countryFilter || undefined,
       }),
     enabled: !!id,
     ...deployRetry,
@@ -732,6 +735,8 @@ const ProjectWorkbenchInner: React.FC = () => {
             projectId={id}
             onGenerateWhatsApp={(r) => void handleGenerateWhatsApp(r)}
             onStatClick={handleStatClick}
+            countryFilter={countryFilter}
+            onCountryFilterChange={setCountryFilter}
             onToggleStar={(r) => void handleToggleStar(r)}
             onUpdateContactStatus={(r, contactType, contacted) =>
               void handleUpdateContactStatus(r, contactType, contacted)

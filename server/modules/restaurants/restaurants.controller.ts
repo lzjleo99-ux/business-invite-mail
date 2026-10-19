@@ -96,6 +96,10 @@ class ListQueryDto {
 
   @IsOptional()
   @IsString()
+  country?: string;
+
+  @IsOptional()
+  @IsString()
   @IsIn([
     'all',
     'starred',
@@ -233,6 +237,7 @@ export class RestaurantsController {
       search: query.search,
       noEmail: query.noEmail,
       isStarred: query.isStarred,
+      country: query.country,
       filterKey: query.filterKey,
     }, { userId: user.userId, role: user.role });
   }

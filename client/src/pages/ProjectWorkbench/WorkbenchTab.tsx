@@ -340,6 +340,9 @@ export interface WorkbenchTabProps {
   projectId: string;
   onGenerateWhatsApp: (record: Company) => void;
   onStatClick: (statKey: StatsFilterKey) => void;
+  /** 国家筛选（'' = 全部）；选项由 stats.countries 动态生成 */
+  countryFilter: string;
+  onCountryFilterChange: (country: string) => void;
   onToggleStar: (record: Company) => void;
   onUpdateContactStatus: (
     record: Company,
@@ -380,6 +383,8 @@ const WorkbenchTab: React.FC<WorkbenchTabProps> = ({
   onRegenerateEmail,
   onGenerateWhatsApp,
   onStatClick,
+  countryFilter,
+  onCountryFilterChange,
   onToggleStar,
   onUpdateContactStatus,
 }) => {
@@ -1873,6 +1878,9 @@ const WorkbenchTab: React.FC<WorkbenchTabProps> = ({
       >
          {statCards.map((stat) => {
            const isActive = filterKey === stat.key;
+           // 国家筛选挂在「总数量」卡里：这里最贴近"总数"的语义，
+           // 且不破坏原有 7 列栅格（塞进卡片内部而不是新增一列）。
+           const isTotalCard = stat.key === 'all';
            return (
              <div
                key={stat.label}
@@ -1881,7 +1889,34 @@ const WorkbenchTab: React.FC<WorkbenchTabProps> = ({
                  isActive ? 'border-blue-300 ring-2 ring-blue-100' : 'border-slate-200'
                }`}
              >
-               <p className="text-sm text-slate-500">{stat.label}</p>
+               <div className="flex items-start justify-between gap-2">
+                 <p className="text-sm text-slate-500">{stat.label}</p>
+                 {isTotalCard && (
+                   // stopPropagation：点筛选别连带触发"总数量"卡片自身的筛选
+                   <span onClick={(e) => e.stopPropagation()}>
+                     <Select
+                       value={countryFilter || 'all'}
+                       onValueChange={(v) => onCountryFilterChange(v === 'all' ? '' : v)}
+                     >
+                       <SelectTrigger
+                         className="h-7 w-[104px] text-xs"
+                         aria-label={t('国家筛选')}
+                         onClick={(e) => e.stopPropagation()}
+                       >
+                         <SelectValue />
+                       </SelectTrigger>
+                       <SelectContent>
+                         <SelectItem value="all">{t('全部')}</SelectItem>
+                         {(stats?.countries ?? []).map((c) => (
+                           <SelectItem key={c.name} value={c.name}>
+                             {c.name}（{c.count}）
+                           </SelectItem>
+                         ))}
+                       </SelectContent>
+                     </Select>
+                   </span>
+                 )}
+               </div>
                <p className={`mt-2 text-2xl font-bold ${stat.color}`}>
                  {stat.value}
                </p>

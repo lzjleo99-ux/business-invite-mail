@@ -81,6 +81,8 @@ export interface CompanyListParams {
   search?: string;
   noEmail?: boolean;
   isStarred?: boolean;
+  /** 国家筛选（与 filterKey 统计卡筛选可叠加） */
+  country?: string;
   filterKey?: StatsFilterKey;
 }
 
@@ -103,6 +105,8 @@ export interface CompanyStatsResponse {
   hasWhatsapp: number;
   /** 未联系：既没成功发出过邮件，也没在 WhatsApp / Viber 上联系过 */
   notContacted: number;
+  /** 该项目下实际出现过的国家及各自数量（只含已存在的） */
+  countries: { name: string; count: number }[];
 }
 
 export interface ImportResult {

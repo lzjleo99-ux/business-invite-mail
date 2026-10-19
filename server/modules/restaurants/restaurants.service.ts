@@ -205,6 +205,10 @@ export class RestaurantsService {
     if (params.isStarred !== undefined) {
       conditions.push(eq(restaurants.isStarred, params.isStarred));
     }
+    // 国家筛选：列表接口独立参数（与 filterKey 统计卡筛选可叠加）
+    if (params.country) {
+      conditions.push(eq(restaurants.country, params.country));
+    }
     if (params.filterKey && params.filterKey !== 'all') {
       const filterConditions = this.buildFilterKeyCondition(params.filterKey);
       if (filterConditions) {
@@ -332,10 +336,14 @@ export class RestaurantsService {
       WHERE ${restaurants.projectId} = ${projectId}
     `);
 
+    // 该项目下实际出现过的国家 + 各自数量（筛选下拉只列已存在的，不列空国家）
+    const countries: { name: string; count: number }[] = await this.listCountries(projectId);
+
     const row = result[0];
     if (!row) {
       return {
         total: 0,
+        countries,
         analyzed: 0,
         generated: 0,
         noEmail: 0,
@@ -359,7 +367,31 @@ export class RestaurantsService {
       pending: Number(row.pending),
       hasPhone: Number(row.hasphone),
       hasWhatsapp: Number(row.haswhatsapp),
+      countries,
     };
+  }
+
+  /**
+   * 该项目下实际出现过的国家及各自数量。
+   * 只返回已存在的（空值不列），供工作台「总数量」旁的国家筛选用。
+   */
+  async listCountries(projectId: string): Promise<{ name: string; count: number }[]> {
+    const rows = await this.db
+      .select({
+        name: restaurants.country,
+        count: sql<number>`count(*)::int`,
+      })
+      .from(restaurants)
+      .where(
+        and(
+          eq(restaurants.projectId, projectId),
+          isNotNull(restaurants.country),
+          ne(restaurants.country, ''),
+        ),
+      )
+      .groupBy(restaurants.country)
+      .orderBy(sql`count(*) DESC`);
+    return rows.map((r) => ({ name: r.name as string, count: Number(r.count) }));
   }
 
   async toggleStar(id: string, isStarred: boolean, user: UserContext): Promise<Company> {
