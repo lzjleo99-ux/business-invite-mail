@@ -176,8 +176,16 @@ const SECTIONS: Section[] = [
 ];
 
 const UserGuidePage: React.FC = () => {
-  const { t } = useI18n();
+  const { t, lang } = useI18n();
   const [active, setActive] = React.useState(SECTIONS[0].id);
+
+  /**
+   * 截图按语言分文件：中文用 xxx.png，英文用 xxx-en.png。
+   * 之前只有一套中文截图，切英文时文字变了、图还是中文的，看起来像没切换。
+   * 英文图缺失时回退中文图（保证不出现破图）。
+   */
+  const shotFor = (shot: string): string =>
+    lang === 'en' && shot.endsWith('.png') ? shot.replace(/\.png$/, '-en.png') : shot;
 
   /** 顶部章节按钮：跳到对应章节并高亮 */
   const jumpTo = (id: string) => {
@@ -250,8 +258,8 @@ const UserGuidePage: React.FC = () => {
 
             <figure className="space-y-2 pt-1">
               <img
-                src={s.shot}
-                alt={s.shotCaption}
+                src={shotFor(s.shot)}
+                alt={t(s.shotCaption)}
                 className="w-full rounded-lg border border-slate-200 bg-white shadow-sm"
               />
               <figcaption className="text-xs text-slate-500">{t(s.shotCaption)}</figcaption>
