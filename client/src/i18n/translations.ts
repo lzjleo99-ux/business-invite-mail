@@ -1,6 +1,24 @@
 // English UI messages, keyed by the original Chinese source string.
 // Missing keys fall back to the Chinese source at runtime (see t() in index.tsx).
 export const enMessages: Record<string, string> = {
+  // ---- Interpolated status / progress messages ----
+  '共 {total} 条': '{total} total',
+  '准备中 {p}/{t}（{percent}%）': 'Preparing {p}/{t} ({percent}%)',
+  '分析中 {p}/{t}（{percent}%）': 'Analysing {p}/{t} ({percent}%)',
+  '发送内容与「邮件内容」里预览的版本一致（默认 {lang}，个别行手动切换过语言则以该行为准）': 'What goes out matches the version previewed under 邮件内容 (default {lang}; rows where you switched the language manually use that row’s version)',
+  '发送失败详情：{list}': 'Send failures: {list}',
+  '将通过系统 SMTP 把这封邮件发送给 {email}，确认发送？': 'This will send the email to {email} over the system SMTP. Confirm?',
+  '已处理 {p}/{t}（{percent}%）': 'Processed {p}/{t} ({percent}%)',
+  '批量准备 IM 话术完成：共 {s} 条全部成功': 'IM scripts finished: all {s} succeeded',
+  '批量准备 IM 话术完成：成功 {s} 条，失败 {f} 条': 'IM scripts finished: {s} succeeded, {f} failed',
+  '批量分析完成：共 {s} 条全部成功': 'Analysis finished: all {s} succeeded',
+  '批量分析完成：成功 {s} 条，失败 {f} 条': 'Analysis finished: {s} succeeded, {f} failed',
+  '批量发送完成：{s} 封全部发送成功': 'Sending finished: all {s} emails sent',
+  '批量生成完成：共 {s} 条全部成功': 'Generation finished: all {s} succeeded',
+  '批量生成完成：成功 {s} 条，失败 {f} 条': 'Generation finished: {s} succeeded, {f} failed',
+  '生成中 {p}/{t}（{percent}%）': 'Generating {p}/{t} ({percent}%)',
+  '第 {page} / {totalPages} 页': 'Page {page} of {totalPages}',
+
   // ---- antd table locale ----
   '全选本页': 'Select all on this page',
   '取消选择': 'Clear selection',
