@@ -3,10 +3,12 @@ import {
   Get,
   Post,
   Patch,
+  Delete,
   Param,
   Body,
   Query,
   UseGuards,
+  BadRequestException,
 } from '@nestjs/common';
 import { AdminService } from './admin.service';
 import { AuthService } from '@server/modules/auth/auth.service';
@@ -130,6 +132,43 @@ export class AdminController {
       includeSnippet: cfg.includeSnippet,
       webhookSet: cfg.webhookSet,
     };
+  }
+
+  // ==================== 多个发信账号（邮箱后台） ====================
+
+  @Get('smtp-accounts')
+  async listSmtpAccounts(): Promise<{ items: Awaited<ReturnType<MailService['listAccounts']>> }> {
+    return { items: await this.mailService.listAccounts() };
+  }
+
+  @Post('smtp-accounts')
+  async addSmtpAccount(
+    @Body()
+    body: {
+      email: string;
+      password: string;
+      host: string;
+      port: number;
+      secure: boolean;
+      fromName?: string;
+    },
+  ): Promise<{ id: string }> {
+    if (!body?.email || !body?.password || !body?.host) {
+      throw new BadRequestException('邮箱、授权码/密码、SMTP 服务器都不能为空');
+    }
+    return this.mailService.addAccount(body);
+  }
+
+  @Delete('smtp-accounts/:id')
+  async deleteSmtpAccount(@Param('id') id: string): Promise<{ ok: true }> {
+    await this.mailService.deleteAccount(id);
+    return { ok: true };
+  }
+
+  @Post('smtp-accounts/:id/default')
+  async setDefaultSmtpAccount(@Param('id') id: string): Promise<{ ok: true }> {
+    await this.mailService.setDefaultAccount(id);
+    return { ok: true };
   }
 
   @Post('wecom-notify-config')

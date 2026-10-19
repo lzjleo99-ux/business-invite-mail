@@ -1,9 +1,9 @@
 import { Injectable, Logger, BadRequestException } from '@nestjs/common';
 import { Inject } from '@nestjs/common';
 import { DRIZZLE_DATABASE, type PostgresJsDatabase } from '@lark-apaas/fullstack-nestjs-core';
-import { asc, desc, eq, sql } from 'drizzle-orm';
+import { asc, desc, eq, sql, and } from 'drizzle-orm';
 import nodemailer, { type Transporter } from 'nodemailer';
-import { smtpConfig, mailInboxSettings } from '@server/database/schema';
+import { smtpConfig, mailInboxSettings, smtpAccounts } from '@server/database/schema';
 import { runIdempotentMigration } from '@server/common/utils/ddl-runner';
 
 /** SMTP 基础列（不含 IMAP 列）——IMAP 列是后加的，读取必须容忍「列还没建」 */
@@ -37,6 +37,9 @@ export class MailService {
   private transporter: Transporter | null = null;
   private transporterKey = '';
   private inboxTablePromise: Promise<void> | null = null;
+  private accountsTablePromise: Promise<void> | null = null;
+  /** 每个账号一个 transport，key = id:password 前几位，避免串号 */
+  private accountTransporters = new Map<string, { key: string; transporter: Transporter }>();
 
   constructor(
     @Inject(DRIZZLE_DATABASE) private readonly db: PostgresJsDatabase,
@@ -258,17 +261,190 @@ export class MailService {
   }
 
   /** 发一封纯文本+HTML 邮件；SMTP 报原文错误由调用方决定如何呈现 */
+
+  // ==================== 多个发信账号（邮箱后台） ====================
+
+  private async ensureAccountsTable(): Promise<void> {
+    if (!this.accountsTablePromise) {
+      this.accountsTablePromise = runIdempotentMigration(
+        this.db,
+        'smtp_accounts',
+        async (run) => {
+          await run(`
+            CREATE TABLE IF NOT EXISTS smtp_accounts (
+              id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+              email varchar(320) NOT NULL,
+              password text NOT NULL,
+              host varchar(255) NOT NULL,
+              port integer NOT NULL DEFAULT 465,
+              secure boolean NOT NULL DEFAULT true,
+              from_name varchar(255),
+              is_default boolean NOT NULL DEFAULT false,
+              _created_at timestamptz(3) NOT NULL DEFAULT CURRENT_TIMESTAMP
+            )`);
+          await run(
+            'GRANT ALL PRIVILEGES ON TABLE smtp_accounts TO anon_, authenticated_, service_role_',
+          );
+        },
+      )
+        .then(() => undefined)
+        .catch((err: unknown) => {
+          this.accountsTablePromise = null;
+          throw err;
+        });
+    }
+    return this.accountsTablePromise;
+  }
+
+  /** 列出全部发信账号（密码不外泄，只给 passwordSet） */
+  async listAccounts(): Promise<
+    { id: string; email: string; host: string; port: number; secure: boolean; fromName: string | null; isDefault: boolean }[]
+  > {
+    try {
+      await this.ensureAccountsTable();
+      const rows = await this.db.select().from(smtpAccounts).orderBy(desc(smtpAccounts.isDefault), asc(smtpAccounts.createdAt));
+      return rows.map((r) => ({
+        id: r.id,
+        email: r.email,
+        host: r.host,
+        port: r.port,
+        secure: r.secure,
+        fromName: r.fromName,
+        isDefault: r.isDefault,
+      }));
+    } catch (err: unknown) {
+      this.logger.warn(`读取发信账号失败：${err instanceof Error ? err.message : String(err)}`);
+      return [];
+    }
+  }
+
+  /** 新增账号。同一邮箱只能有一个（重复后缀会让人分不清用哪个） */
+  async addAccount(input: {
+    email: string;
+    password: string;
+    host: string;
+    port: number;
+    secure: boolean;
+    fromName?: string;
+  }): Promise<{ id: string }> {
+    await this.ensureAccountsTable();
+    const email = input.email.trim();
+    if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) {
+      throw new BadRequestException('邮箱地址格式不正确');
+    }
+    const dup = await this.db.select({ id: smtpAccounts.id }).from(smtpAccounts).where(eq(smtpAccounts.email, email)).limit(1);
+    if (dup.length > 0) throw new BadRequestException(`发信账号 ${email} 已存在`);
+
+    const existing = await this.db.select({ id: smtpAccounts.id }).from(smtpAccounts).limit(1);
+    const isFirst = existing.length === 0;
+    const rows = await this.db.insert(smtpAccounts).values({
+      email,
+      password: input.password,
+      host: input.host.trim(),
+      port: input.port,
+      secure: input.secure,
+      fromName: input.fromName?.trim() || null,
+      isDefault: isFirst, // 第一个账号自动设为默认
+    }).returning({ id: smtpAccounts.id });
+    return { id: rows[0].id };
+  }
+
+  async deleteAccount(id: string): Promise<void> {
+    await this.ensureAccountsTable();
+    await this.db.delete(smtpAccounts).where(eq(smtpAccounts.id, id));
+    // 删的是默认账号就把剩下的第一个设为默认，避免"没有默认账号"
+    const left = await this.db.select({ id: smtpAccounts.id }).from(smtpAccounts).limit(1);
+    if (left.length > 0) {
+      await this.db.update(smtpAccounts).set({ isDefault: true }).where(eq(smtpAccounts.id, left[0].id));
+    }
+    this.accountTransporters.delete(id);
+  }
+
+  /** 设默认账号（发信时不指定就用它） */
+  async setDefaultAccount(id: string): Promise<void> {
+    await this.ensureAccountsTable();
+    await this.db.update(smtpAccounts).set({ isDefault: false });
+    await this.db.update(smtpAccounts).set({ isDefault: true }).where(eq(smtpAccounts.id, id));
+  }
+
+  /** 供邮件生成器取账号的收发信息（不含密码） */
+  async getAccountForSend(id: string): Promise<{ id: string; email: string; fromName: string | null } | null> {
+    const row = await this.getAccount(id);
+    return row ? { id: row.id, email: row.email, fromName: row.fromName } : null;
+  }
+
+  /** 取某个账号的完整配置（含密码）；不存在返回 null */
+  private async getAccount(id: string): Promise<typeof smtpAccounts.$inferSelect | null> {
+    await this.ensureAccountsTable();
+    const rows = await this.db.select().from(smtpAccounts).where(eq(smtpAccounts.id, id)).limit(1);
+    return rows[0] ?? null;
+  }
+
+  /** 按邮箱后缀（域名）取账号——下拉里选的就是后缀 */
+  async getAccountByDomain(domain: string): Promise<typeof smtpAccounts.$inferSelect | null> {
+    await this.ensureAccountsTable();
+    const rows = await this.db.select().from(smtpAccounts).orderBy(desc(smtpAccounts.isDefault), asc(smtpAccounts.createdAt));
+    return rows.find((r) => r.email.toLowerCase().endsWith(`@${domain.trim().toLowerCase()}`)) ?? null;
+  }
+
+  private transporterFor(id: string, row: typeof smtpAccounts.$inferSelect): Transporter {
+    const key = `${row.host}:${row.port}:${row.secure}:${row.password.length}:${row.password.slice(-4)}`;
+    const cached = this.accountTransporters.get(id);
+    if (cached && cached.key === key) return cached.transporter;
+    const transporter = nodemailer.createTransport({
+      host: row.host,
+      port: row.port,
+      secure: row.secure,
+      auth: { user: row.email, pass: row.password },
+    });
+    this.accountTransporters.set(id, { key, transporter });
+    return transporter;
+  }
+
+  /** 解析出实际要用的账号：指定 id > 指定域名 > 默认账号 > 旧全局 smtp_config */
+  async resolveSender(accountId?: string, domain?: string): Promise<
+    | { kind: 'account'; id: string; email: string; fromName: string | null; transporter: Transporter }
+    | { kind: 'legacy'; email: string; fromName: string | null; transporter: Transporter }
+  > {
+    let row: typeof smtpAccounts.$inferSelect | null = null;
+    if (accountId) row = await this.getAccount(accountId);
+    if (!row && domain) row = await this.getAccountByDomain(domain);
+    if (!row) {
+      const rows = await this.db.select().from(smtpAccounts).where(eq(smtpAccounts.isDefault, true)).limit(1);
+      row = rows[0] ?? null;
+    }
+    if (row) {
+      return {
+        kind: 'account',
+        id: row.id,
+        email: row.email,
+        fromName: row.fromName,
+        transporter: this.transporterFor(row.id, row),
+      };
+    }
+    // 没有任何账号时退回旧全局配置（老部署不破坏）
+    const s = await this.getSettings();
+    if (!s) throw new BadRequestException('尚未配置发信账号，请在设置里添加');
+    return { kind: 'legacy', email: s.fromEmail, fromName: s.fromName, transporter: await this.getTransporter() };
+  }
+
   async sendMail(opts: {
     to: string;
     subject: string;
     text: string;
     html: string;
+    /** 指定用哪个发信账号；不传走默认（有账号时）或旧全局配置 */
+    accountId?: string;
+    /** 或按邮箱后缀指定（下拉里选的就是后缀） */
+    domain?: string;
   }): Promise<void> {
-    const s = await this.getSettings();
-    const transporter = await this.getTransporter();
+    const sender = await this.resolveSender(opts.accountId, opts.domain);
+    const fromAddr = sender.email;
+    const fromName = sender.fromName;
+    const transporter = sender.transporter;
     try {
       await transporter.sendMail({
-        from: s!.fromName ? `"${s!.fromName}" <${s!.fromEmail}>` : s!.fromEmail,
+        from: fromName ? `"${fromName}" <${fromAddr}>` : fromAddr,
         to: opts.to,
         subject: opts.subject,
         text: opts.text,
@@ -288,8 +464,14 @@ export class MailService {
    * nodemailer 的 raw 模式不解析报文头，缺 envelope 会报
    * "No recipients defined"（收件人取报文 To，寄件人取 SMTP 配置的 fromEmail）。
    */
-  async sendRaw(raw: string, envelope: { from: string; to: string[] }): Promise<{ messageId: string | null }> {
-    const transporter = await this.getTransporter();
+  async sendRaw(
+    raw: string,
+    envelope: { from: string; to: string[] },
+    /** 指定发信账号；不传走默认/全局 */
+    accountId?: string,
+  ): Promise<{ messageId: string | null }> {
+    const sender = accountId ? await this.resolveSender(accountId) : null;
+    const transporter = sender ? sender.transporter : await this.getTransporter();
     try {
       const info = await transporter.sendMail({ raw, envelope } as Parameters<Transporter['sendMail']>[0]);
       const messageId = (info as { messageId?: string }).messageId ?? null;

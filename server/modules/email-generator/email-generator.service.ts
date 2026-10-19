@@ -377,27 +377,32 @@ export class EmailGeneratorService {
   private async buildCampaignRaw(
     company: typeof restaurants.$inferSelect,
     lang: 'local' | 'en' = 'local',
+    /** 指定发信账号（多邮箱后缀） */
+    accountId?: string,
   ): Promise<{
     raw: string;
     to: string;
     from: string;
     subject: string;
+    accountId?: string;
   }> {
     const { subject, body } = this.pickEmailVersion(company, lang);
     const to = (company.websiteContactEmail || company.email || '').trim();
     const inlineImages = await this.collectInlineImages(body);
 
+    // 多账号：指定了发信账号就用它的地址/显示名，否则回退全局配置
+    const acct = accountId ? await this.mailService.getAccountForSend(accountId) : null;
     const smtp = await this.mailService.getSettings();
     const sender = await this.getSenderConfig();
-    const fromName = smtp?.fromName?.trim() || sender.senderName;
-    const fromEmail = smtp?.fromEmail?.trim();
+    const fromName = acct?.fromName?.trim() || smtp?.fromName?.trim() || sender.senderName;
+    const fromEmail = (acct?.email || smtp?.fromEmail || '').trim();
     const fromLine = fromEmail
       ? `${fromName} <${fromEmail}>`
       : `${fromName} <${fromName.toLowerCase().replace(/\s+/g, '.')}@example.com>`;
 
     const raw = generateEmlWithImages(to, subject, body, fromLine, inlineImages);
     // envelope.from 用 SMTP 发件地址（服务器必须以该地址登录），回退到配置里的登录账号
-    return { raw, to, from: fromEmail || smtp?.username?.trim() || '', subject };
+    return { raw, to, from: fromEmail || smtp?.username?.trim() || '', subject, accountId: acct?.id };
   }
 
   /**
@@ -407,6 +412,7 @@ export class EmailGeneratorService {
   async sendCompanyEmail(
     companyId: string,
     lang: 'local' | 'en' = 'local',
+    accountId?: string,
   ): Promise<{ to: string; subject: string }> {
     const company = await this.getCompanyById(companyId);
     if (!company) {
@@ -420,12 +426,13 @@ export class EmailGeneratorService {
       throw new BadRequestException('该公司没有邮箱地址，无法发送');
     }
 
-    const { raw, to: recipient, subject, from } = await this.buildCampaignRaw(
+    const { raw, to: recipient, subject, from, accountId: acctId } = await this.buildCampaignRaw(
       company,
       lang,
+      accountId,
     );
     try {
-      const { messageId } = await this.mailService.sendRaw(raw, { from, to: [recipient] });
+      const { messageId } = await this.mailService.sendRaw(raw, { from, to: [recipient] }, acctId);
       await this.emailHistory.recordOutbound({
         companyId: company.id,
         projectId: company.projectId,
@@ -464,7 +471,7 @@ export class EmailGeneratorService {
     lang: 'local' | 'en' = 'local',
     langOverrides: Record<string, 'local' | 'en'> = {},
     /** 只发这些公司；为空 = 整个项目 */
-    params: { companyIds?: string[] } = {},
+    params: { companyIds?: string[]; accountId?: string } = {},
   ): Promise<BatchSendSummary> {
     /** 该公司实际发哪一版：优先用用户在该行的预览选择（保证所见即所发），否则用批量默认值 */
     const langFor = (id: string): 'local' | 'en' => langOverrides[id] ?? lang;
@@ -526,11 +533,12 @@ export class EmailGeneratorService {
         const company = eligible[cursor];
         cursor += 1;
         try {
-          const { raw, to, from, subject } = await this.buildCampaignRaw(
+          const { raw, to, from, subject, accountId: acctId } = await this.buildCampaignRaw(
             company,
             langFor(company.id),
+            params.accountId,
           );
-          const { messageId } = await this.mailService.sendRaw(raw, { from, to: [to] });
+          const { messageId } = await this.mailService.sendRaw(raw, { from, to: [to] }, acctId);
           await this.emailHistory.recordOutbound({
             companyId: company.id,
             projectId: company.projectId,

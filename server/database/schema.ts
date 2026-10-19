@@ -402,6 +402,24 @@ export const wecomNotifySettings = pgTable("wecom_notify_settings", {
  * 自建表：平台管理的表不能 ALTER（同 mail_inbox_settings / wecom_notify_settings）。
  * is_primary 标记表示"发信实际用的那个"（沿用邮箱排序打分选出的最优项）。
  */
+/**
+ * 多个发信账号（"邮箱后台"）。
+ * 原来只有全局单行 smtp_config，用户要用别的邮箱后缀联系时只能改配置、覆盖旧的。
+ * 现在一张表存多个账号，发送时任选一个；is_default 决定不指定时用哪个。
+ * 自建表（平台表不能 ALTER），沿用 company_contacts 的建表方式。
+ */
+export const smtpAccounts = pgTable("smtp_accounts", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  email: varchar("email", { length: 320 }).notNull(),
+  password: text("password").notNull(),
+  host: varchar("host", { length: 255 }).notNull(),
+  port: integer("port").notNull().default(465),
+  secure: boolean("secure").notNull().default(true),
+  fromName: varchar("from_name", { length: 255 }),
+  isDefault: boolean("is_default").notNull().default(false),
+  createdAt: customTimestamptz("_created_at", { precision: 3 }).notNull().default(sql`CURRENT_TIMESTAMP`),
+});
+
 export const companyContacts = pgTable("company_contacts", {
   id: uuid("id").primaryKey().defaultRandom(),
   companyId: uuid("company_id").notNull().references(() => restaurants.id, { onDelete: "cascade" }),

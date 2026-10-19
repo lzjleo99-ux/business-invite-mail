@@ -80,6 +80,11 @@ class BatchSendDto {
   @IsString({ each: true })
   companyIds?: string[];
 
+  /** 用哪个发信账号（多邮箱后缀）；不传走默认 */
+  @IsOptional()
+  @IsString()
+  accountId?: string;
+
   @IsString()
   projectId!: string;
   /** 默认发送语言版本：local=收件人本地语言，en=英文 */
@@ -228,7 +233,7 @@ export class EmailGeneratorController {
       },
       dto.lang ?? 'local',
       dto.langOverrides,
-      { companyIds: dto.companyIds },
+      { companyIds: dto.companyIds, accountId: dto.accountId },
     );
   }
 
