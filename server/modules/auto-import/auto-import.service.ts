@@ -1,3 +1,4 @@
+import * as nodeCrypto from 'crypto';
 import {
   Injectable,
   Inject,
@@ -213,7 +214,7 @@ export class AutoImportService {
     if (!stored) {
       throw new UnauthorizedException('Import secret 未配置');
     }
-    if (!secretHeader || secretHeader.trim() !== stored) {
+    if (!secretHeader || !this.secretMatches(secretHeader.trim(), stored)) {
       throw new UnauthorizedException('Import secret 无效');
     }
 
@@ -286,14 +287,67 @@ export class AutoImportService {
     };
   }
 
+  /**
+   * 定长比较，避免按字符提前返回泄露前缀信息。
+   * 长度不同直接判定失败——但仍走一次固定开销的哈希，
+   * 不然"长度不同"这件事本身就是可观测的时序信号。
+   */
+  private secretMatches(provided: string, stored: string): boolean {
+    const a = nodeCrypto.createHash('sha256').update(provided, 'utf8').digest();
+    const b = nodeCrypto.createHash('sha256').update(stored, 'utf8').digest();
+    return nodeCrypto.timingSafeEqual(a, b);
+  }
+
+  /**
+   * 读取机器人导入密钥。
+   *
+   * 之前这里是 `SELECT import_secret FROM model_config LIMIT 1`——**没有 WHERE**。
+   * model_config 改成"每用户一行"之后表里有多行，各用户行的 import_secret 都是 NULL，
+   * LIMIT 1 不保证取到哪一行，于是经常读到 NULL，接口一律返回
+   * 401「Import secret 未配置」。密钥明明配好了，却表现为"未配置"。
+   *
+   * 正确口径：密钥是全局配置，固定存在 `_created_by IS NULL` 那一行。
+   * 万一历史上被写到了带 _created_by 的行上（老数据），兜底扫一遍并搬回全局行。
+   */
   private async readStoredSecret(): Promise<string | null> {
     try {
-      const result = await this.db.execute(sql<{ import_secret: string | null }>`
-        SELECT import_secret FROM ${modelConfig} LIMIT 1
+      const globalRows = await this.db.execute(sql<{ import_secret: string | null }>`
+        SELECT import_secret FROM ${modelConfig}
+        WHERE _created_by IS NULL AND import_secret IS NOT NULL
+        LIMIT 1
       `);
-      const row = result[0] as { import_secret: string | null } | undefined;
-      const val: string | null = row?.import_secret ?? null;
-      return val;
+      const globalRow = globalRows[0] as { import_secret: string | null } | undefined;
+      if (globalRow?.import_secret) return globalRow.import_secret;
+
+      // 兜底：全局行没有，但别的行有值 → 搬回全局行（自愈，且只搬一次）
+      const anyRows = await this.db.execute(sql<{ id: string; import_secret: string }>`
+        SELECT id, import_secret FROM ${modelConfig}
+        WHERE import_secret IS NOT NULL
+        LIMIT 1
+      `);
+      const any = anyRows[0] as { id: string; import_secret: string } | undefined;
+      if (!any?.import_secret) return null;
+      const target = await this.db.execute(sql<{ id: string }>`
+        SELECT id FROM ${modelConfig} WHERE _created_by IS NULL LIMIT 1
+      `);
+      const targetRow = target[0] as { id: string } | undefined;
+      if (targetRow?.id) {
+        await this.db.execute(sql`
+          UPDATE ${modelConfig} SET import_secret = ${any.import_secret}
+          WHERE id = ${targetRow.id}
+        `);
+      } else {
+        await this.db.execute(sql`
+          INSERT INTO ${modelConfig}
+            (api_base_url, api_key, model_name, email_language, sender_signature, import_secret)
+          VALUES
+            ('https://api.openai.com/v1', '', 'gpt-4o-mini', 'auto', 'Best regards,\nBD Team', ${any.import_secret})
+        `);
+      }
+      this.logger.warn(
+        'import_secret 原先存放在非全局行，已迁移到 _created_by IS NULL 的全局行',
+      );
+      return any.import_secret;
     } catch (err) {
       this.logger.warn(`Failed to read import_secret: ${String(err)}`);
       return null;
