@@ -6,9 +6,10 @@ import {
   BadRequestException,
   UnauthorizedException,
   Logger,
+  OnModuleInit,
 } from '@nestjs/common';
 import { DRIZZLE_DATABASE, type PostgresJsDatabase } from '@lark-apaas/fullstack-nestjs-core';
-import { eq, count, isNull } from 'drizzle-orm';
+import { asc, eq, count, isNull } from 'drizzle-orm';
 import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
 import { appUsers, projects } from '@server/database/schema';
@@ -24,7 +25,7 @@ const BCRYPT_SALT_ROUNDS = 10;
 const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 @Injectable()
-export class AuthService {
+export class AuthService implements OnModuleInit {
   private readonly logger = new Logger(AuthService.name);
 
   constructor(
@@ -199,6 +200,42 @@ export class AuthService {
       .where(eq(appUsers.id, userId));
 
     return { success: true };
+  }
+
+  /**
+   * 启动自愈：系统里必须恰好有一个 super_admin。
+   * 升级到三级角色时，存量账号都是 admin/user——如果没有 super_admin，
+   * 就把最早创建的 admin 提上来，否则那个账号会突然失去跨用户可见性。
+   * 幂等：已经有 super_admin 就什么都不做。
+   */
+  async onModuleInit(): Promise<void> {
+    try {
+      const supers = await this.db
+        .select({ id: appUsers.id })
+        .from(appUsers)
+        .where(eq(appUsers.role, 'super_admin'))
+        .limit(1);
+      if (supers.length > 0) return;
+
+      const admins = await this.db
+        .select({ id: appUsers.id, createdAt: appUsers.createdAt })
+        .from(appUsers)
+        .where(eq(appUsers.role, 'admin'))
+        .orderBy(asc(appUsers.createdAt))
+        .limit(1);
+      if (admins.length === 0) return;
+
+      await this.db
+        .update(appUsers)
+        .set({ role: 'super_admin' })
+        .where(eq(appUsers.id, admins[0].id));
+      this.logger.log(
+        `启动自愈：系统中没有超级管理员，已将最早的 admin（${admins[0].id}）提升为 super_admin`,
+      );
+    } catch (err: unknown) {
+      // 不能因为自愈失败挡住启动（表可能还没建）
+      this.logger.warn(`super_admin 自愈检查失败：${err instanceof Error ? err.message : String(err)}`);
+    }
   }
 
   validateToken(token: string): { userId: string; email: string; role: UserRole; displayName: string } | null {
