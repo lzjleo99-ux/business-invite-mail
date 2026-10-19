@@ -392,6 +392,12 @@ export class EmailGeneratorService {
 
     // 多账号：指定了发信账号就用它的地址/显示名，否则回退全局配置
     const acct = accountId ? await this.mailService.getAccountForSend(accountId) : null;
+    if (accountId && !acct) {
+      // 不能静默继续：否则会用默认/旧账号发出，客户看到意外发件人且事后查不出来
+      throw new BadRequestException(
+        `发信账号不存在（id=${accountId}），可能已被删除。请在设置里重新选择。`,
+      );
+    }
     const smtp = await this.mailService.getSettings();
     const sender = await this.getSenderConfig();
     const fromName = acct?.fromName?.trim() || smtp?.fromName?.trim() || sender.senderName;
