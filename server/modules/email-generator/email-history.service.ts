@@ -52,6 +52,10 @@ export interface BounceInfo {
 }
 
 const BOUNCE_REASON_RULES: { re: RegExp; zh: string }[] = [
+  // 腾讯企业邮箱 / 国内网关常见措辞（放在最前，匹配更具体）
+  { re: /收件人地址不存在|用户不存在|邮箱地址不存在|邮件地址不存在/, zh: '收件邮箱不存在（地址写错或已停用）' },
+  { re: /域名不存在|域名无法解析|邮件域不存在/, zh: '收件域名不存在（对方可能已换域名）' },
+  { re: /被拒收|拒收|黑名单|反垃圾/, zh: '被对方拒收（多为反垃圾策略）' },
   { re: /wasn't found at|does not exist|domain.*not found|no such domain|unknown domain/i, zh: '收件域名不存在（对方可能已换域名）' },
   { re: /user unknown|recipient address rejected|no such user|mailbox not found|does not exist/i, zh: '该邮箱账号不存在' },
   { re: /mailbox unavailable|mailbox full|quota exceeded/i, zh: '对方邮箱不可用或已满' },
@@ -269,12 +273,37 @@ export class EmailHistoryService {
       ? await this.companyNameOf(r.companyId)
       : null;
     const row = this.toRow(r, companyName);
-    const detail: EmailHistoryDetail = { ...row, bodyText: r.bodyText || '' };
+    // 不少 MTA（腾讯企业邮箱、部分国际网关）退信**只有 HTML 没有纯文本**，
+    // body_text 是空的，直接展示 = 空白弹窗，也没法解析。从 HTML 兜底出纯文本。
+    let bodyText = r.bodyText || '';
+    if (!bodyText.trim() && r.bodyHtml) {
+      bodyText = EmailHistoryService.htmlToText(r.bodyHtml);
+    }
+    const detail: EmailHistoryDetail = { ...row, bodyText };
     // 退信额外给出结构化失败原因（读取时算，不落库）
     if (r.status === 'bounce' || r.direction === 'inbound') {
-      detail.bounce = this.parseBounce(r.bodyText || '', r.subject || '');
+      detail.bounce = this.parseBounce(bodyText, r.subject || '');
     }
     return detail;
+  }
+
+  /** 极简 HTML → 纯文本：保留换行，去掉标签/样式/脚本，够用来给人看和解析 */
+  private static htmlToText(html: string): string {
+    return html
+      .replace(/<(script|style|head)[^>]*>[\s\S]*?<\/\1>/gi, '')
+      .replace(/<!--[\s\S]*?-->/g, '')
+      .replace(/<\s*br\s*\/?>/gi, '\n')
+      .replace(/<\s*\/\s*(p|div|tr|li|h[1-6])\s*>/gi, '\n')
+      .replace(/<[^>]+>/g, ' ')
+      .replace(/&nbsp;/gi, ' ')
+      .replace(/&lt;/gi, '<')
+      .replace(/&gt;/gi, '>')
+      .replace(/&amp;/gi, '&')
+      .replace(/&quot;/gi, '"')
+      .replace(/&#(\d+);/g, (_, d) => String.fromCharCode(Number(d)))
+      .replace(/[ \t]+/g, ' ')
+      .replace(/\n{3,}/g, '\n\n')
+      .trim();
   }
 
   /**
@@ -291,7 +320,12 @@ export class EmailHistoryService {
     const origRecip = text.match(/Original-Recipient:\s*rfc822;\s*([^\s<>]+@[^\s<>]+)/i);
     const yourMsg = text.match(/Your message to\s+([^\s,]+@[^\s,]+)\s+couldn't be delivered/i);
     const undeliverableTo = text.match(/undeliverable to\s+([^\s<>]+@[^\s<>]+)/i);
-    failedAddress = (finalRecip?.[1] || origRecip?.[1] || yourMsg?.[1] || undeliverableTo?.[1] || '').trim() || null;
+    // 腾讯企业邮箱/国内网关措辞：收件人 xxx 不存在 / 无法投递到 xxx
+    const cnBounce = text.match(
+      /(?:收件人|收件地址|邮件地址|地址)\s*[:：]?\s*([A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,})/,
+    );
+    failedAddress = (finalRecip?.[1] || origRecip?.[1] || yourMsg?.[1] || undeliverableTo?.[1] || cnBounce?.[1] || '')
+      .trim() || null;
     if (failedAddress) failedAddress = failedAddress.replace(/[.,;:<>]+$/, '').toLowerCase();
 
     // 失败原因：优先取诊断行（Diagnostic-Code / Status），否则套规则
