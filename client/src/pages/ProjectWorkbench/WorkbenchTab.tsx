@@ -427,8 +427,16 @@ const WorkbenchTab: React.FC<WorkbenchTabProps> = ({
   }, [widthStoreKey]);
 
   // --- Batch analyze operation ---
+  // --- 行选择：批量操作只作用于本页勾选的公司 ---
+  // 未勾选时回退到"当前筛选结果"（原行为），勾选后严格只跑勾选项。
+  const [selectedIds, setSelectedIds] = useState<string[]>([]);
+  // 有勾选时，IM 话术/生成/发送都只跑勾选项；没勾选才用当前筛选结果
+  const batchItems = useMemo(
+    () => (selectedIds.length > 0 ? items.filter((c) => selectedIds.includes(c.id)) : items),
+    [items, selectedIds],
+  );
   const batchAnalyzeOp = useBatchOperation<Company>({
-    items,
+    items: batchItems,
     getItemId: (item: Company) => item.id,
     operation: async (item: Company) => {
       await websiteAnalyzerApi.analyzeCompany(item.id);
@@ -484,7 +492,12 @@ const WorkbenchTab: React.FC<WorkbenchTabProps> = ({
           page += 1;
         }
       }
-      const targets = [...seen.values()];
+      let targets = [...seen.values()];
+      // 有勾选时只分析勾选项（跨分页保留勾选，故 selectedIds 可能不在当前页）
+      if (selectedIds.length > 0) {
+        const picked = new Set(selectedIds);
+        targets = targets.filter((c) => picked.has(c.id));
+      }
       if (targets.length === 0) {
         toast.info(t('该范围内没有需要分析的公司'));
       } else {
@@ -531,7 +544,7 @@ const WorkbenchTab: React.FC<WorkbenchTabProps> = ({
   // 所以无邮箱的公司以前也会"成功"——这是漏洞不是功能。
   const skippedNoEmailRef = useRef(0);
   const batchGenerateOp = useBatchOperation<Company>({
-    items,
+    items: batchItems,
     getItemId: (item: Company) => item.id,
     operation: async (item: Company) => {
       const result = await emailGeneratorApi.generateEmail(item.id);
@@ -628,7 +641,7 @@ const WorkbenchTab: React.FC<WorkbenchTabProps> = ({
 
   // --- Batch WhatsApp operation ---
   const batchWhatsAppOp = useBatchOperation<Company>({
-    items,
+    items: batchItems,
     getItemId: (item: Company) => item.id,
     operation: async (item: Company) => {
       const result = await emailGeneratorApi.generateWhatsApp(item.id);
@@ -681,6 +694,7 @@ const WorkbenchTab: React.FC<WorkbenchTabProps> = ({
   const activeBatchTotal = activeBatchOp.total;
   const activeBatchProgress = activeBatchOp.progress;
 
+
   // --- 一键发送（SMTP 直发） ---
   // 服务端圈定目标：已生成邮件 + 有邮箱 + 未发送过（emailContactedAt 为空）。
   const [sendAllRunning, setSendAllRunning] = useState(false);
@@ -692,6 +706,7 @@ const WorkbenchTab: React.FC<WorkbenchTabProps> = ({
         projectId,
         sendLang,
         emailDisplayLang,
+        selectedIds.length > 0 ? selectedIds : undefined,
       );
       void qc.invalidateQueries({ queryKey: ['companies'] });
       void qc.invalidateQueries({ queryKey: ['company-stats'] });
@@ -1904,41 +1919,44 @@ const WorkbenchTab: React.FC<WorkbenchTabProps> = ({
                  isActive ? 'border-blue-300 ring-2 ring-blue-100' : 'border-slate-200'
                }`}
              >
-               <div className="flex items-start justify-between gap-2">
-                 <p className="text-sm text-slate-500">{stat.label}</p>
-                 {isTotalCard && (
-                   // stopPropagation：点筛选别连带触发"总数量"卡片自身的筛选
-                   <span onClick={(e) => e.stopPropagation()}>
-                     <Select
-                       value={countryFilter || 'all'}
-                       onValueChange={(v) => onCountryFilterChange(v === 'all' ? '' : v)}
-                     >
-                       <SelectTrigger
-                         className="h-7 w-[104px] text-xs"
-                         aria-label={t('国家筛选')}
-                         onClick={(e) => e.stopPropagation()}
-                       >
-                         <SelectValue />
-                       </SelectTrigger>
-                       <SelectContent>
-                         <SelectItem value="all">{t('全部')}</SelectItem>
-                         {(stats?.countries ?? []).map((c) => (
-                           <SelectItem key={c.name} value={c.name}>
-                             {c.flag ? `${c.flag} ` : ''}
-                             {c.name}（{c.count}）
-                           </SelectItem>
-                         ))}
-                       </SelectContent>
-                     </Select>
-                   </span>
-                 )}
-               </div>
-               <p className={`mt-2 text-2xl font-bold ${stat.color}`}>
-                 {stat.value}
-               </p>
-             </div>
-           );
-         })}
+              {/* 第一排：标题 + 数字 */}
+              <p className="text-sm text-slate-500">{stat.label}</p>
+              <p className={`mt-2 text-2xl font-bold ${stat.color}`}>
+                {stat.value}
+              </p>
+              {/* 第二排：国家筛选独占一行、撑满卡片宽（原来挤在标题右侧，又窄又难看） */}
+              {isTotalCard && (
+                <div
+                  className="mt-3"
+                  // stopPropagation：点筛选别连带触发"总数量"卡片自身的筛选
+                  onClick={(e) => e.stopPropagation()}
+                >
+                  <Select
+                    value={countryFilter || 'all'}
+                    onValueChange={(v) => onCountryFilterChange(v === 'all' ? '' : v)}
+                  >
+                    <SelectTrigger
+                      className="h-8 w-full text-xs"
+                      aria-label={t('国家筛选')}
+                      onClick={(e) => e.stopPropagation()}
+                    >
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="all">{t('全部')}</SelectItem>
+                      {(stats?.countries ?? []).map((c) => (
+                        <SelectItem key={c.name} value={c.name}>
+                          {c.flag ? `${c.flag} ` : ''}
+                          {c.name}（{c.count}）
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+              )}
+            </div>
+          );
+        })}
       </div>
 
       {/* Active Filter Chip */}
@@ -2268,6 +2286,22 @@ const WorkbenchTab: React.FC<WorkbenchTabProps> = ({
           </div>
         )}
 
+        {/* 勾选提示：批量按钮只作用于勾选项 */}
+        {selectedIds.length > 0 && (
+          <div className="mb-2 flex items-center gap-2 rounded-md border border-blue-200 bg-blue-50 px-3 py-2 text-xs text-blue-700">
+            <span>
+              {t('已勾选 {n} 家，下方批量操作只对这些公司生效', { n: selectedIds.length })}
+            </span>
+            <button
+              type="button"
+              className="ml-auto text-blue-600 hover:underline"
+              onClick={() => setSelectedIds([])}
+            >
+              {t('清除勾选')}
+            </button>
+          </div>
+        )}
+
         {/* Table */}
         <Table<Company>
           columns={effectiveColumns}
@@ -2290,6 +2324,11 @@ const WorkbenchTab: React.FC<WorkbenchTabProps> = ({
             onChange: setPage,
             showSizeChanger: false,
             showTotal: (total: number) => t('共 {n} 条', { n: total }),
+          }}
+          rowSelection={{
+            selectedRowKeys: selectedIds,
+            onChange: (keys) => setSelectedIds(keys as string[]),
+            preserveSelectedRowKeys: true,
           }}
         />
       </div>

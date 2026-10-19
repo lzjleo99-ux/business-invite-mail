@@ -157,10 +157,12 @@ export async function batchSendEmails(
   projectId: string,
   lang: 'local' | 'en' = 'local',
   langOverrides: Record<string, 'local' | 'en'> = {},
+  /** 只发这些公司；不传 = 整个项目 */
+  companyIds?: string[],
 ): Promise<BatchSendSummary> {
   const response = await axiosForBackend.post(
     '/api/email-generator/batch-send',
-    { projectId, lang, langOverrides },
+    { projectId, lang, langOverrides, companyIds },
     { timeout: 600_000 },
   );
   return response.data;

@@ -373,6 +373,8 @@ export const enMessages: Record<string, string> = {
   '未分析的': 'Not analyzed',
   '已分析的': 'Already analyzed',
   '该范围内没有需要分析的公司': 'No companies to analyze in this scope',
+  '已勾选 {n} 家，下方批量操作只对这些公司生效': 'Selected {n} — the batch actions below apply only to these companies',
+  '清除勾选': 'Clear selection',
   '国家筛选': 'Country filter',
   '未联系': 'Not contacted',
   '分析失败': 'Analysis failed',

@@ -463,6 +463,8 @@ export class EmailGeneratorService {
     user: { userId: string; role: 'admin' | 'user' },
     lang: 'local' | 'en' = 'local',
     langOverrides: Record<string, 'local' | 'en'> = {},
+    /** 只发这些公司；为空 = 整个项目 */
+    params: { companyIds?: string[] } = {},
   ): Promise<BatchSendSummary> {
     /** 该公司实际发哪一版：优先用用户在该行的预览选择（保证所见即所发），否则用批量默认值 */
     const langFor = (id: string): 'local' | 'en' => langOverrides[id] ?? lang;
@@ -477,10 +479,17 @@ export class EmailGeneratorService {
       }
     }
 
+    // companyIds 非空 = 只发工作台里勾选的这些公司（用户要求"只针对本页已选中的信息"）；
+    // 为空 = 整个项目（原行为，保留给"不勾选直接点一键发送"的场景）。
+    const companyIds = (params.companyIds ?? []).filter(Boolean);
     const companies = await this.db
       .select()
       .from(restaurants)
-      .where(eq(restaurants.projectId, projectId));
+      .where(
+        companyIds.length > 0
+          ? and(eq(restaurants.projectId, projectId), inArray(restaurants.id, companyIds))
+          : eq(restaurants.projectId, projectId),
+      );
 
     const summary: BatchSendSummary = {
       eligible: 0,

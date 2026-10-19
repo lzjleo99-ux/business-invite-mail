@@ -74,6 +74,12 @@ class BatchWhatsAppDto implements BatchWhatsAppRequest {
 }
 
 class BatchSendDto {
+  /** 只发这些公司；为空/不传 = 整个项目 */
+  @IsOptional()
+  @IsArray()
+  @IsString({ each: true })
+  companyIds?: string[];
+
   @IsString()
   projectId!: string;
   /** 默认发送语言版本：local=收件人本地语言，en=英文 */
@@ -222,6 +228,7 @@ export class EmailGeneratorController {
       },
       dto.lang ?? 'local',
       dto.langOverrides,
+      { companyIds: dto.companyIds },
     );
   }
 
