@@ -56,6 +56,8 @@ const ProjectWorkbenchInner: React.FC = () => {
   const [filterKey, setFilterKey] = useState<StatsFilterKey>('all');
   // 国家筛选：选项由 stats.countries 动态生成（只列已存在的国家），'' = 全部
   const [countryFilter, setCountryFilter] = useState('');
+  // 换国家筛选时回到第 1 页，否则可能停在一个空页上
+  React.useEffect(() => { setPage(1); }, [countryFilter]);
   const [searchText, setSearchText] = useState('');
   const [searchInput, setSearchInput] = useState('');
 

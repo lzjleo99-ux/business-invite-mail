@@ -232,7 +232,7 @@ const LoginPage: React.FC = () => {
                   onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
                     setForgotCode(e.target.value.replace(/\D/g, ''))
                   }
-                  placeholder="6 位数字"
+                  placeholder={t('6 位数字')}
                 />
               </div>
               <div className="space-y-1">

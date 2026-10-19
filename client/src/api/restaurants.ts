@@ -112,6 +112,8 @@ export async function getCompanies(params: CompanyListParams): Promise<CompanyLi
   if (params.noEmail !== undefined) searchParams.set('noEmail', String(params.noEmail));
   if (params.isStarred !== undefined) searchParams.set('isStarred', String(params.isStarred));
   if (params.filterKey) searchParams.set('filterKey', params.filterKey);
+  // 国家筛选漏传过：UI 选了国家但列表不跟着变，因为这里没把参数带过去
+  if (params.country) searchParams.set('country', params.country);
   const response = await axiosForBackend.get(`/api/restaurants?${searchParams.toString()}`);
   return response.data;
 }

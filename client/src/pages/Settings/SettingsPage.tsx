@@ -1151,7 +1151,7 @@ const SettingsPage = () => {
                     id="smtp-from-name"
                     value={smtp.fromName}
                     onChange={(e) => setSmtp({ ...smtp, fromName: e.target.value })}
-                    placeholder="邮件收发助手"
+                    placeholder={t('邮件收发助手')}
                   />
                 </div>
                 <div className="space-y-1">
