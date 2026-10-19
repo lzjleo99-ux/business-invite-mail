@@ -58,8 +58,10 @@ import {
 } from '@client/src/components/ui/dialog';
 import {
   DropdownMenu,
+  DropdownMenuCheckboxItem,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuLabel,
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@client/src/components/ui/dropdown-menu';
@@ -457,6 +459,12 @@ const WorkbenchTab: React.FC<WorkbenchTabProps> = ({
     analyzed: ['analyzed', 'generating', 'generated'],
     all: ['pending', 'failed', 'analyzed', 'generating', 'generated'],
   };
+  /** 下拉菜单里显示的选项（label 走 t() 翻译） */
+  const ANALYZE_SCOPE_OPTIONS: { value: AnalyzeScope; label: string }[] = [
+    { value: 'unanalyzed', label: '未分析的' },
+    { value: 'analyzed', label: '已分析的' },
+    { value: 'all', label: '全部' },
+  ];
   const handleAnalyzeAll = useCallback(async () => {
     setAnalyzeAllPreparing(true);
     try {
@@ -1995,11 +2003,13 @@ const WorkbenchTab: React.FC<WorkbenchTabProps> = ({
           </div>
 
           <div className="flex items-center gap-2 flex-wrap">
-            <Button
-              variant="secondary"
-              onClick={() => void handleAnalyzeAll()}
-              disabled={analyzeAllPreparing || emailRescanRunning || batchAnalyzeOp.isRunning || items.length === 0 || batchGenerateOp.isRunning || batchWhatsAppOp.isRunning}
-            >
+            <div className="flex items-stretch">
+              <Button
+                variant="secondary"
+                onClick={() => void handleAnalyzeAll()}
+                disabled={analyzeAllPreparing || emailRescanRunning || batchAnalyzeOp.isRunning || items.length === 0 || batchGenerateOp.isRunning || batchWhatsAppOp.isRunning}
+                className="rounded-r-none"
+              >
               {analyzeAllPreparing || emailRescanRunning || batchAnalyzeOp.isRunning ? (
                 <Loader2 className="animate-spin" size={16} />
               ) : (
@@ -2017,20 +2027,31 @@ const WorkbenchTab: React.FC<WorkbenchTabProps> = ({
                       })
                     : t('一键分析全部')}
             </Button>
-            <Select
-              value={analyzeScope}
-              onValueChange={(v) => setAnalyzeScope(v as AnalyzeScope)}
-              disabled={analyzeAllPreparing || batchAnalyzeOp.isRunning || emailRescanRunning}
-            >
-              <SelectTrigger className="w-32" aria-label={t('分析范围')}>
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="unanalyzed">{t('未分析的')}</SelectItem>
-                <SelectItem value="analyzed">{t('已分析的')}</SelectItem>
-                <SelectItem value="all">{t('全部')}</SelectItem>
-              </SelectContent>
-            </Select>
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button
+                  variant="secondary"
+                  disabled={analyzeAllPreparing || batchAnalyzeOp.isRunning || emailRescanRunning}
+                  className="rounded-l-none border-l-0 px-2"
+                  aria-label={t('分析范围')}
+                >
+                  <ChevronDown size={14} />
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="start">
+                <DropdownMenuLabel>{t('分析范围')}</DropdownMenuLabel>
+                {ANALYZE_SCOPE_OPTIONS.map((opt) => (
+                  <DropdownMenuCheckboxItem
+                    key={opt.value}
+                    checked={analyzeScope === opt.value}
+                    onCheckedChange={() => setAnalyzeScope(opt.value)}
+                  >
+                    {t(opt.label)}
+                  </DropdownMenuCheckboxItem>
+                ))}
+              </DropdownMenuContent>
+            </DropdownMenu>
+            </div>
             <Button
               variant="default"
               onClick={() => void handleGenerateAll()}
