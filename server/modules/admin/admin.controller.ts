@@ -147,8 +147,10 @@ export class AdminController {
 
   /** 测试企微推送（会真实发一条消息到群里） */
   @Post('wecom-notify-test')
-  async testWecomNotify(): Promise<{ ok: boolean; message: string }> {
-    return this.wecomNotifyService.test();
+  async testWecomNotify(
+    @Body() body: { webhookUrl?: string },
+  ): Promise<{ ok: boolean; message: string }> {
+    return this.wecomNotifyService.test(body?.webhookUrl);
   }
 
   /** 读取 SMTP 配置（密码只返回是否已设置） */

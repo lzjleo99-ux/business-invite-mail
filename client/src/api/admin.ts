@@ -108,8 +108,14 @@ export async function saveWecomNotifyConfig(body: {
   return response.data;
 }
 
-/** 测试推送：会真实往群里发一条消息 */
-export async function testWecomNotify(): Promise<{ ok: boolean; message: string }> {
-  const response = await axiosForBackend.post('/api/admin/wecom-notify-test', {}, { timeout: 30_000 });
+/** 测试推送：会真实往群里发一条消息。传入未保存的地址即可先测再存 */
+export async function testWecomNotify(
+  webhookUrl?: string,
+): Promise<{ ok: boolean; message: string }> {
+  const response = await axiosForBackend.post(
+    '/api/admin/wecom-notify-test',
+    { webhookUrl },
+    { timeout: 30_000 },
+  );
   return response.data;
 }

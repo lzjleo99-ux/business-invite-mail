@@ -357,6 +357,7 @@ export const enMessages: Record<string, string> = {
   '电话': 'Phone',
   '正在读取已保存的发信配置...': 'Loading saved mail settings...',
   '已保存：发件邮箱 {addr}，授权码已设置（出于安全不回显，留空即不修改）': 'Saved: sending from {addr}, authorization code is set (never shown for security; leave blank to keep it)',
+  '在企业微信群里「添加群机器人」，弹窗里复制「Webhook 地址」那一整条。它应以 https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key= 开头——注意不是浏览器地址栏的网址。': "In the WeCom group, add a group bot and copy the whole 'Webhook address' from the dialog. It must start with https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key= — not the browser address bar.",
   '全部联系方式': 'All contacts',
   '主': 'Primary',
   '未联系': 'Not contacted',

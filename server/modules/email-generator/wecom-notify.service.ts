@@ -1,4 +1,4 @@
-import { Injectable, Inject, Logger } from '@nestjs/common';
+import { Injectable, Inject, Logger, BadRequestException } from '@nestjs/common';
 import { DRIZZLE_DATABASE, type PostgresJsDatabase } from '@lark-apaas/fullstack-nestjs-core';
 import { asc, eq, sql } from 'drizzle-orm';
 import axios from 'axios';
@@ -109,8 +109,13 @@ export class WeComNotifyService {
       input.webhookUrl !== undefined && input.webhookUrl !== null
         ? input.webhookUrl.trim()
         : prev.webhookUrl;
-    if (url && !/^https:\/\/qyapi\.weixin\.qq\.com\/cgi-bin\/webhook\/send\?key=/.test(url)) {
-      throw new Error('webhook 地址格式不正确，应以 https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key= 开头');
+    if (url && !WeComNotifyService.isWebhookUrl(url)) {
+      // 必须抛 BadRequestException 而不是 Error：后者会被平台包成 500，
+      // 前端只显示 "Request failed with status code 500"，用户完全不知道哪里错了。
+      throw new BadRequestException(
+        '这不是群机器人的 Webhook 地址。正确格式是 https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=... ' +
+          '在企业微信群里「添加群机器人」后，复制弹窗里的「Webhook 地址」那一整条（不是浏览器的地址栏）。',
+      );
     }
     const values = {
       webhookUrl: url || null,
@@ -175,13 +180,32 @@ export class WeComNotifyService {
     }
   }
 
-  /** 连通性自检：设置页「测试推送」用。空跑一次真实 webhook。 */
-  async test(): Promise<{ ok: boolean; message: string }> {
+  /** 群机器人 Webhook 必须是 qyapi 的 send?key= 形式 */
+  static isWebhookUrl(url: string): boolean {
+    return /^https:\/\/qyapi\.weixin\.qq\.com\/cgi-bin\/webhook\/send\?key=[A-Za-z0-9-]+/.test(
+      url.trim(),
+    );
+  }
+
+  /**
+   * 连通性自检：设置页「测试推送」用。
+   * 允许传入未保存的地址（webhookUrl 参数）—— 否则用户必须先保存才能测，
+   * 而保存失败时就没法验证自己填的地址对不对。
+   */
+  async test(webhookUrl?: string): Promise<{ ok: boolean; message: string }> {
     try {
       const cfg = await this.getConfig();
-      if (!cfg.webhookUrl) return { ok: false, message: '尚未配置 webhook 地址' };
+      const target = (webhookUrl ?? '').trim() || cfg.webhookUrl;
+      if (!target) return { ok: false, message: '尚未配置 webhook 地址' };
+      if (!WeComNotifyService.isWebhookUrl(target)) {
+        return {
+          ok: false,
+          message:
+            '这不是群机器人的 Webhook 地址。正确格式是 https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=...',
+        };
+      }
       const res = await axios.post(
-        cfg.webhookUrl,
+        target,
         {
           msgtype: 'markdown',
           markdown: { content: '✅ 邮件收发助手：企微提醒通道测试成功（收到此消息即配置正确）' },

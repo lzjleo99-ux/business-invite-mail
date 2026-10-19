@@ -1140,7 +1140,9 @@ const SettingsPage = () => {
                 <p className="text-xs text-slate-500">
                   {wecom.webhookSet
                     ? t('已保存（出于安全不显示原文；留空则不修改）')
-                    : t('在企业微信群里「添加群机器人」即可拿到这个地址')}
+                    : t(
+                        '在企业微信群里「添加群机器人」，弹窗里复制「Webhook 地址」那一整条。它应以 https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key= 开头——注意不是浏览器地址栏的网址。',
+                      )}
                 </p>
               </div>
 
@@ -1200,11 +1202,13 @@ const SettingsPage = () => {
                 </Button>
                 <Button
                   variant="outline"
-                  disabled={wecomBusy || !wecom.webhookSet}
+                  disabled={wecomBusy || !(wecom.webhookSet || wecom.webhookUrl.trim())}
                   onClick={async () => {
                     setWecomBusy(true);
                     try {
-                      const r = await adminApi.testWecomNotify();
+                      const r = await adminApi.testWecomNotify(
+                        wecom.webhookUrl.trim() || undefined,
+                      );
                       if (r.ok) toast.success(t('推送成功'), { description: r.message });
                       else toast.error(t('推送失败'), { description: r.message });
                     } catch (err: unknown) {
