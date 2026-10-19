@@ -448,11 +448,20 @@ const WorkbenchTab: React.FC<WorkbenchTabProps> = ({
   //    没邮箱的尝试从官网挖。纯 HTTP 不调 AI，与第 1 步并行执行。
   const [analyzeAllPreparing, setAnalyzeAllPreparing] = useState(false);
   const [emailRescanRunning, setEmailRescanRunning] = useState(false);
+  // 「一键分析全部」的取数范围：默认只跑未分析的（与历史行为一致），
+  // 也可选只重跑已分析过的（换分析逻辑后重新抓联系方式），或全部。
+  type AnalyzeScope = 'unanalyzed' | 'analyzed' | 'all';
+  const [analyzeScope, setAnalyzeScope] = useState<AnalyzeScope>('unanalyzed');
+  const ANALYZE_SCOPE_STATUSES: Record<AnalyzeScope, CompanyStatus[]> = {
+    unanalyzed: ['pending', 'failed'],
+    analyzed: ['analyzed', 'generating', 'generated'],
+    all: ['pending', 'failed', 'analyzed', 'generating', 'generated'],
+  };
   const handleAnalyzeAll = useCallback(async () => {
     setAnalyzeAllPreparing(true);
     try {
       const seen = new Map<string, Company>();
-      for (const status of ['pending', 'failed'] as const) {
+      for (const status of ANALYZE_SCOPE_STATUSES[analyzeScope]) {
         let page = 1;
         for (;;) {
           const res = await getCompanies({ projectId, page, pageSize: 100, status });
@@ -463,7 +472,7 @@ const WorkbenchTab: React.FC<WorkbenchTabProps> = ({
       }
       const targets = [...seen.values()];
       if (targets.length === 0) {
-        toast.info(t('没有待分析的公司，所有公司都已分析'));
+        toast.info(t('该范围内没有需要分析的公司'));
       } else {
         batchAnalyzeOp.start(targets);
       }
@@ -2008,6 +2017,20 @@ const WorkbenchTab: React.FC<WorkbenchTabProps> = ({
                       })
                     : t('一键分析全部')}
             </Button>
+            <Select
+              value={analyzeScope}
+              onValueChange={(v) => setAnalyzeScope(v as AnalyzeScope)}
+              disabled={analyzeAllPreparing || batchAnalyzeOp.isRunning || emailRescanRunning}
+            >
+              <SelectTrigger className="w-32" aria-label={t('分析范围')}>
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="unanalyzed">{t('未分析的')}</SelectItem>
+                <SelectItem value="analyzed">{t('已分析的')}</SelectItem>
+                <SelectItem value="all">{t('全部')}</SelectItem>
+              </SelectContent>
+            </Select>
             <Button
               variant="default"
               onClick={() => void handleGenerateAll()}
