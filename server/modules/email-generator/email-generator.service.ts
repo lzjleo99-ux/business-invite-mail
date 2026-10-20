@@ -304,9 +304,16 @@ export class EmailGeneratorService {
 
     const toEmail = company.websiteContactEmail || company.email || '';
     const sender = await this.getSenderConfig(userId);
-    const fromLine = sender.senderTitle
-      ? `${sender.senderName} <${sender.senderName.toLowerCase().replace(/\s+/g, '.')}@example.com>`
-      : sender.senderName;
+    // From 必须用配置里的发件邮箱。
+    // 之前这里是 `${senderName} <${senderName.toLowerCase()...}@example.com>`——
+    // 一个写死的假地址。用户下载 .eml 用自己的客户端发出去时，收件人看到的
+    // 发件人是 name@example.com，回信也回不到真实邮箱，而且很难查出原因。
+    const smtp = await this.mailService.getSettings(userId);
+    const fromEmail = (smtp?.fromEmail || '').trim();
+    const fromName = sender.senderName || smtp?.fromName?.trim() || '';
+    const fromLine = fromEmail
+      ? `${fromName} <${fromEmail}>`
+      : fromName;
 
     const inlineImages = await this.collectInlineImages(company.emailBody);
 
