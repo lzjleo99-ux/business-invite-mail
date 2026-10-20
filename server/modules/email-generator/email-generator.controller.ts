@@ -203,8 +203,9 @@ export class EmailGeneratorController {
   @Post('send/:companyId')
   async sendEmail(
     @Param('companyId') companyId: string,
-    @Query('lang') lang?: string,
-    @Query('accountId') accountId?: string,
+    @Query('lang') lang: string | undefined,
+    @Query('accountId') accountId: string | undefined,
+    @CurrentUser() user: JwtPayload,
   ): Promise<{ to: string; subject: string }> {
     if (!companyId) {
       throw new BadRequestException('companyId 不能为空');
