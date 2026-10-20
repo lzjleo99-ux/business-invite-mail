@@ -85,32 +85,33 @@ export class MailService {
     if (userId) {
       // 包 try/catch：owner_id 迁移若因权限/时序没跑完，就当"这个人还没配过"，
       // 绝不能因此把整个发信服务页打成 500。
-      let own: unknown[] = [];
+      let row: typeof smtpAccounts.$inferSelect | undefined;
       try {
-        own = (await this.db.execute(sql`
-          SELECT id, host, port, secure, username, password, from_name AS "fromName", email AS "fromEmail"
-          FROM smtp_accounts
-          WHERE owner_id = ${userId}
-          ORDER BY is_default DESC, _created_at ASC
-          LIMIT 1
-        `)) as unknown[];
+        // 用 drizzle 查询构建器而不是裸 SQL：和 listAccounts 走同一条已验证路径，
+        // 避免 execute(sql\`...\`) 的参数/返回值形态差异导致静默取不到。
+        const own = await this.db
+          .select()
+          .from(smtpAccounts)
+          .where(eq(smtpAccounts.ownerId, userId))
+          .orderBy(desc(smtpAccounts.isDefault), asc(smtpAccounts.createdAt))
+          .limit(1);
+        row = own[0];
       } catch (err: unknown) {
         this.logger.warn(
           `读取用户 SMTP 账号失败，回退全局配置：${err instanceof Error ? err.message : String(err)}`,
         );
-        own = [];
+        row = undefined;
       }
-      const row = own[0] as Record<string, unknown> | undefined;
       if (row) {
         return {
-          id: String(row.id),
-          host: String(row.host ?? ''),
-          port: Number(row.port) || 465,
-          secure: row.secure !== false,
-          username: (row.username as string | null) ?? String(row.email ?? ''),
-          password: (row.password as string | null) ?? null,
-          fromName: (row.fromName as string | null) ?? null,
-          fromEmail: String(row.fromEmail ?? ''),
+          id: row.id,
+          host: row.host,
+          port: row.port,
+          secure: row.secure,
+          username: row.email,
+          password: row.password,
+          fromName: row.fromName,
+          fromEmail: row.email,
         };
       }
     }
@@ -301,39 +302,37 @@ export class MailService {
 
     // 有 userId → 存进自建的 smtp_accounts（每人一行，is_default）
     if (input.userId) {
-      const rows = await this.db.execute(sql`
-        SELECT id FROM smtp_accounts
-        WHERE owner_id = ${input.userId}
-        ORDER BY is_default DESC, _created_at ASC
-        LIMIT 1
-      `);
-      const existingRow = rows[0] as { id: string } | undefined;
-      const fromName = input.fromName !== undefined ? input.fromName : null;
-      const email = input.fromEmail.trim();
-
-      if (existingRow) {
+      const existing = await this.db
+        .select({ id: smtpAccounts.id, password: smtpAccounts.password })
+        .from(smtpAccounts)
+        .where(eq(smtpAccounts.ownerId, input.userId))
+        .orderBy(desc(smtpAccounts.isDefault), asc(smtpAccounts.createdAt))
+        .limit(1);
+      const row = existing[0];
+      const values = {
+        email: input.fromEmail.trim(),
+        host: input.host.trim(),
+        port: Number.isFinite(input.port) ? Number(input.port) : 465,
+        secure: input.secure !== false,
+        fromName: input.fromName !== undefined ? input.fromName : null,
         // 密码是只写字段：留空表示不修改
-        await this.db.execute(sql`
-          UPDATE smtp_accounts SET
-            email = ${email},
-            host = ${input.host.trim()},
-            port = ${Number.isFinite(input.port) ? Number(input.port) : 465},
-            secure = ${input.secure !== false},
-            from_name = ${fromName},
-            username = COALESCE(${input.username ?? null}, email),
-            password = COALESCE(NULLIF(${input.password ?? null}, ''), password)
-          WHERE id = ${existingRow.id}
-        `);
+        password:
+          input.password !== undefined && input.password !== null && input.password !== ''
+            ? input.password
+            : row?.password ?? '',
+      };
+
+      if (row) {
+        await this.db
+          .update(smtpAccounts)
+          .set(values)
+          .where(eq(smtpAccounts.id, row.id));
       } else {
-        await this.db.execute(sql`
-          INSERT INTO smtp_accounts
-            (owner_id, email, host, port, secure, from_name, username, password, is_default)
-          VALUES
-            (${input.userId}, ${email}, ${input.host.trim()},
-             ${Number.isFinite(input.port) ? Number(input.port) : 465},
-             ${input.secure !== false}, ${fromName}, ${input.username ?? email},
-             ${input.password ?? ''}, true)
-        `);
+        await this.db.insert(smtpAccounts).values({
+          ...values,
+          ownerId: input.userId,
+          isDefault: true,
+        });
       }
       this.transporter = null;
       this.transporterKey = '';

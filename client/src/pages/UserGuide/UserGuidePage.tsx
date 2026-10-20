@@ -184,8 +184,17 @@ const UserGuidePage: React.FC = () => {
    * 之前只有一套中文截图，切英文时文字变了、图还是中文的，看起来像没切换。
    * 英文图缺失时回退中文图（保证不出现破图）。
    */
-  const shotFor = (shot: string): string =>
-    lang === 'en' && shot.endsWith('.png') ? shot.replace(/\.png$/, '-en.png') : shot;
+  /**
+   * 截图地址按语言切换；`?v=` 是缓存击穿版本号。
+   * 截图文件名不带内容哈希，浏览器会一直用旧缓存——曾经就因为换过图片内容
+   * 但 URL 没变，用户看到的还是上一版（表现为"改了没生效"）。
+   * 以后每次替换截图文件，把这个数字 +1。
+   */
+  const SHOT_VERSION = '3';
+  const shotFor = (shot: string): string => {
+    const base = lang === 'en' && shot.endsWith('.png') ? shot.replace(/\.png$/, '-en.png') : shot;
+    return `${base}?v=${SHOT_VERSION}`;
+  };
 
   /** 顶部章节按钮：跳到对应章节并高亮 */
   const jumpTo = (id: string) => {

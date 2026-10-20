@@ -90,6 +90,28 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
       if (storedToken && storedUser) {
         setToken(storedToken);
         setUser(JSON.parse(storedUser) as AuthUser);
+        // 本地这份只是登录时的快照。角色/显示名在服务端改了（比如被提升为
+        // 超级管理员），不同步的话界面会一直显示旧角色——侧边栏徽章还是
+        // 「Admin」，而用户管理页（读接口）已经显示「Super admin」，两边不一致。
+        // 这里静默刷新一次；失败不影响使用，下次登录自然更正。
+        void authApi
+          .getMe(storedToken)
+          .then((fresh) => {
+            if (!fresh) return;
+            setUser((prev) => {
+              if (
+                prev &&
+                prev.id === fresh.id &&
+                prev.role === fresh.role &&
+                prev.displayName === fresh.displayName
+              ) {
+                return prev;
+              }
+              authStorage.setItem(USER_KEY, JSON.stringify(fresh));
+              return fresh;
+            });
+          })
+          .catch(() => undefined);
       }
     } catch (err) {
       logger.warn('Failed to read auth from localStorage', err);
