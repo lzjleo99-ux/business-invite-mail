@@ -213,6 +213,7 @@ export class EmailGeneratorController {
       companyId,
       lang === 'en' ? 'en' : 'local',
       accountId,
+      user.userId,
     );
   }
 

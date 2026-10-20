@@ -401,7 +401,7 @@ export class EmailGeneratorService {
         `发信账号不存在（id=${accountId}），可能已被删除。请在设置里重新选择。`,
       );
     }
-    const smtp = await this.mailService.getSettings();
+    const smtp = await this.mailService.getSettings(userId);
     const sender = await this.getSenderConfig(userId);
     const fromName = acct?.fromName?.trim() || smtp?.fromName?.trim() || sender.senderName;
     const fromEmail = (acct?.email || smtp?.fromEmail || '').trim();
@@ -422,6 +422,7 @@ export class EmailGeneratorService {
     companyId: string,
     lang: 'local' | 'en' = 'local',
     accountId?: string,
+    userId?: string,
   ): Promise<{ to: string; subject: string }> {
     const company = await this.getCompanyById(companyId);
     if (!company) {
@@ -439,9 +440,15 @@ export class EmailGeneratorService {
       company,
       lang,
       accountId,
+      userId,
     );
     try {
-      const { messageId } = await this.mailService.sendRaw(raw, { from, to: [recipient] }, acctId);
+      const { messageId } = await this.mailService.sendRaw(
+        raw,
+        { from, to: [recipient] },
+        acctId,
+        userId,
+      );
       await this.emailHistory.recordOutbound({
         companyId: company.id,
         projectId: company.projectId,
@@ -484,6 +491,8 @@ export class EmailGeneratorService {
   ): Promise<BatchSendSummary> {
     /** 该公司实际发哪一版：优先用用户在该行的预览选择（保证所见即所发），否则用批量默认值 */
     const langFor = (id: string): 'local' | 'en' => langOverrides[id] ?? lang;
+    // 发信用谁的 SMTP（每用户独立）
+    const senderUserId = user.userId;
     if (user.role !== 'admin') {
       const owned = await this.db
         .select({ id: projects.id })
@@ -547,7 +556,12 @@ export class EmailGeneratorService {
             langFor(company.id),
             params.accountId,
           );
-          const { messageId } = await this.mailService.sendRaw(raw, { from, to: [to] }, acctId);
+          const { messageId } = await this.mailService.sendRaw(
+            raw,
+            { from, to: [to] },
+            acctId,
+            senderUserId,
+          );
           await this.emailHistory.recordOutbound({
             companyId: company.id,
             projectId: company.projectId,
@@ -974,13 +988,15 @@ export class EmailGeneratorService {
       temperature: number | null;
     };
     images: EmailImageCandidate[];
+    /** 当前用户：决定发件邮箱取谁的 SMTP */
+    userId?: string;
   }): Promise<BilingualEmailResult> {
-    const { company, projectContext, sender, languageCode, config, images } = params;
+    const { company, projectContext, sender, languageCode, config, images, userId } = params;
 
     // 签名要带联系方式：发件邮箱取 SMTP 配置（设置页「发件人邮箱」），就是客户回信时看到的地址
     let senderEmail = '';
     try {
-      const smtpCfg = await this.mailService.getSettings();
+      const smtpCfg = await this.mailService.getSettings(userId);
       senderEmail = (smtpCfg?.fromEmail || '').trim();
     } catch {
       senderEmail = '';
@@ -1190,13 +1206,15 @@ Return ONLY a JSON object with these exact keys:
       temperature: number | null;
     };
     languageCode: string;
+    /** 当前用户：决定发件邮箱取谁的 SMTP */
+    userId?: string;
   }): Promise<BilingualWhatsAppResult> {
-    const { company, projectContext, sender, config, languageCode } = params;
+    const { company, projectContext, sender, config, languageCode, userId } = params;
 
     // IM 话术签名保持随意（规则 7），这里只提供邮箱作为可选信息
     let senderEmail = '';
     try {
-      const smtpCfg = await this.mailService.getSettings();
+      const smtpCfg = await this.mailService.getSettings(userId);
       senderEmail = (smtpCfg?.fromEmail || '').trim();
     } catch {
       senderEmail = '';

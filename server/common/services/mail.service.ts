@@ -367,8 +367,8 @@ export class MailService {
     this.transporterKey = '';
   }
 
-  private async getTransporter(): Promise<Transporter> {
-    const s = await this.getSettings();
+  private async getTransporter(userId?: string): Promise<Transporter> {
+    const s = await this.getSettings(userId);
     if (!s || !s.host || !s.fromEmail) {
       throw new BadRequestException('系统尚未配置发信服务，请联系管理员在设置中配置 SMTP');
     }
@@ -658,9 +658,15 @@ export class MailService {
     envelope: { from: string; to: string[] },
     /** 指定发信账号；不传走默认/全局 */
     accountId?: string,
+    /** 当前用户：决定用谁的 SMTP（每用户独立） */
+    userId?: string,
   ): Promise<{ messageId: string | null }> {
-    const sender = accountId ? await this.resolveSender(accountId) : null;
-    const transporter = sender ? sender.transporter : await this.getTransporter();
+    const sender = accountId
+      ? await this.resolveSender(accountId, undefined, userId)
+      : userId
+        ? await this.resolveSender(undefined, undefined, userId)
+        : null;
+    const transporter = sender ? sender.transporter : await this.getTransporter(userId);
     try {
       const info = await transporter.sendMail({ raw, envelope } as Parameters<Transporter['sendMail']>[0]);
       const messageId = (info as { messageId?: string }).messageId ?? null;
