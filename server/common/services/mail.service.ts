@@ -309,17 +309,29 @@ export class MailService {
         .orderBy(desc(smtpAccounts.isDefault), asc(smtpAccounts.createdAt))
         .limit(1);
       const row = existing[0];
+      // 密码：填了用填的；没填且自己已有账号就用原值；
+      // 都没就继承全局 smtp_config 的密码——**绝不能建一个空密码账号**。
+      // （冒烟测试用 smtp-config POST 但没带密码，就这样建出过一个空密码的
+      //   默认账号，之后发信全部失败。）
+      let password =
+        input.password !== undefined && input.password !== null && input.password !== ''
+          ? input.password
+          : row?.password ?? '';
+      if (!password) {
+        const global = await this.db
+          .select({ password: smtpConfig.password })
+          .from(smtpConfig)
+          .orderBy(desc(smtpConfig.createdAt))
+          .limit(1);
+        password = global[0]?.password ?? '';
+      }
       const values = {
         email: input.fromEmail.trim(),
         host: input.host.trim(),
         port: Number.isFinite(input.port) ? Number(input.port) : 465,
         secure: input.secure !== false,
         fromName: input.fromName !== undefined ? input.fromName : null,
-        // 密码是只写字段：留空表示不修改
-        password:
-          input.password !== undefined && input.password !== null && input.password !== ''
-            ? input.password
-            : row?.password ?? '',
+        password,
       };
 
       if (row) {
