@@ -276,6 +276,10 @@ CREATE TABLE IF NOT EXISTS mail_inbox_settings (
   _created_at          timestamptz(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
   _updated_at          timestamptz(3) NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
+-- 老库补列（幂等）：CREATE IF NOT EXISTS 对已存在的表是 no-op
+ALTER TABLE mail_inbox_settings ADD COLUMN IF NOT EXISTS owner_id varchar(64);
+CREATE INDEX IF NOT EXISTS idx_mail_inbox_settings_owner ON mail_inbox_settings (owner_id);
+
 );
 GRANT ALL PRIVILEGES ON TABLE mail_inbox_settings TO anon_, authenticated_, service_role_;
 
@@ -292,6 +296,10 @@ CREATE TABLE IF NOT EXISTS wecom_notify_settings (
   _created_at        timestamptz(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
   _updated_at        timestamptz(3) NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
+-- 老库补列（幂等）：CREATE IF NOT EXISTS 对已存在的表是 no-op
+ALTER TABLE wecom_notify_settings ADD COLUMN IF NOT EXISTS owner_id varchar(64);
+CREATE INDEX IF NOT EXISTS idx_wecom_notify_settings_owner ON wecom_notify_settings (owner_id);
+
 );
 GRANT ALL PRIVILEGES ON TABLE wecom_notify_settings TO anon_, authenticated_, service_role_;
 

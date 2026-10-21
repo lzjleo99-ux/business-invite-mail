@@ -63,6 +63,14 @@ export class WeComNotifyService {
               _updated_at timestamptz(3) NOT NULL DEFAULT CURRENT_TIMESTAMP
             )`,
           );
+          // 老库补列：表很可能是更早的部署建的（没有 owner_id），
+          // CREATE TABLE IF NOT EXISTS 对已存在的表是 no-op，所以必须显式 ALTER。
+          await run(
+            'ALTER TABLE wecom_notify_settings ADD COLUMN IF NOT EXISTS owner_id varchar(64)',
+          );
+          await run(
+            'CREATE INDEX IF NOT EXISTS idx_wecom_notify_owner ON wecom_notify_settings (owner_id)',
+          );
           await run(
             `GRANT ALL PRIVILEGES ON TABLE wecom_notify_settings TO anon_, authenticated_, service_role_`,
           );
