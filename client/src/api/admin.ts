@@ -125,11 +125,29 @@ export async function testWecomNotify(
 export interface SmtpAccount {
   id: string;
   email: string;
+  /** 授权码明文（设置页要能直接看并改，见 MailService.listAccounts 注释） */
+  password: string;
   host: string;
   port: number;
   secure: boolean;
   fromName: string | null;
   isDefault: boolean;
+}
+
+/** 更新发信账号（设置页点进某个邮箱后编辑） */
+export async function updateSmtpAccount(
+  id: string,
+  data: {
+    email?: string;
+    password?: string;
+    host?: string;
+    port?: number;
+    secure?: boolean;
+    fromName?: string | null;
+  },
+): Promise<{ ok: true }> {
+  const response = await axiosForBackend.patch(`/api/admin/smtp-accounts/${id}`, data);
+  return response.data;
 }
 
 export async function listSmtpAccounts(): Promise<SmtpAccount[]> {

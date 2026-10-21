@@ -171,6 +171,24 @@ export class AdminController {
 
   // 每用户独立的设置：只需登录，不需要管理员
   @UseGuards(JwtAuthGuard)
+  @Patch('smtp-accounts/:id')
+  async updateSmtpAccount(
+    @Param('id') id: string,
+    @Body()
+    body: {
+      email?: string;
+      password?: string;
+      host?: string;
+      port?: number;
+      secure?: boolean;
+      fromName?: string | null;
+    },
+    @CurrentUser() user: JwtPayload,
+  ): Promise<{ ok: true }> {
+    await this.mailService.updateAccount(id, body, user.userId);
+    return { ok: true };
+  }
+
   @Delete('smtp-accounts/:id')
   async deleteSmtpAccount(
     @Param('id') id: string,

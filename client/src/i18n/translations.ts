@@ -20,6 +20,16 @@ export const enMessages: Record<string, string> = {
   '第 {page} / {totalPages} 页': 'Page {page} of {totalPages}',
 
   // ---- antd table locale ----
+  '发信邮箱': 'Sender mailboxes',
+  '点下面的邮箱可以进行编辑或删除；发送时在「一键发送」旁选择用哪个。': 'Click a mailbox below to edit or delete it. Choose which one to use next to 一键发送 when sending.',
+  '添加邮箱': 'Add mailbox',
+  '正在读取邮箱...': 'Loading mailboxes...',
+  '还没有可用邮箱。点右上角「添加邮箱」添加第一个；未添加时发送会沿用下面的旧配置。': 'No mailbox yet. Use 添加邮箱 in the top right to add the first one; until then sending falls back to the legacy config below.',
+  '编辑': 'Edit',
+  '删除这个邮箱': 'Delete this mailbox',
+  '新邮箱': 'New mailbox',
+  '已保存': 'Saved',
+  '邮箱已添加': 'Mailbox added',
   '全部邮箱': 'All mailboxes',
   '全选本页': 'Select all on this page',
   '取消选择': 'Clear selection',

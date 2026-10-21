@@ -12,6 +12,7 @@ import {
   KeyRound,
   Loader2,
   Mail,
+  Plus,
   User,
 } from 'lucide-react';
 import { resolveAppUrl } from '@lark-apaas/client-toolkit/utils/resolveAppUrl';
@@ -82,7 +83,12 @@ const SettingsPage = () => {
   // ---- 多个发信账号（邮箱后台）----
   const [accounts, setAccounts] = useState<adminApi.SmtpAccount[]>([]);
   const [accountsLoading, setAccountsLoading] = useState(true);
-  const [newAccount, setNewAccount] = useState({
+  /**
+   * 邮箱编辑状态：null = 收起（只看列表）；'new' = 新建；否则是账号 id = 编辑该账号。
+   * 设计：进页面先看有哪些邮箱可用，点某个才展开编辑，右上角「添加邮箱」新建。
+   */
+  const [editingAccount, setEditingAccount] = useState<string | 'new' | null>(null);
+  const [accountForm, setAccountForm] = useState({
     email: '',
     password: '',
     host: '',
@@ -101,6 +107,24 @@ const SettingsPage = () => {
     }
   }, []);
   useEffect(() => { void refreshAccounts(); }, [refreshAccounts]);
+
+  /** 打开某个账号的编辑表单：用当前值填充（授权码也直接显示，不隐藏） */
+  const openAccountEditor = (a: adminApi.SmtpAccount) => {
+    setAccountForm({
+      email: a.email,
+      password: a.password,
+      host: a.host,
+      port: String(a.port),
+      secure: a.secure,
+      fromName: a.fromName ?? '',
+    });
+    setEditingAccount(a.id);
+  };
+
+  const openNewAccount = () => {
+    setAccountForm({ email: '', password: '', host: '', port: '465', secure: true, fromName: '' });
+    setEditingAccount('new');
+  };
 
   // 企业微信群机器人通知（webhook 只写不读，回读只给 webhookSet）
   const [wecom, setWecom] = useState({
@@ -128,26 +152,33 @@ const SettingsPage = () => {
       .catch(() => undefined);
   }, [isAdmin]);
 
-  const handleAddAccount = async () => {
-    if (!newAccount.email.trim() || !newAccount.password || !newAccount.host.trim()) {
+  /** 保存（新增或编辑同一个入口）：所有字段直接提交，不搞"留空表示不修改" */
+  const handleSaveAccount = async () => {
+    if (!accountForm.email.trim() || !accountForm.password || !accountForm.host.trim()) {
       toast.error(t('邮箱、授权码/密码、SMTP 服务器都不能为空'));
       return;
     }
     setAccountBusy(true);
     try {
-      await adminApi.addSmtpAccount({
-        email: newAccount.email.trim(),
-        password: newAccount.password,
-        host: newAccount.host.trim(),
-        port: Number(newAccount.port) || 465,
-        secure: newAccount.secure,
-        fromName: newAccount.fromName.trim() || undefined,
-      });
-      toast.success(t('发信账号已添加'));
-      setNewAccount({ email: '', password: '', host: '', port: '465', secure: true, fromName: '' });
+      const payload = {
+        email: accountForm.email.trim(),
+        password: accountForm.password,
+        host: accountForm.host.trim(),
+        port: Number(accountForm.port) || 465,
+        secure: accountForm.secure,
+        fromName: accountForm.fromName.trim() || undefined,
+      };
+      if (editingAccount === 'new') {
+        await adminApi.addSmtpAccount(payload);
+        toast.success(t('邮箱已添加'));
+      } else if (editingAccount) {
+        await adminApi.updateSmtpAccount(editingAccount, payload);
+        toast.success(t('已保存'));
+      }
+      setEditingAccount(null);
       await refreshAccounts();
     } catch (err: unknown) {
-      toast.error(t('添加失败'), { description: err instanceof Error ? err.message : String(err) });
+      toast.error(t('保存失败'), { description: err instanceof Error ? err.message : String(err) });
     } finally {
       setAccountBusy(false);
     }
@@ -158,6 +189,7 @@ const SettingsPage = () => {
     try {
       await adminApi.deleteSmtpAccount(id);
       toast.success(t('已删除 {e}', { e: email }));
+      if (editingAccount === id) setEditingAccount(null);
       await refreshAccounts();
     } catch (err: unknown) {
       toast.error(t('删除失败'), { description: err instanceof Error ? err.message : String(err) });
@@ -964,131 +996,229 @@ const SettingsPage = () => {
                 </p>
               ) : (
                 <>
-              {/* 邮箱后台：多个发信账号 */}
+              {/* 邮箱后台：先列有哪些邮箱可用，点进去编辑，右上角添加 */}
               <div className="rounded-lg border border-slate-200 bg-white p-4">
                 <div className="flex items-start justify-between gap-3">
                   <div>
-                    <h2 className="text-lg font-semibold text-slate-800">{t('邮箱后台')}</h2>
+                    <h2 className="text-lg font-semibold text-slate-800">{t('发信邮箱')}</h2>
                     <p className="mt-1 text-sm text-slate-500">
-                      {t('可添加多个发信账号（不同邮箱后缀）。发送时在「一键发送」旁选择用哪个。')}
+                      {t('点下面的邮箱可以进行编辑或删除；发送时在「一键发送」旁选择用哪个。')}
                     </p>
                   </div>
+                  <Button size="sm" onClick={openNewAccount} disabled={accountBusy}>
+                    <Plus size={14} className="mr-1" />
+                    {t('添加邮箱')}
+                  </Button>
                 </div>
 
                 {accountsLoading ? (
-                  <p className="mt-3 text-sm text-slate-400">{t('正在读取发信账号...')}</p>
-                ) : accounts.length === 0 ? (
-                  <p className="mt-3 rounded-md bg-amber-50 px-3 py-2 text-xs text-amber-800">
-                    {t('还没有发信账号。添加后即可在发送时选择邮箱后缀；未添加时沿用下方「发信服务」的旧配置。')}
+                  <p className="mt-4 text-sm text-slate-400">{t('正在读取邮箱...')}</p>
+                ) : accounts.length === 0 && editingAccount === null ? (
+                  <p className="mt-4 rounded-md bg-amber-50 px-3 py-3 text-sm text-amber-800">
+                    {t('还没有可用邮箱。点右上角「添加邮箱」添加第一个；未添加时发送会沿用下面的旧配置。')}
                   </p>
                 ) : (
-                  <ul className="mt-3 space-y-2">
+                  <ul className="mt-4 space-y-2">
                     {accounts.map((a) => (
-                      <li
-                        key={a.id}
-                        className="flex flex-wrap items-center gap-2 rounded-md border border-slate-200 px-3 py-2 text-sm"
-                      >
-                        <span className="font-medium text-slate-800">{a.email}</span>
-                        {a.isDefault && (
-                          <span className="rounded bg-blue-50 px-1.5 py-0.5 text-[10px] text-blue-700">
-                            {t('默认')}
-                          </span>
-                        )}
-                        <span className="text-xs text-slate-400">
-                          {a.host}:{a.port}
-                          {a.secure ? ` ${t('SSL')}` : ''}
-                        </span>
-                        <span className="ml-auto flex items-center gap-2">
-                          {!a.isDefault && (
-                            <Button
-                              variant="ghost"
-                              size="sm"
-                              className="h-7 px-2 text-xs"
-                              disabled={accountBusy}
-                              onClick={() => void handleSetDefaultAccount(a.id)}
-                            >
-                              {t('设为默认')}
-                            </Button>
+                      <li key={a.id}>
+                        <button
+                          type="button"
+                          onClick={() =>
+                            setEditingAccount(editingAccount === a.id ? null : a.id)
+                          }
+                          className={`flex w-full flex-wrap items-center gap-2 rounded-md border px-3 py-2.5 text-left text-sm transition-colors ${
+                            editingAccount === a.id
+                              ? 'border-blue-300 bg-blue-50'
+                              : 'border-slate-200 hover:bg-slate-50'
+                          }`}
+                        >
+                          <Mail size={15} className="text-slate-400" />
+                          <span className="font-medium text-slate-800">{a.email}</span>
+                          {a.isDefault && (
+                            <span className="rounded bg-blue-50 px-1.5 py-0.5 text-[10px] text-blue-700">
+                              {t('默认')}
+                            </span>
                           )}
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            className="h-7 px-2 text-xs text-red-500 hover:bg-red-50 hover:text-red-600"
-                            disabled={accountBusy}
-                            onClick={() => void handleDeleteAccount(a.id, a.email)}
-                          >
-                            {t('删除')}
-                          </Button>
-                        </span>
+                          <span className="text-xs text-slate-400">
+                            {a.host}:{a.port}
+                            {a.secure ? ` ${t('SSL')}` : ''}
+                          </span>
+                          <span className="ml-auto text-xs text-slate-400">
+                            {editingAccount === a.id ? t('收起') : t('编辑')}
+                          </span>
+                        </button>
+
+                        {/* 展开：编辑表单 */}
+                        {editingAccount === a.id && (
+                          <div className="mt-2 space-y-3 rounded-md border border-slate-200 bg-slate-50 p-3">
+                            <div className="grid gap-3 md:grid-cols-2">
+                              <div className="space-y-1">
+                                <Label htmlFor={`acc-email-${a.id}`}>{t('发件邮箱')}</Label>
+                                <Input
+                                  id={`acc-email-${a.id}`}
+                                  value={accountForm.email}
+                                  onChange={(e) => setAccountForm({ ...accountForm, email: e.target.value })}
+                                  placeholder="name@company.com"
+                                />
+                              </div>
+                              <div className="space-y-1">
+                                <Label htmlFor={`acc-pwd-${a.id}`}>{t('授权码 / 密码')}</Label>
+                                <Input
+                                  id={`acc-pwd-${a.id}`}
+                                  value={accountForm.password}
+                                  onChange={(e) => setAccountForm({ ...accountForm, password: e.target.value })}
+                                />
+                              </div>
+                              <div className="space-y-1">
+                                <Label htmlFor={`acc-host-${a.id}`}>{t('SMTP 服务器')}</Label>
+                                <Input
+                                  id={`acc-host-${a.id}`}
+                                  value={accountForm.host}
+                                  onChange={(e) => setAccountForm({ ...accountForm, host: e.target.value })}
+                                  placeholder="smtp.exmail.qq.com"
+                                />
+                              </div>
+                              <div className="space-y-1">
+                                <Label htmlFor={`acc-port-${a.id}`}>{t('端口')}</Label>
+                                <Input
+                                  id={`acc-port-${a.id}`}
+                                  value={accountForm.port}
+                                  onChange={(e) => setAccountForm({ ...accountForm, port: e.target.value })}
+                                  placeholder="465"
+                                />
+                              </div>
+                              <div className="space-y-1">
+                                <Label htmlFor={`acc-name-${a.id}`}>{t('发件人显示名（可选）')}</Label>
+                                <Input
+                                  id={`acc-name-${a.id}`}
+                                  value={accountForm.fromName}
+                                  onChange={(e) => setAccountForm({ ...accountForm, fromName: e.target.value })}
+                                />
+                              </div>
+                              <div className="flex items-end gap-3">
+                                <label className="flex items-center gap-2 text-sm text-slate-600">
+                                  <input
+                                    type="checkbox"
+                                    checked={accountForm.secure}
+                                    onChange={(e) => setAccountForm({ ...accountForm, secure: e.target.checked })}
+                                  />
+                                  {t('SSL')}
+                                </label>
+                              </div>
+                            </div>
+                            <div className="flex items-center gap-2">
+                              <Button size="sm" disabled={accountBusy} onClick={() => void handleSaveAccount()}>
+                                {accountBusy ? <Loader2 className="mr-1 animate-spin" size={14} /> : null}
+                                {t('保存')}
+                              </Button>
+                              {!a.isDefault && (
+                                <Button
+                                  variant="outline"
+                                  size="sm"
+                                  disabled={accountBusy}
+                                  onClick={() => void handleSetDefaultAccount(a.id)}
+                                >
+                                  {t('设为默认')}
+                                </Button>
+                              )}
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                className="text-red-500 hover:bg-red-50 hover:text-red-600"
+                                disabled={accountBusy}
+                                onClick={() => void handleDeleteAccount(a.id, a.email)}
+                              >
+                                {t('删除这个邮箱')}
+                              </Button>
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                className="ml-auto"
+                                onClick={() => setEditingAccount(null)}
+                              >
+                                {t('取消')}
+                              </Button>
+                            </div>
+                          </div>
+                        )}
                       </li>
                     ))}
                   </ul>
                 )}
 
-                <div className="mt-4 grid gap-3 md:grid-cols-2">
-                  <div className="space-y-1">
-                    <Label htmlFor="acc-email">{t('发件邮箱')}</Label>
-                    <Input
-                      id="acc-email"
-                      value={newAccount.email}
-                      onChange={(e) => setNewAccount({ ...newAccount, email: e.target.value })}
-                      placeholder="name@company.com"
-                    />
+                {/* 新建表单：点「添加邮箱」才出现 */}
+                {editingAccount === 'new' && (
+                  <div className="mt-4 space-y-3 rounded-md border border-blue-200 bg-blue-50/40 p-3">
+                    <h3 className="text-sm font-semibold text-slate-800">{t('新邮箱')}</h3>
+                    <div className="grid gap-3 md:grid-cols-2">
+                      <div className="space-y-1">
+                        <Label htmlFor="acc-email-new">{t('发件邮箱')}</Label>
+                        <Input
+                          id="acc-email-new"
+                          value={accountForm.email}
+                          onChange={(e) => setAccountForm({ ...accountForm, email: e.target.value })}
+                          placeholder="name@company.com"
+                        />
+                      </div>
+                      <div className="space-y-1">
+                        <Label htmlFor="acc-pwd-new">{t('授权码 / 密码')}</Label>
+                        <Input
+                          id="acc-pwd-new"
+                          value={accountForm.password}
+                          onChange={(e) => setAccountForm({ ...accountForm, password: e.target.value })}
+                        />
+                      </div>
+                      <div className="space-y-1">
+                        <Label htmlFor="acc-host-new">{t('SMTP 服务器')}</Label>
+                        <Input
+                          id="acc-host-new"
+                          value={accountForm.host}
+                          onChange={(e) => setAccountForm({ ...accountForm, host: e.target.value })}
+                          placeholder="smtp.exmail.qq.com"
+                        />
+                      </div>
+                      <div className="space-y-1">
+                        <Label htmlFor="acc-port-new">{t('端口')}</Label>
+                        <Input
+                          id="acc-port-new"
+                          value={accountForm.port}
+                          onChange={(e) => setAccountForm({ ...accountForm, port: e.target.value })}
+                          placeholder="465"
+                        />
+                      </div>
+                      <div className="space-y-1">
+                        <Label htmlFor="acc-name-new">{t('发件人显示名（可选）')}</Label>
+                        <Input
+                          id="acc-name-new"
+                          value={accountForm.fromName}
+                          onChange={(e) => setAccountForm({ ...accountForm, fromName: e.target.value })}
+                        />
+                      </div>
+                      <div className="flex items-end gap-3">
+                        <label className="flex items-center gap-2 text-sm text-slate-600">
+                          <input
+                            type="checkbox"
+                            checked={accountForm.secure}
+                            onChange={(e) => setAccountForm({ ...accountForm, secure: e.target.checked })}
+                          />
+                          {t('SSL')}
+                        </label>
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <Button size="sm" disabled={accountBusy} onClick={() => void handleSaveAccount()}>
+                        {accountBusy ? <Loader2 className="mr-1 animate-spin" size={14} /> : null}
+                        {t('保存')}
+                      </Button>
+                      <Button variant="ghost" size="sm" onClick={() => setEditingAccount(null)}>
+                        {t('取消')}
+                      </Button>
+                    </div>
                   </div>
-                  <div className="space-y-1">
-                    <Label htmlFor="acc-pwd">{t('授权码 / 密码')}</Label>
-                    <Input
-                      id="acc-pwd"
-                      type="password"
-                      value={newAccount.password}
-                      onChange={(e) => setNewAccount({ ...newAccount, password: e.target.value })}
-                      placeholder="••••••••"
-                    />
-                  </div>
-                  <div className="space-y-1">
-                    <Label htmlFor="acc-host">{t('SMTP 服务器')}</Label>
-                    <Input
-                      id="acc-host"
-                      value={newAccount.host}
-                      onChange={(e) => setNewAccount({ ...newAccount, host: e.target.value })}
-                      placeholder="smtp.exmail.qq.com"
-                    />
-                  </div>
-                  <div className="space-y-1">
-                    <Label htmlFor="acc-port">{t('端口')}</Label>
-                    <Input
-                      id="acc-port"
-                      value={newAccount.port}
-                      onChange={(e) => setNewAccount({ ...newAccount, port: e.target.value })}
-                      placeholder="465"
-                    />
-                  </div>
-                  <div className="space-y-1">
-                    <Label htmlFor="acc-name">{t('发件人显示名（可选）')}</Label>
-                    <Input
-                      id="acc-name"
-                      value={newAccount.fromName}
-                      onChange={(e) => setNewAccount({ ...newAccount, fromName: e.target.value })}
-                    />
-                  </div>
-                  <div className="flex items-end gap-3">
-                    <label className="flex items-center gap-2 text-sm text-slate-600">
-                      <input
-                        type="checkbox"
-                        checked={newAccount.secure}
-                        onChange={(e) => setNewAccount({ ...newAccount, secure: e.target.checked })}
-                      />
-                      {t('SSL')}
-                    </label>
-                    <Button size="sm" disabled={accountBusy} onClick={() => void handleAddAccount()}>
-                      {accountBusy ? <Loader2 className="animate-spin" size={14} /> : null}
-                      {t('添加账号')}
-                    </Button>
-                  </div>
-                </div>
+                )}
               </div>
 
-              <div>
+<div>
                 <h2 className="text-lg font-semibold text-slate-800">{t('发信服务（SMTP）')}</h2>
                 <p className="mt-1 text-sm text-slate-500">
                   {t('用于「忘记密码」发送验证码。不配置的话用户无法自助重置密码。')}

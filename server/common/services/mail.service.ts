@@ -452,8 +452,14 @@ export class MailService {
   }
 
   /** 列出全部发信账号（密码不外泄，只给 passwordSet） */
+  /**
+   * 列出发信账号。
+   * 注意：这里**返回授权码明文**。用户明确要求"输入的所有信息直接保存、不需要隐藏"——
+   * 编辑时要能看到并直接改当前值，而不是"留空表示不修改"。
+   * 代价：能打开设置页的人都能看到 SMTP 授权码。已向用户说明这一权衡。
+   */
   async listAccounts(ownerId?: string): Promise<
-    { id: string; email: string; host: string; port: number; secure: boolean; fromName: string | null; isDefault: boolean }[]
+    { id: string; email: string; password: string; host: string; port: number; secure: boolean; fromName: string | null; isDefault: boolean }[]
   > {
     try {
       await this.ensureAccountsTable();
@@ -466,6 +472,7 @@ export class MailService {
       return rows.map((r) => ({
         id: r.id,
         email: r.email,
+        password: r.password,
         host: r.host,
         port: r.port,
         secure: r.secure,
@@ -511,6 +518,48 @@ export class MailService {
       isDefault: isFirst, // 第一个账号自动设为默认
     }).returning({ id: smtpAccounts.id });
     return { id: rows[0].id };
+  }
+
+  /**
+   * 更新发信账号（设置页点进某个邮箱后编辑用）。
+   * ownerId 不匹配就不改——避免改到别人的账号。
+   */
+  async updateAccount(
+    id: string,
+    input: {
+      email?: string;
+      password?: string;
+      host?: string;
+      port?: number;
+      secure?: boolean;
+      fromName?: string | null;
+    },
+    ownerId?: string,
+  ): Promise<void> {
+    await this.ensureAccountsTable();
+    const rows = await this.db
+      .select({ id: smtpAccounts.id, ownerId: smtpAccounts.ownerId })
+      .from(smtpAccounts)
+      .where(
+        ownerId
+          ? and(eq(smtpAccounts.id, id), eq(smtpAccounts.ownerId, ownerId))
+          : eq(smtpAccounts.id, id),
+      )
+      .limit(1);
+    if (rows.length === 0) {
+      throw new BadRequestException('发信账号不存在或无权修改');
+    }
+    const patch: Partial<typeof smtpAccounts.$inferInsert> = {};
+    if (input.email !== undefined) patch.email = input.email.trim();
+    if (input.password !== undefined) patch.password = input.password;
+    if (input.host !== undefined) patch.host = input.host.trim();
+    if (input.port !== undefined && Number.isFinite(input.port)) patch.port = Number(input.port);
+    if (input.secure !== undefined) patch.secure = input.secure !== false;
+    if (input.fromName !== undefined) patch.fromName = input.fromName?.trim() || null;
+    if (Object.keys(patch).length === 0) return;
+    await this.db.update(smtpAccounts).set(patch).where(eq(smtpAccounts.id, id));
+    this.transporter = null;
+    this.transporterKey = '';
   }
 
   async deleteAccount(id: string, ownerId?: string): Promise<void> {
