@@ -53,7 +53,9 @@ const SettingsPage = () => {
   const { t } = useI18n();
   const [activeTab, setActiveTab] = useState<'model' | 'sender' | 'robot' | 'mail'>('model');
   const { user } = useAuth();
-  const isAdmin = user?.role === 'admin';
+  // 管理员级：admin 与 super_admin 都算。只判 'admin' 会把超级管理员挡在
+  // 「发信服务」标签外面——而 super_admin 是权限最高的角色，反而看不到配置。
+  const isAdmin = user?.role === 'admin' || user?.role === 'super_admin';
   // SMTP 发信配置（仅管理员可见，服务端也仅管理员可写）
   const [smtp, setSmtp] = useState({
     host: '',
@@ -1324,7 +1326,7 @@ const SettingsPage = () => {
         )}
 
         {/* 企业微信群机器人：收到客户回复时推提醒 + 自动加星标 */}
-        {user?.role === 'admin' && (
+        {isAdmin && (
           <Card>
             <CardHeader>
               <CardTitle className="flex items-center gap-2">

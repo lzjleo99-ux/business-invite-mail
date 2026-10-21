@@ -309,7 +309,7 @@ const UserManagementPage: React.FC = () => {
                               })
                             }
                           >
-                            {item.role === 'admin'
+                            {item.role === 'admin' || item.role === 'super_admin'
                               ? t('降为普通用户')
                               : t('设为管理员')}
                           </Button>
