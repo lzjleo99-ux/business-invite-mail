@@ -1,7 +1,7 @@
 import type { UserRole } from '@shared/api.interface';
 import { Injectable, Inject, Logger, BadRequestException } from '@nestjs/common';
 import { DRIZZLE_DATABASE, type PostgresJsDatabase } from '@lark-apaas/fullstack-nestjs-core';
-import { and, desc, eq, or, ilike, sql } from 'drizzle-orm';
+import { and, desc, eq, ilike, inArray, or, sql } from 'drizzle-orm';
 import { emailHistories, projects, restaurants } from '@server/database/schema';
 import { runIdempotentMigration } from '@server/common/utils/ddl-runner';
 
@@ -36,6 +36,8 @@ export interface EmailHistoryQuery {
   direction?: 'outbound' | 'inbound';
   status?: string;
   search?: string;
+  /** 只看某个邮箱地址的往来（发件或收件命中即算） */
+  email?: string;
   page?: number;
   pageSize?: number;
 }
@@ -435,8 +437,23 @@ export class EmailHistoryService {
       if (owned.length === 0) throw new BadRequestException('公司不存在或无权访问');
       return;
     }
-    // 既没给项目也没给公司 = 想看全站历史，非 admin 一律拒绝
-    throw new BadRequestException('无权访问');
+    // 既没给项目也没给公司 = 想看全站历史。
+    // 不拒绝——「邮件往来」页本来就是跨项目查看的，拒绝会让整个页面空掉。
+    // 改成按自己的项目过滤（见 list() 里的 scopeToOwnProjects）。
+  }
+
+  /**
+   * 该用户能看到的项目 id；super_admin 返回 null = 不加限制（全量）。
+   */
+  private async visibleProjectIds(
+    user?: { userId: string; role: UserRole },
+  ): Promise<string[] | null> {
+    if (!user || user.role === 'super_admin') return null;
+    const rows = await this.db
+      .select({ id: projects.id })
+      .from(projects)
+      .where(eq(projects.ownerId, user.userId));
+    return rows.map((r) => r.id);
   }
 
   async list(query: EmailHistoryQuery): Promise<{ items: EmailHistoryRow[]; total: number }> {
@@ -445,8 +462,21 @@ export class EmailHistoryService {
     const conditions = [];
     if (query.companyId) conditions.push(eq(emailHistories.companyId, query.companyId));
     if (query.projectId) conditions.push(eq(emailHistories.projectId, query.projectId));
+    // 没指定项目时，非 super_admin 只能看自己项目下的往来
+    if (!query.projectId) {
+      const own = await this.visibleProjectIds(query.user);
+      if (own !== null) {
+        if (own.length === 0) return { items: [], total: 0 };
+        conditions.push(inArray(emailHistories.projectId, own));
+      }
+    }
     if (query.direction) conditions.push(eq(emailHistories.direction, query.direction));
     if (query.status) conditions.push(eq(emailHistories.status, query.status));
+    // 按邮箱筛选：发件人或收件人命中该地址即算（一个邮箱既可能发也可能收）
+    if (query.email && query.email.trim()) {
+      const addr = query.email.trim();
+      conditions.push(or(eq(emailHistories.fromAddr, addr), eq(emailHistories.toAddr, addr)));
+    }
     if (query.search) {
       conditions.push(
         or(

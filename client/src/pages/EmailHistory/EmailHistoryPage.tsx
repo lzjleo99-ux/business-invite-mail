@@ -26,21 +26,36 @@ const EmailHistoryPage: React.FC = () => {
   const [appliedSearch, setAppliedSearch] = useState('');
   const [direction, setDirection] = useState<'all' | 'outbound' | 'inbound'>('all');
   const [status, setStatus] = useState<'all' | 'sent' | 'failed' | 'received'>('all');
+  // 按邮箱筛选：看哪个邮箱的往来
+  const [mailbox, setMailbox] = useState('all');
+  const [mailboxes, setMailboxes] = useState<string[]>([]);
   const [page, setPage] = useState(1);
   const pageSize = 20;
 
   const { data, isLoading } = useQuery({
-    queryKey: ['email-history-global', appliedSearch, direction, status, page],
+    queryKey: ['email-history-global', appliedSearch, direction, status, mailbox, page],
     queryFn: () =>
       getEmailHistories({
         search: appliedSearch || undefined,
         direction: direction === 'all' ? undefined : direction,
         status: status === 'all' ? undefined : status,
+        email: mailbox === 'all' ? undefined : mailbox,
         page,
         pageSize,
       }),
     staleTime: 15_000,
   });
+
+  // 可选邮箱：汇总往来记录里出现过的地址（发件 + 收件）。
+  // 只汇总当前页——要全量地址需要单独接口，这里先用页内数据，够日常筛选用。
+  React.useEffect(() => {
+    const addrs = new Set<string>();
+    for (const it of data?.items ?? []) {
+      if (it.fromAddr) addrs.add(it.fromAddr);
+      if (it.toAddr) addrs.add(it.toAddr);
+    }
+    setMailboxes([...addrs].sort());
+  }, [data]);
 
   const items = data?.items ?? [];
   const total = data?.total ?? 0;
@@ -104,6 +119,26 @@ const EmailHistoryPage: React.FC = () => {
             <SelectItem value="received">{t('已收到')}</SelectItem>
             <SelectItem value="bounce">{t('退信')}</SelectItem>
             <SelectItem value="failed">{t('失败')}</SelectItem>
+          </SelectContent>
+        </Select>
+        {/* 按邮箱筛选：看某个邮箱的全部往来 */}
+        <Select
+          value={mailbox}
+          onValueChange={(v) => {
+            setMailbox(v);
+            setPage(1);
+          }}
+        >
+          <SelectTrigger className="w-[220px]">
+            <SelectValue placeholder={t('全部邮箱')} />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">{t('全部邮箱')}</SelectItem>
+            {mailboxes.map((addr) => (
+              <SelectItem key={addr} value={addr}>
+                {addr}
+              </SelectItem>
+            ))}
           </SelectContent>
         </Select>
         <span className="text-sm text-slate-500">

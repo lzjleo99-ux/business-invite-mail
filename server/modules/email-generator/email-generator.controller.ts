@@ -43,6 +43,10 @@ class EmailHistoryQueryDto {
 
   @IsOptional()
   @IsString()
+  email?: string;
+
+  @IsOptional()
+  @IsString()
   status?: string;
 
   @IsOptional()

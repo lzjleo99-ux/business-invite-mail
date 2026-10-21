@@ -20,6 +20,7 @@ export const enMessages: Record<string, string> = {
   '第 {page} / {totalPages} 页': 'Page {page} of {totalPages}',
 
   // ---- antd table locale ----
+  '全部邮箱': 'All mailboxes',
   '全选本页': 'Select all on this page',
   '取消选择': 'Clear selection',
   '反选': 'Invert selection',

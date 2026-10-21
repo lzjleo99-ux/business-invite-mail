@@ -197,6 +197,8 @@ export interface EmailHistoryListParams {
   direction?: 'outbound' | 'inbound';
   status?: string;
   search?: string;
+  /** 只看某个邮箱的往来 */
+  email?: string;
   page?: number;
   pageSize?: number;
 }
@@ -211,6 +213,7 @@ export async function getEmailHistories(
   if (params.direction) qs.set('direction', params.direction);
   if (params.status) qs.set('status', params.status);
   if (params.search) qs.set('search', params.search);
+  if (params.email) qs.set('email', params.email);
   if (params.page) qs.set('page', String(params.page));
   if (params.pageSize) qs.set('pageSize', String(params.pageSize));
   const response = await axiosForBackend.get(`/api/email-generator/histories?${qs.toString()}`);
