@@ -261,6 +261,8 @@ export class EmailGeneratorController {
       direction: query.direction,
       status: query.status,
       search: query.search,
+      // 按邮箱筛选（漏传过：DTO 加了 email 但这里没映射，筛选静默不生效）
+      email: query.email,
       page: query.page,
       pageSize: query.pageSize,
       user: { userId: user.userId, role: user.role },
