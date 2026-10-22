@@ -20,6 +20,7 @@ export const enMessages: Record<string, string> = {
   '第 {page} / {totalPages} 页': 'Page {page} of {totalPages}',
 
   // ---- antd table locale ----
+  '邮箱列表加载失败，不是没有邮箱。': 'Could not load the mailbox list - this does not mean there are none.',
   '收件（IMAP）': 'Inbox (IMAP)',
   '后台自动收取': 'Background auto-fetch',
   '轮询间隔（秒）': 'Poll interval (seconds)',

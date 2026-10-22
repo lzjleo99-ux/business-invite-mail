@@ -82,6 +82,12 @@ const SettingsPage = () => {
   const [accounts, setAccounts] = useState<adminApi.SmtpAccount[]>([]);
   const [accountsLoading, setAccountsLoading] = useState(true);
   /**
+   * 邮箱列表加载失败（和"真的是空的"是两回事）。
+   * 之前失败时静默当作空列表，界面显示"还没有可用邮箱"——
+   * 用户会以为配置丢了。实际发生过：服务端重启后首次查询失败。
+   */
+  const [accountsError, setAccountsError] = useState<string | null>(null);
+  /**
    * 邮箱编辑状态：null = 收起（只看列表）；'new' = 新建；否则是账号 id = 编辑该账号。
    * 设计：进页面先看有哪些邮箱可用，点某个才展开编辑，右上角「添加邮箱」新建。
    */
@@ -102,10 +108,19 @@ const SettingsPage = () => {
   });
   const [accountBusy, setAccountBusy] = useState(false);
   const refreshAccounts = useCallback(async () => {
+    setAccountsLoading(true);
+    setAccountsError(null);
     try {
       setAccounts(await adminApi.listSmtpAccounts());
-    } catch {
-      // 非管理员或表还没建：静默为空，不打扰
+    } catch (err: unknown) {
+      // 重试一次：服务端刚重启时首次请求可能失败（补列迁移与查询竞争）
+      try {
+        await new Promise((r) => setTimeout(r, 800));
+        setAccounts(await adminApi.listSmtpAccounts());
+      } catch (err2: unknown) {
+        setAccounts([]);
+        setAccountsError(err2 instanceof Error ? err2.message : String(err2));
+      }
     } finally {
       setAccountsLoading(false);
     }
@@ -992,6 +1007,14 @@ const SettingsPage = () => {
 
                 {accountsLoading ? (
                   <p className="mt-4 text-sm text-slate-400">{t('正在读取邮箱...')}</p>
+                ) : accountsError ? (
+                  <div className="mt-4 rounded-md bg-red-50 px-3 py-3 text-sm text-red-800">
+                    <p className="font-medium">{t('邮箱列表加载失败，不是没有邮箱。')}</p>
+                    <p className="mt-1 break-all text-xs text-red-700">{accountsError}</p>
+                    <Button size="sm" variant="outline" className="mt-2" onClick={() => void refreshAccounts()}>
+                      {t('重试')}
+                    </Button>
+                  </div>
                 ) : accounts.length === 0 && editingAccount === null ? (
                   <p className="mt-4 rounded-md bg-amber-50 px-3 py-3 text-sm text-amber-800">
                     {t('还没有可用邮箱。点右上角「添加邮箱」添加第一个；未添加时发送会沿用下面的旧配置。')}
