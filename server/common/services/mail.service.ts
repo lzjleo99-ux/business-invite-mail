@@ -610,8 +610,36 @@ export class MailService {
         inboxPollSeconds: r.inboxPollSeconds,
       }));
     } catch (err: unknown) {
-      this.logger.warn(`读取发信账号失败：${err instanceof Error ? err.message : String(err)}`);
-      return [];
+      // 不能就这么返回空列表：实测过一次「部署后第一次请求」查询失败被这里吞掉，
+      // 用户设置页里已经配好的账号凭空消失，看起来像数据丢了。
+      // 先强制重跑一次建表/补列（清掉缓存的 promise），再试一次；
+      // 真的不行才返回空，并且把错误写清楚。
+      this.logger.warn(`读取发信账号失败，重试一次：${err instanceof Error ? err.message : String(err)}`);
+      this.accountsTablePromise = null;
+      try {
+        await this.ensureAccountsTable();
+        const retry = await this.db.select().from(smtpAccounts);
+        return retry.map((r) => ({
+          id: r.id,
+          email: r.email,
+          password: r.password,
+          host: r.host,
+          port: r.port,
+          secure: r.secure,
+          fromName: r.fromName,
+          isDefault: r.isDefault,
+          imapHost: r.imapHost,
+          imapPort: r.imapPort,
+          imapSecure: r.imapSecure,
+          inboxPollEnabled: r.inboxPollEnabled,
+          inboxPollSeconds: r.inboxPollSeconds,
+        }));
+      } catch (err2: unknown) {
+        this.logger.error(
+          `读取发信账号再次失败：${err2 instanceof Error ? err2.message : String(err2)}`,
+        );
+        return [];
+      }
     }
   }
 
