@@ -20,6 +20,7 @@ export const enMessages: Record<string, string> = {
   '第 {page} / {totalPages} 页': 'Page {page} of {totalPages}',
 
   // ---- antd table locale ----
+  '超级管理员，不能在此修改': 'Super admin - cannot be changed here',
   '默认邮箱': 'Default mailbox',
   '（不选账号时，收发都用这个；后台收取也读它的 IMAP 配置）': '(used for both sending and receiving when no account is picked; background fetching reads its IMAP settings)',
   '设为默认收发邮箱': 'Set as default sender & receiver',

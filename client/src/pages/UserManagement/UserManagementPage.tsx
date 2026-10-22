@@ -283,8 +283,16 @@ const UserManagementPage: React.FC = () => {
                         {new Date(item.createdAt).toLocaleString()}
                       </TableCell>
                       <TableCell className="text-right">
+                        {/* 超级管理员行不给操作按钮：服务端一律拒绝（403），
+                            摆两个禁用的按钮只会让人以为"点了就能成"。
+                            直接写清楚，要看/改只能由本人或另一个超管在别处处理。 */}
+                        {item.role === 'super_admin' ? (
+                          <span className="text-xs text-slate-400">
+                            {t('超级管理员，不能在此修改')}
+                          </span>
+                        ) : (
                         <div className="flex justify-end gap-2">
-                          {isSuperAdmin && item.role !== 'super_admin' && (
+                          {isSuperAdmin && (
                             <Button
                               size="sm"
                               variant="outline"
@@ -300,8 +308,7 @@ const UserManagementPage: React.FC = () => {
                           <Button
                             size="sm"
                             variant="outline"
-                            // 超级管理员身份不能在这里改（全系统唯一，走专用接口）
-                            disabled={isSelf(item) || item.role === 'super_admin' || roleMutation.isPending}
+                            disabled={isSelf(item) || roleMutation.isPending}
                             onClick={() =>
                               roleMutation.mutate({
                                 userId: item.id,
@@ -309,9 +316,7 @@ const UserManagementPage: React.FC = () => {
                               })
                             }
                           >
-                            {item.role === 'admin' || item.role === 'super_admin'
-                              ? t('降为普通用户')
-                              : t('设为管理员')}
+                            {item.role === 'admin' ? t('降为普通用户') : t('设为管理员')}
                           </Button>
                           <Button
                             size="sm"
@@ -337,6 +342,7 @@ const UserManagementPage: React.FC = () => {
                             )}
                           </Button>
                         </div>
+                        )}
                       </TableCell>
                     </TableRow>
                   ))}
