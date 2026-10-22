@@ -68,7 +68,7 @@ export const enMessages: Record<string, string> = {
   '发出的内容与你展开行预览的完全一致（所见即所发）。': 'What goes out is exactly what you previewed in the expanded row (what you see is what is sent).',
   '这是真实外发，点之前请确认文案没问题。': 'This is a real send — check the copy before clicking.',
   '发送失败的记录会以红色「发送失败」留在往来记录里，点开可看 SMTP 报错原因。': 'Failed sends stay in the correspondence log as a red Failed; open one to see the SMTP error.',
-  '退信（Undeliverable）会以「收到回复」形式进来，因此也算已联系、不会重复发；': 'Bounces (Undeliverable) arrive as if they were a a reply, so they also count as contacted and will not be re-sent;',
+  '退信（Undeliverable）会以「收到回复」形式进来，因此也算已联系、不会重复发；这类公司需要你手动换地址后再发。': 'Bounces (Undeliverable) arrive as if they were a reply, so they also count as contacted and will not be re-sent. These companies need you to correct the address by hand before sending.',
   '发信和收信都会自动留痕，公司行展开后底部「往来记录」能看到全部往来。': 'Both sent and received mail are logged automatically. Expand a company row to see the correspondence log at the bottom.',
   '点任意一条往来记录可看完整信息：类型、时间、收发件人、完整正文、Message-ID。': 'Click any entry for the full detail: type, time, from/to, complete body, Message-ID.',
   '左侧「邮件往来」页可看全项目的往来，支持按方向 / 状态 / 公司 / 邮箱 / 主题搜索。': 'The Email history page on the left shows the whole project, searchable by direction / status / company / email / subject.',
