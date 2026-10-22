@@ -1003,7 +1003,9 @@ const SettingsPage = () => {
                         <button
                           type="button"
                           onClick={() =>
-                            setEditingAccount(editingAccount === a.id ? null : a.id)
+                            editingAccount === a.id
+                              ? setEditingAccount(null)
+                              : openAccountEditor(a)
                           }
                           className={`flex w-full flex-wrap items-center gap-2 rounded-md border px-3 py-2.5 text-left text-sm transition-colors ${
                             editingAccount === a.id
