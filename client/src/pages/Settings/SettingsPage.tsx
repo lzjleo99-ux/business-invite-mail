@@ -75,10 +75,8 @@ const SettingsPage = () => {
     inboxPollEnabled: false,
     inboxPollSeconds: '180',
   });
-  const [smtpBusy, setSmtpBusy] = useState(false);
   // 已保存配置是异步读的：读之前先显示"读取中"，否则会先渲染一堆占位文字，
   // 看起来像"什么都没填"（占位符 noreply@… 会被误认成真实值）。
-  const [smtpLoading, setSmtpLoading] = useState(true);
 
   // ---- 多个发信账号（邮箱后台）----
   const [accounts, setAccounts] = useState<adminApi.SmtpAccount[]>([]);
@@ -228,38 +226,6 @@ const SettingsPage = () => {
       setAccountBusy(false);
     }
   };
-
-  // 读取已保存的 SMTP 配置（密码不回显，只标记是否已设置）
-  useEffect(() => {
-    if (!isAdmin) {
-      setSmtpLoading(false);
-      return;
-    }
-    void adminApi
-      .getSmtpConfig()
-      .then((c) => {
-        setSmtp((prev) => ({
-          ...prev,
-          configured: !!c.configured,
-          host: c.host ?? '',
-          port: String(c.port ?? 465),
-          secure: c.secure !== false,
-          username: c.username ?? '',
-          fromName: c.fromName ?? '',
-          fromEmail: c.fromEmail ?? '',
-          passwordSet: !!c.passwordSet,
-          imapHost: c.imapHost ?? '',
-          imapPort: String(c.imapPort ?? 993),
-          imapSecure: c.imapSecure !== false,
-          inboxPollEnabled: !!c.inboxPollEnabled,
-          inboxPollSeconds: String(c.inboxPollSeconds ?? 180),
-        }));
-        setSmtpTestTo(c.fromEmail ?? '');
-      })
-      .catch(() => undefined)
-      .finally(() => setSmtpLoading(false));
-  }, [isAdmin]);
-  const [smtpTestTo, setSmtpTestTo] = useState('');
 
   const [testing, setTesting] = useState(false);
   const [testResult, setTestResult] = useState<{
@@ -1009,12 +975,6 @@ const SettingsPage = () => {
         {isAdmin && activeTab === 'mail' && (
           <Card>
             <CardContent className="space-y-4">
-              {smtpLoading ? (
-                <p className="py-6 text-center text-sm text-slate-400">
-                  {t('正在读取已保存的发信配置...')}
-                </p>
-              ) : (
-                <>
               {/* 邮箱后台：先列有哪些邮箱可用，点进去编辑，右上角添加 */}
               <div className="rounded-lg border border-slate-200 bg-white p-4">
                 <div className="flex items-start justify-between gap-3">
@@ -1341,75 +1301,8 @@ const SettingsPage = () => {
                 )}
               </div>
 
-              {/* 全局的「发信服务 / 收件服务」两块已移除：所有配置跟着邮箱走，
-                 点上面的邮箱展开编辑即可设置 SMTP 与 IMAP。 */}
-              <div className="flex flex-wrap gap-2">
-                <Button
-                  disabled={smtpBusy}
-                  onClick={async () => {
-                    setSmtpBusy(true);
-                    try {
-                      await adminApi.saveSmtpConfig({
-                        host: smtp.host,
-                        port: smtp.port,
-                        secure: smtp.secure,
-                        username: smtp.username,
-                        password: smtp.password || undefined,
-                        fromName: smtp.fromName,
-                        fromEmail: smtp.fromEmail,
-                        imapHost: smtp.imapHost || undefined,
-                        imapPort: Number(smtp.imapPort) || 993,
-                        imapSecure: smtp.imapSecure,
-                        inboxPollEnabled: smtp.inboxPollEnabled,
-                        inboxPollSeconds: Number(smtp.inboxPollSeconds) || 180,
-                      });
-                      setSmtp((prev) => ({ ...prev, password: '', passwordSet: true }));
-                      toast.success(t('发信服务已保存'));
-                    } catch (err: unknown) {
-                      toast.error(t('保存失败'), {
-                        description: err instanceof Error ? err.message : String(err),
-                      });
-                    } finally {
-                      setSmtpBusy(false);
-                    }
-                  }}
-                >
-                  {smtpBusy ? t('保存中...') : t('保存')}
-                </Button>
-
-                <div className="flex items-center gap-2">
-                  <Input
-                    className="w-56"
-                    type="email"
-                    value={smtpTestTo}
-                    onChange={(e) => setSmtpTestTo(e.target.value)}
-                    placeholder={t('测试收件邮箱')}
-                  />
-                  <Button
-                    variant="outline"
-                    disabled={smtpBusy || !smtpTestTo}
-                    onClick={async () => {
-                      setSmtpBusy(true);
-                      try {
-                        await adminApi.testSmtp(smtpTestTo);
-                        toast.success(t('测试邮件已发送'), {
-                          description: smtpTestTo,
-                        });
-                      } catch (err: unknown) {
-                        toast.error(t('测试发信失败'), {
-                          description: err instanceof Error ? err.message : String(err),
-                        });
-                      } finally {
-                        setSmtpBusy(false);
-                      }
-                    }}
-                  >
-                    {t('发送测试邮件')}
-                  </Button>
-                </div>
-              </div>
-                </>
-              )}
+              {/* 全局的「发信服务 / 收件服务」两块（连同它们的保存/测试邮件按钮）
+                 已全部移除：所有配置跟着邮箱走，点上面的邮箱展开编辑即可设置 SMTP 与 IMAP。 */}
             </CardContent>
           </Card>
         )}
