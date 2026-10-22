@@ -20,6 +20,9 @@ export const enMessages: Record<string, string> = {
   '第 {page} / {totalPages} 页': 'Page {page} of {totalPages}',
 
   // ---- antd table locale ----
+  '这类公司需要你手动换地址后再发。': 'These companies need you to correct the address by hand before sending.',
+  '手动标记「已邮件联系」后，一键发送会跳过该公司，不会重复打扰。': 'After you mark 已邮件联系 by hand, 一键发送 skips that company so it is not contacted twice.',
+  '整条链路大约是：导入 → 分析 → 生成 → 发送 → 收回复，顺序不要跳。': 'The full chain is roughly: import → analyse → generate → send → receive replies. Do not skip steps.',
   '邮箱列表加载失败，不是没有邮箱。': 'Could not load the mailbox list - this does not mean there are none.',
   '收件（IMAP）': 'Inbox (IMAP)',
   '后台自动收取': 'Background auto-fetch',

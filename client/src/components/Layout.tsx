@@ -133,10 +133,12 @@ const Layout: React.FC = () => {
           end={to === '/'}
           onClick={onNavigate}
           className={({ isActive }) =>
-            `flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium transition-colors ${
+            // 侧边导航统一加粗黑字：未选中用 text-slate-900（原来是 600，偏灰），
+            // 选中的蓝底白字也提到 font-semibold，视觉重量一致。
+            `flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-bold text-slate-900 transition-colors ${
               isActive
-                ? 'bg-primary text-white'
-                : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900'
+                ? 'bg-primary font-semibold text-white'
+                : 'hover:bg-slate-100'
             }`
           }
         >

@@ -219,10 +219,10 @@ const UserGuidePage: React.FC = () => {
             key={s.id}
             type="button"
             onClick={() => jumpTo(s.id)}
-            className={`rounded-full px-3 py-1.5 text-xs font-medium transition-colors ${
+            className={`rounded-full px-3 py-1.5 text-xs font-bold text-slate-900 transition-colors ${
               active === s.id
-                ? 'bg-primary text-white'
-                : 'bg-white text-slate-600 ring-1 ring-slate-200 hover:bg-slate-50'
+                ? 'bg-primary font-semibold text-white'
+                : 'bg-white ring-1 ring-slate-200 hover:bg-slate-50'
             }`}
           >
             {t(s.title)}
