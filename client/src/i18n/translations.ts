@@ -20,6 +20,10 @@ export const enMessages: Record<string, string> = {
   '第 {page} / {totalPages} 页': 'Page {page} of {totalPages}',
 
   // ---- antd table locale ----
+  '默认邮箱': 'Default mailbox',
+  '（不选账号时，收发都用这个；后台收取也读它的 IMAP 配置）': '(used for both sending and receiving when no account is picked; background fetching reads its IMAP settings)',
+  '设为默认收发邮箱': 'Set as default sender & receiver',
+  '还没有配置 API Key，邮件和 IM 话术都无法生成。填写下面的密钥并保存后即可使用。': 'No API Key configured yet, so emails and IM scripts cannot be generated. Fill in the key below and save to start using it.',
   '这类公司需要你手动换地址后再发。': 'These companies need you to correct the address by hand before sending.',
   '手动标记「已邮件联系」后，一键发送会跳过该公司，不会重复打扰。': 'After you mark emailed by hand, Send all skips that company so it is not contacted twice.',
   '整条链路大约是：导入 → 分析 → 生成 → 发送 → 收回复，顺序不要跳。': 'The full chain is roughly: import → analyse → generate → send → receive replies. Do not skip steps.',

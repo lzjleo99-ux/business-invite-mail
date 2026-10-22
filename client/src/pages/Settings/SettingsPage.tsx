@@ -107,6 +107,8 @@ const SettingsPage = () => {
     inboxPollSeconds: '180',
   });
   const [accountBusy, setAccountBusy] = useState(false);
+  /** 默认收发邮箱：发送不选账号时用它，后台收取也读它的 IMAP 配置 */
+  const defaultAccount = accounts.find((a) => a.isDefault) ?? accounts[0];
   const refreshAccounts = useCallback(async () => {
     setAccountsLoading(true);
     setAccountsError(null);
@@ -543,6 +545,13 @@ const SettingsPage = () => {
         {activeTab === 'model' && (
           <Card>
             <CardContent className="p-5">
+              {/* 没配自己的 API Key 时，生成邮件/IM 话术会直接失败。
+                  这里提前告知，而不是等用户点了「一键生成」才报错。 */}
+              {config && !config.apiKeySet && (
+                <div className="mb-4 rounded-md bg-amber-50 px-3 py-2 text-sm text-amber-800">
+                  {t('还没有配置 API Key，邮件和 IM 话术都无法生成。填写下面的密钥并保存后即可使用。')}
+                </div>
+              )}
               <Form {...modelForm}>
                 <form
                   onSubmit={modelForm.handleSubmit(onModelSubmit)}
@@ -998,6 +1007,18 @@ const SettingsPage = () => {
                     <p className="mt-1 text-sm text-slate-500">
                       {t('点下面的邮箱可以进行编辑或删除；发送时在「一键发送」旁选择用哪个。')}
                     </p>
+                    {/* 默认邮箱：不选账号时收发都用它。之前只能靠列表里的「默认」小标，
+                        用户找不到"在哪设置默认"——这里直接写出来。 */}
+                    {defaultAccount && (
+                      <p className="mt-1.5 text-sm text-slate-600">
+                        <span className="font-semibold text-slate-800">{t('默认邮箱')}</span>
+                        {'：'}
+                        <span className="font-mono">{defaultAccount.email}</span>
+                        <span className="text-slate-400">
+                          {t('（不选账号时，收发都用这个；后台收取也读它的 IMAP 配置）')}
+                        </span>
+                      </p>
+                    )}
                   </div>
                   <Button size="sm" onClick={openNewAccount} disabled={accountBusy}>
                     <Plus size={14} className="mr-1" />
@@ -1174,7 +1195,7 @@ const SettingsPage = () => {
                                   disabled={accountBusy}
                                   onClick={() => void handleSetDefaultAccount(a.id)}
                                 >
-                                  {t('设为默认')}
+                                  {t('设为默认收发邮箱')}
                                 </Button>
                               )}
                               <Button
