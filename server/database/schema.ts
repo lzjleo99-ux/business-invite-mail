@@ -436,6 +436,14 @@ export const smtpAccounts = pgTable("smtp_accounts", {
   secure: boolean("secure").notNull().default(true),
   fromName: varchar("from_name", { length: 255 }),
   isDefault: boolean("is_default").notNull().default(false),
+  // ---- 收件（IMAP）：每个邮箱各自一套，跟着邮箱走 ----
+  imapHost: varchar("imap_host", { length: 255 }),
+  imapPort: integer("imap_port").notNull().default(993),
+  imapSecure: boolean("imap_secure").notNull().default(true),
+  inboxPollEnabled: boolean("inbox_poll_enabled").notNull().default(false),
+  inboxPollSeconds: integer("inbox_poll_seconds").notNull().default(180),
+  /** 该邮箱自己的收信 uid 水位（原来全局只有一个，多邮箱会互相覆盖） */
+  inboxLastUid: integer("inbox_last_uid").notNull().default(0),
   createdAt: customTimestamptz("_created_at", { precision: 3 }).notNull().default(sql`CURRENT_TIMESTAMP`),
 });
 

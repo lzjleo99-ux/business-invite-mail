@@ -132,6 +132,12 @@ export interface SmtpAccount {
   secure: boolean;
   fromName: string | null;
   isDefault: boolean;
+  /** 收件（IMAP）：跟着邮箱走 */
+  imapHost: string | null;
+  imapPort: number;
+  imapSecure: boolean;
+  inboxPollEnabled: boolean;
+  inboxPollSeconds: number;
 }
 
 /** 更新发信账号（设置页点进某个邮箱后编辑） */
@@ -144,6 +150,11 @@ export async function updateSmtpAccount(
     port?: number;
     secure?: boolean;
     fromName?: string | null;
+    imapHost?: string | null;
+    imapPort?: number;
+    imapSecure?: boolean;
+    inboxPollEnabled?: boolean;
+    inboxPollSeconds?: number;
   },
 ): Promise<{ ok: true }> {
   const response = await axiosForBackend.patch(`/api/admin/smtp-accounts/${id}`, data);
@@ -162,6 +173,11 @@ export async function addSmtpAccount(input: {
   port: number;
   secure: boolean;
   fromName?: string;
+  imapHost?: string | null;
+  imapPort?: number;
+  imapSecure?: boolean;
+  inboxPollEnabled?: boolean;
+  inboxPollSeconds?: number;
 }): Promise<{ id: string }> {
   const response = await axiosForBackend.post('/api/admin/smtp-accounts', input);
   return response.data;

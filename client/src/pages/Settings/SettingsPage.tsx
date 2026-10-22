@@ -95,6 +95,12 @@ const SettingsPage = () => {
     port: '465',
     secure: true,
     fromName: '',
+    // 收件：跟着邮箱走
+    imapHost: '',
+    imapPort: '993',
+    imapSecure: true,
+    inboxPollEnabled: false,
+    inboxPollSeconds: '180',
   });
   const [accountBusy, setAccountBusy] = useState(false);
   const refreshAccounts = useCallback(async () => {
@@ -117,12 +123,20 @@ const SettingsPage = () => {
       port: String(a.port),
       secure: a.secure,
       fromName: a.fromName ?? '',
+      imapHost: a.imapHost ?? '',
+      imapPort: String(a.imapPort || 993),
+      imapSecure: a.imapSecure !== false,
+      inboxPollEnabled: a.inboxPollEnabled === true,
+      inboxPollSeconds: String(a.inboxPollSeconds || 180),
     });
     setEditingAccount(a.id);
   };
 
   const openNewAccount = () => {
-    setAccountForm({ email: '', password: '', host: '', port: '465', secure: true, fromName: '' });
+    setAccountForm({
+      email: '', password: '', host: '', port: '465', secure: true, fromName: '',
+      imapHost: '', imapPort: '993', imapSecure: true, inboxPollEnabled: false, inboxPollSeconds: '180',
+    });
     setEditingAccount('new');
   };
 
@@ -167,6 +181,11 @@ const SettingsPage = () => {
         port: Number(accountForm.port) || 465,
         secure: accountForm.secure,
         fromName: accountForm.fromName.trim() || undefined,
+        imapHost: accountForm.imapHost.trim() || null,
+        imapPort: Number(accountForm.imapPort) || 993,
+        imapSecure: accountForm.imapSecure,
+        inboxPollEnabled: accountForm.inboxPollEnabled,
+        inboxPollSeconds: Number(accountForm.inboxPollSeconds) || 180,
       };
       if (editingAccount === 'new') {
         await adminApi.addSmtpAccount(payload);
@@ -1105,6 +1124,58 @@ const SettingsPage = () => {
                                   {t('SSL')}
                                 </label>
                               </div>
+                            <div className="md:col-span-2 space-y-3 rounded-md border border-slate-200 bg-white p-3">
+                              <div className="flex items-center justify-between">
+                                <h4 className="text-sm font-semibold text-slate-700">{t('收件（IMAP）')}</h4>
+                                <label className="flex items-center gap-2 text-sm text-slate-600">
+                                  <input
+                                    type="checkbox"
+                                    checked={accountForm.inboxPollEnabled}
+                                    onChange={(e) =>
+                                      setAccountForm({ ...accountForm, inboxPollEnabled: e.target.checked })
+                                    }
+                                  />
+                                  {t('后台自动收取')}
+                                </label>
+                              </div>
+                              <div className="grid gap-3 md:grid-cols-3">
+                                <div className="space-y-1">
+                                  <Label htmlFor="edit-imap-host">{t('IMAP 服务器')}</Label>
+                                  <Input
+                                    id="edit-imap-host"
+                                    value={accountForm.imapHost}
+                                    onChange={(e) => setAccountForm({ ...accountForm, imapHost: e.target.value })}
+                                    placeholder="imap.exmail.qq.com"
+                                  />
+                                </div>
+                                <div className="space-y-1">
+                                  <Label htmlFor="edit-imap-port">{t('端口')}</Label>
+                                  <Input
+                                    id="edit-imap-port"
+                                    value={accountForm.imapPort}
+                                    onChange={(e) => setAccountForm({ ...accountForm, imapPort: e.target.value })}
+                                    placeholder="993"
+                                  />
+                                </div>
+                                <div className="space-y-1">
+                                  <Label htmlFor="edit-imap-secs">{t('轮询间隔（秒）')}</Label>
+                                  <Input
+                                    id="edit-imap-secs"
+                                    value={accountForm.inboxPollSeconds}
+                                    onChange={(e) => setAccountForm({ ...accountForm, inboxPollSeconds: e.target.value })}
+                                    placeholder="180"
+                                  />
+                                </div>
+                              </div>
+                              <label className="flex items-center gap-2 text-sm text-slate-600">
+                                <input
+                                  type="checkbox"
+                                  checked={accountForm.imapSecure}
+                                  onChange={(e) => setAccountForm({ ...accountForm, imapSecure: e.target.checked })}
+                                />
+                                {t('IMAP SSL')}
+                              </label>
+                            </div>
                             </div>
                             <div className="flex items-center gap-2">
                               <Button size="sm" disabled={accountBusy} onClick={() => void handleSaveAccount()}>
@@ -1204,6 +1275,58 @@ const SettingsPage = () => {
                           {t('SSL')}
                         </label>
                       </div>
+                            <div className="md:col-span-2 space-y-3 rounded-md border border-slate-200 bg-white p-3">
+                              <div className="flex items-center justify-between">
+                                <h4 className="text-sm font-semibold text-slate-700">{t('收件（IMAP）')}</h4>
+                                <label className="flex items-center gap-2 text-sm text-slate-600">
+                                  <input
+                                    type="checkbox"
+                                    checked={accountForm.inboxPollEnabled}
+                                    onChange={(e) =>
+                                      setAccountForm({ ...accountForm, inboxPollEnabled: e.target.checked })
+                                    }
+                                  />
+                                  {t('后台自动收取')}
+                                </label>
+                              </div>
+                              <div className="grid gap-3 md:grid-cols-3">
+                                <div className="space-y-1">
+                                  <Label htmlFor="new-imap-host">{t('IMAP 服务器')}</Label>
+                                  <Input
+                                    id="new-imap-host"
+                                    value={accountForm.imapHost}
+                                    onChange={(e) => setAccountForm({ ...accountForm, imapHost: e.target.value })}
+                                    placeholder="imap.exmail.qq.com"
+                                  />
+                                </div>
+                                <div className="space-y-1">
+                                  <Label htmlFor="new-imap-port">{t('端口')}</Label>
+                                  <Input
+                                    id="new-imap-port"
+                                    value={accountForm.imapPort}
+                                    onChange={(e) => setAccountForm({ ...accountForm, imapPort: e.target.value })}
+                                    placeholder="993"
+                                  />
+                                </div>
+                                <div className="space-y-1">
+                                  <Label htmlFor="new-imap-secs">{t('轮询间隔（秒）')}</Label>
+                                  <Input
+                                    id="new-imap-secs"
+                                    value={accountForm.inboxPollSeconds}
+                                    onChange={(e) => setAccountForm({ ...accountForm, inboxPollSeconds: e.target.value })}
+                                    placeholder="180"
+                                  />
+                                </div>
+                              </div>
+                              <label className="flex items-center gap-2 text-sm text-slate-600">
+                                <input
+                                  type="checkbox"
+                                  checked={accountForm.imapSecure}
+                                  onChange={(e) => setAccountForm({ ...accountForm, imapSecure: e.target.checked })}
+                                />
+                                {t('IMAP SSL')}
+                              </label>
+                            </div>
                     </div>
                     <div className="flex items-center gap-2">
                       <Button size="sm" disabled={accountBusy} onClick={() => void handleSaveAccount()}>
@@ -1218,172 +1341,8 @@ const SettingsPage = () => {
                 )}
               </div>
 
-<div>
-                <h2 className="text-lg font-semibold text-slate-800">{t('发信服务（SMTP）')}</h2>
-                <p className="mt-1 text-sm text-slate-500">
-                  {t('用于「忘记密码」发送验证码。不配置的话用户无法自助重置密码。')}
-                </p>
-                {smtp.configured && (
-                  <p className="mt-2 rounded-md bg-emerald-50 px-3 py-2 text-xs text-emerald-800">
-                    {t('已保存：发件邮箱 {addr}，授权码已设置（出于安全不回显，留空即不修改）', {
-                      addr: smtp.fromEmail || smtp.username,
-                    })}
-                  </p>
-                )}
-              </div>
-
-              <div className="grid gap-4 md:grid-cols-2">
-                <div className="space-y-1">
-                  <Label htmlFor="smtp-host">{t('SMTP 服务器')}</Label>
-                  <Input
-                    id="smtp-host"
-                    value={smtp.host}
-                    onChange={(e) => setSmtp({ ...smtp, host: e.target.value })}
-                    placeholder="smtp.exmail.qq.com"
-                  />
-                </div>
-                <div className="space-y-1">
-                  <Label htmlFor="smtp-port">{t('端口')}</Label>
-                  <Input
-                    id="smtp-port"
-                    value={smtp.port}
-                    onChange={(e) => setSmtp({ ...smtp, port: e.target.value })}
-                    placeholder="465"
-                  />
-                </div>
-                <div className="space-y-1">
-                  <Label htmlFor="smtp-username">{t('登录账号')}</Label>
-                  <Input
-                    id="smtp-username"
-                    value={smtp.username}
-                    onChange={(e) => setSmtp({ ...smtp, username: e.target.value })}
-                    placeholder="noreply@shanghaitrade.cn"
-                  />
-                </div>
-                <div className="space-y-1">
-                  <Label htmlFor="smtp-password">
-                    {t('授权码/密码')}
-                    {smtp.passwordSet && (
-                      <span className="ml-2 text-xs text-slate-400">
-                        {t('已设置，留空不修改')}
-                      </span>
-                    )}
-                  </Label>
-                  <Input
-                    id="smtp-password"
-                    type="password"
-                    value={smtp.password}
-                    onChange={(e) => setSmtp({ ...smtp, password: e.target.value })}
-                    placeholder={smtp.passwordSet ? '••••••••' : t('邮箱服务商的授权码')}
-                  />
-                </div>
-                <div className="space-y-1">
-                  <Label htmlFor="smtp-from-name">{t('发件人名称')}</Label>
-                  <Input
-                    id="smtp-from-name"
-                    value={smtp.fromName}
-                    onChange={(e) => setSmtp({ ...smtp, fromName: e.target.value })}
-                    placeholder={t('邮件收发助手')}
-                  />
-                </div>
-                <div className="space-y-1">
-                  <Label htmlFor="smtp-from-email">{t('发件人邮箱')}</Label>
-                  <Input
-                    id="smtp-from-email"
-                    type="email"
-                    value={smtp.fromEmail}
-                    onChange={(e) => setSmtp({ ...smtp, fromEmail: e.target.value })}
-                    placeholder="noreply@shanghaitrade.cn"
-                  />
-                </div>
-              </div>
-
-              <label className="flex items-center gap-2 text-sm text-slate-600">
-                <input
-                  type="checkbox"
-                  checked={smtp.secure}
-                  onChange={(e) => setSmtp({ ...smtp, secure: e.target.checked })}
-                />
-                {t('使用 SSL/TLS（465 端口一般勾选，587 端口不勾选）')}
-              </label>
-
-              {/* ---- 收信（IMAP）：后台自动抓取回复邮件，全量留痕 ---- */}
-              <div className="rounded-lg border border-slate-200 bg-slate-50 p-3 space-y-3">
-                <div className="flex items-center justify-between">
-                  <p className="text-sm font-medium text-slate-700">{t('收信服务（IMAP 自动收取回复）')}</p>
-                  <label className="flex items-center gap-2 text-sm text-slate-600">
-                    <input
-                      type="checkbox"
-                      checked={smtp.inboxPollEnabled}
-                      onChange={(e) => setSmtp({ ...smtp, inboxPollEnabled: e.target.checked })}
-                    />
-                    {t('开启后台自动收取')}
-                  </label>
-                </div>
-                <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
-                  <div className="space-y-1.5">
-                    <Label htmlFor="imap-host">{t('IMAP 服务器')}</Label>
-                    <Input
-                      id="imap-host"
-                      value={smtp.imapHost}
-                      onChange={(e) => setSmtp({ ...smtp, imapHost: e.target.value })}
-                      placeholder="imap.exmail.qq.com"
-                    />
-                    <p className="text-xs text-slate-400">{t('留空则按 SMTP 域名自动推导')}</p>
-                  </div>
-                  <div className="space-y-1.5">
-                    <Label htmlFor="imap-port">{t('端口')}</Label>
-                    <Input
-                      id="imap-port"
-                      value={smtp.imapPort}
-                      onChange={(e) => setSmtp({ ...smtp, imapPort: e.target.value })}
-                      placeholder="993"
-                    />
-                  </div>
-                  <div className="space-y-1.5">
-                    <Label htmlFor="imap-interval">{t('收取间隔（秒）')}</Label>
-                    <Input
-                      id="imap-interval"
-                      value={smtp.inboxPollSeconds}
-                      onChange={(e) => setSmtp({ ...smtp, inboxPollSeconds: e.target.value })}
-                      placeholder="180"
-                    />
-                  </div>
-                </div>
-                <div className="flex flex-wrap items-center gap-2">
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    disabled={smtpBusy}
-                    onClick={async () => {
-                      setSmtpBusy(true);
-                      try {
-                        const r = await emailGeneratorApi.pollInbox();
-                        if (r.error) {
-                          toast.error(t('收取失败'), { description: r.error });
-                        } else {
-                          toast.success(
-                            t('收取完成：抓取 {f} 封，新入库 {s} 封', { f: r.fetched, s: r.saved }),
-                          );
-                        }
-                        void queryClient.invalidateQueries({ queryKey: ['email-history-global'] });
-                      } catch (err: unknown) {
-                        toast.error(t('收取失败'), {
-                          description: err instanceof Error ? err.message : String(err),
-                        });
-                      } finally {
-                        setSmtpBusy(false);
-                      }
-                    }}
-                  >
-                    {t('立即收取一次')}
-                  </Button>
-                  <span className="text-xs text-slate-500">
-                    {t('使用同一账号的授权码；只抓新邮件（uid 水位），已入库不重复')}
-                  </span>
-                </div>
-              </div>
-
+              {/* 全局的「发信服务 / 收件服务」两块已移除：所有配置跟着邮箱走，
+                 点上面的邮箱展开编辑即可设置 SMTP 与 IMAP。 */}
               <div className="flex flex-wrap gap-2">
                 <Button
                   disabled={smtpBusy}

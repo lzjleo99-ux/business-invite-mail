@@ -57,12 +57,12 @@ export class EmailInboxService implements OnModuleInit, OnModuleDestroy {
   /** 启动路径：只读设置，默认关闭时直接返回（零 DDL、零连接） */
   private async bootstrap(): Promise<void> {
     // 只要有任意用户开启了收取就走定时任务（各自用自己的配置）
-    const owners = await this.listPollOwners();
+    const accounts = await this.listPollAccounts();
     const imap = await this.mail.getImapSettings();
-    if (owners.length === 0 && !imap.inboxPollEnabled) return;
+    if (accounts.length === 0 && !imap.inboxPollEnabled) return;
     const seconds = Math.max(60, imap.inboxPollSeconds || 180);
     this.logger.log(
-      `收信轮询已启动：每 ${seconds}s 抓取一次新邮件（${owners.length} 个用户独立收取）`,
+      `收信轮询已启动：每 ${seconds}s 抓取一次新邮件（${accounts.length} 个邮箱独立收取）`,
     );
     this.timer = setInterval(() => {
       void this.pollAll().catch((err: unknown) => {
@@ -78,12 +78,12 @@ export class EmailInboxService implements OnModuleInit, OnModuleDestroy {
    * 单个用户失败只记录，不影响其他人。
    */
   async pollAll(): Promise<InboxPollResult> {
-    const owners = await this.listPollOwners();
+    const accounts = await this.listPollAccounts();
     const total: InboxPollResult = { fetched: 0, saved: 0, lastUid: 0 };
     const errors: string[] = [];
-    for (const userId of owners) {
+    for (const { userId, accountId } of accounts) {
       try {
-        const r = await this.poll(userId);
+        const r = await this.poll(userId, accountId);
         total.fetched += r.fetched;
         total.saved += r.saved;
         if (r.error) errors.push(r.error);
@@ -91,19 +91,25 @@ export class EmailInboxService implements OnModuleInit, OnModuleDestroy {
         errors.push(err instanceof Error ? err.message : String(err));
       }
     }
-    total.lastUid = Math.max(total.lastUid, ...owners.map(() => 0));
     return errors.length > 0 ? { ...total, error: errors.join('；') } : total;
   }
 
-  /** 当前开启了收取的用户 id（含未单独配置、依赖全局行的） */
-  private async listPollOwners(): Promise<string[]> {
+  /**
+   * 当前开启了收取的账号（**每个邮箱各自轮询**）。
+   * 之前只返回 user id，于是一个用户只轮一个默认邮箱；现在有多个邮箱时
+   * 每个开了收取的都要轮，uid 水位也各自记在账号上。
+   */
+  private async listPollAccounts(): Promise<Array<{ userId: string; accountId: string }>> {
     try {
-      await this.mail.ensureInboxTable();
+      await this.mail.ensureAccountsTable();
       const rows = (await this.db.execute(sql`
-        SELECT owner_id AS "ownerId" FROM mail_inbox_settings
+        SELECT owner_id AS "userId", id AS "accountId"
+        FROM smtp_accounts
         WHERE inbox_poll_enabled = true AND owner_id IS NOT NULL
-      `)) as unknown as Array<{ ownerId?: string }>;
-      return rows.map((r) => r.ownerId).filter((v): v is string => !!v);
+      `)) as unknown as Array<{ userId?: string; accountId?: string }>;
+      return rows
+        .map((r) => ({ userId: r.userId ?? '', accountId: r.accountId ?? '' }))
+        .filter((r) => r.userId && r.accountId);
     } catch {
       return [];
     }
@@ -214,7 +220,7 @@ export class EmailInboxService implements OnModuleInit, OnModuleDestroy {
   }
 
   /** 手动触发一次（设置页「立即收取」按钮） */
-  async poll(userId?: string): Promise<InboxPollResult> {
+  async poll(userId?: string, accountId?: string): Promise<InboxPollResult> {
     if (this.polling) return { fetched: 0, saved: 0, lastUid: 0, error: '正在收取中' };
     this.polling = true;
     try {
@@ -228,7 +234,10 @@ export class EmailInboxService implements OnModuleInit, OnModuleDestroy {
       }
       // IMAP 配置表在写/轮询路径补齐（请求期 DDL 已验证可行），失败就明说
       await this.mail.ensureInboxTable();
-      const imap = await this.mail.getImapSettings(userId);
+      const imap = accountId
+        ? (await this.mail.getImapSettingsForAccount(accountId)) ??
+          (await this.mail.getImapSettings(userId))
+        : await this.mail.getImapSettings(userId);
 
       // IMAP 主机：优先设置里的 imap_host；否则按 SMTP 域名推导（smtp.exmail.qq.com → imap.exmail.qq.com）
       const imapHost =
@@ -336,7 +345,7 @@ export class EmailInboxService implements OnModuleInit, OnModuleDestroy {
 
       // 推进 uid 水位（即使部分解析失败也不重复抓）
       if (maxUid > (imap.inboxLastUid || 0)) {
-        await this.mail.setInboxLastUid(maxUid);
+        await this.mail.setInboxLastUid(maxUid, userId, accountId);
       }
       if (saved > 0) {
         this.logger.log(`收信轮询：抓取 ${fetched} 封，新入库 ${saved} 封（uid 水位 ${maxUid}）`);

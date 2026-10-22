@@ -183,10 +183,47 @@ export class MailService {
   }
 
   /** IMAP 收信配置读取：表/行不存在时返回默认值（未开启），绝不抛错 */
+  /**
+   * 收件配置：**跟着邮箱走**——取该用户默认发信账号上的 IMAP 字段。
+   * 用户还没有账号时才回退旧的全局 mail_inbox_settings（升级兼容）。
+   */
   async getImapSettings(userId?: string): Promise<ImapSettings> {
+    if (userId) {
+      try {
+        await this.ensureAccountsTable();
+        const rows = await this.db
+          .select({
+            imapHost: smtpAccounts.imapHost,
+            imapPort: smtpAccounts.imapPort,
+            imapSecure: smtpAccounts.imapSecure,
+            inboxPollEnabled: smtpAccounts.inboxPollEnabled,
+            inboxPollSeconds: smtpAccounts.inboxPollSeconds,
+            inboxLastUid: smtpAccounts.inboxLastUid,
+          })
+          .from(smtpAccounts)
+          .where(eq(smtpAccounts.ownerId, userId))
+          .orderBy(desc(smtpAccounts.isDefault), asc(smtpAccounts.createdAt))
+          .limit(1);
+        const row = rows[0];
+        if (row) {
+          return {
+            imapHost: row.imapHost,
+            imapPort: row.imapPort || 993,
+            imapSecure: row.imapSecure !== false,
+            inboxPollEnabled: row.inboxPollEnabled,
+            inboxPollSeconds: row.inboxPollSeconds || 180,
+            inboxLastUid: row.inboxLastUid || 0,
+          };
+        }
+      } catch (err: unknown) {
+        this.logger.warn(
+          `读取用户 IMAP 配置失败，回退全局：${err instanceof Error ? err.message : String(err)}`,
+        );
+      }
+    }
+
     try {
       await this.ensureInboxOwnerColumn();
-      // 有 userId：自己的行优先，没有再回退旧的全局行（owner_id IS NULL）
       const result = (await this.db.execute(sql`
         SELECT imap_host AS "imapHost",
                imap_port AS "imapPort",
@@ -212,6 +249,75 @@ export class MailService {
     } catch {
       // 表还没建（未跑过 ensureInboxTable）→ 视为未配置
       return IMAP_DEFAULTS;
+    }
+  }
+
+  /** 读**指定账号**的收件配置（多邮箱各自轮询用） */
+  async getImapSettingsForAccount(accountId: string): Promise<ImapSettings | null> {
+    await this.ensureAccountsTable();
+    const rows = await this.db
+      .select({
+        imapHost: smtpAccounts.imapHost,
+        imapPort: smtpAccounts.imapPort,
+        imapSecure: smtpAccounts.imapSecure,
+        inboxPollEnabled: smtpAccounts.inboxPollEnabled,
+        inboxPollSeconds: smtpAccounts.inboxPollSeconds,
+        inboxLastUid: smtpAccounts.inboxLastUid,
+      })
+      .from(smtpAccounts)
+      .where(eq(smtpAccounts.id, accountId))
+      .limit(1);
+    const row = rows[0];
+    if (!row) return null;
+    return {
+      imapHost: row.imapHost,
+      imapPort: row.imapPort || 993,
+      imapSecure: row.imapSecure !== false,
+      inboxPollEnabled: row.inboxPollEnabled,
+      inboxPollSeconds: row.inboxPollSeconds || 180,
+      inboxLastUid: row.inboxLastUid || 0,
+    };
+  }
+
+  /**
+   * 推进某个**账号**的收信 uid 水位（原来记在全局 mail_inbox_settings，
+   * 多邮箱会互相覆盖；现在每个邮箱自己一份）。
+   */
+  async setInboxLastUid(uid: number, userId?: string, accountId?: string): Promise<void> {
+    await this.ensureAccountsTable();
+    if (userId) {
+      const target = accountId
+        ? await this.db
+            .select({ id: smtpAccounts.id })
+            .from(smtpAccounts)
+            .where(and(eq(smtpAccounts.id, accountId), eq(smtpAccounts.ownerId, userId)))
+            .limit(1)
+        : await this.db
+            .select({ id: smtpAccounts.id })
+            .from(smtpAccounts)
+            .where(eq(smtpAccounts.ownerId, userId))
+            .orderBy(desc(smtpAccounts.isDefault), asc(smtpAccounts.createdAt))
+            .limit(1);
+      if (target[0]) {
+        await this.db
+          .update(smtpAccounts)
+          .set({ inboxLastUid: uid })
+          .where(eq(smtpAccounts.id, target[0].id));
+        return;
+      }
+    }
+    // 没有账号：退回旧的全局行（升级兼容）
+    await this.ensureInboxTable();
+    const existing = await this.db
+      .select({ id: mailInboxSettings.id })
+      .from(mailInboxSettings)
+      .where(isNull(mailInboxSettings.ownerId))
+      .limit(1);
+    if (existing[0]) {
+      await this.db
+        .update(mailInboxSettings)
+        .set({ inboxLastUid: uid, updatedAt: new Date() })
+        .where(eq(mailInboxSettings.id, existing[0].id));
     }
   }
 
@@ -263,23 +369,6 @@ export class MailService {
   }
 
   /** 推进收信 uid 水位（drizzle 构建器，与 email_histories 同款已验证路径） */
-  async setInboxLastUid(uid: number): Promise<void> {
-    await this.ensureInboxTable();
-    const existing = await this.db
-      .select({ id: mailInboxSettings.id })
-      .from(mailInboxSettings)
-      .orderBy(asc(mailInboxSettings.createdAt))
-      .limit(1);
-    if (existing[0]) {
-      await this.db
-        .update(mailInboxSettings)
-        .set({ inboxLastUid: uid, updatedAt: new Date() })
-        .where(eq(mailInboxSettings.id, existing[0].id));
-    } else {
-      await this.db.insert(mailInboxSettings).values({ inboxLastUid: uid });
-    }
-  }
-
   async saveSettings(input: {
     host: string;
     port: number;
@@ -416,6 +505,17 @@ export class MailService {
           // smtp_config 是平台建的表，ALTER 会报 must be owner → 不能加列。
           // 每用户 SMTP 存自建的 smtp_accounts（owner_id），smtp_config 只当全局回退。
           await run('ALTER TABLE smtp_accounts ADD COLUMN IF NOT EXISTS owner_id varchar(64)');
+          // 老库补列：收件配置跟着邮箱走
+          for (const col of [
+            'imap_host varchar(255)',
+            'imap_port integer NOT NULL DEFAULT 993',
+            'imap_secure boolean NOT NULL DEFAULT true',
+            'inbox_poll_enabled boolean NOT NULL DEFAULT false',
+            'inbox_poll_seconds integer NOT NULL DEFAULT 180',
+            'inbox_last_uid integer NOT NULL DEFAULT 0',
+          ]) {
+            await run(`ALTER TABLE smtp_accounts ADD COLUMN IF NOT EXISTS ${col}`);
+          }
           await run('CREATE INDEX IF NOT EXISTS idx_smtp_accounts_owner ON smtp_accounts (owner_id)');
         },
       )
@@ -428,7 +528,8 @@ export class MailService {
     return this.ownerColumnPromise;
   }
 
-  private async ensureAccountsTable(): Promise<void> {
+  /** 公开：收信轮询要按账号枚举（原来私有，只有增删改账号时用） */
+  async ensureAccountsTable(): Promise<void> {
     if (!this.accountsTablePromise) {
       this.accountsTablePromise = runIdempotentMigration(
         this.db,
@@ -446,6 +547,13 @@ export class MailService {
               secure boolean NOT NULL DEFAULT true,
               from_name varchar(255),
               is_default boolean NOT NULL DEFAULT false,
+              -- 收件（IMAP）：跟着邮箱走，每个邮箱各自一套
+              imap_host varchar(255),
+              imap_port integer NOT NULL DEFAULT 993,
+              imap_secure boolean NOT NULL DEFAULT true,
+              inbox_poll_enabled boolean NOT NULL DEFAULT false,
+              inbox_poll_seconds integer NOT NULL DEFAULT 180,
+              inbox_last_uid integer NOT NULL DEFAULT 0,
               _created_at timestamptz(3) NOT NULL DEFAULT CURRENT_TIMESTAMP
             )`);
           await run('ALTER TABLE smtp_accounts ADD COLUMN IF NOT EXISTS owner_id varchar(64)');
@@ -471,7 +579,12 @@ export class MailService {
    * 代价：能打开设置页的人都能看到 SMTP 授权码。已向用户说明这一权衡。
    */
   async listAccounts(ownerId?: string): Promise<
-    { id: string; email: string; password: string; host: string; port: number; secure: boolean; fromName: string | null; isDefault: boolean }[]
+    {
+      id: string; email: string; password: string;
+      host: string; port: number; secure: boolean; fromName: string | null; isDefault: boolean;
+      imapHost: string | null; imapPort: number; imapSecure: boolean;
+      inboxPollEnabled: boolean; inboxPollSeconds: number;
+    }[]
   > {
     try {
       await this.ensureAccountsTable();
@@ -490,6 +603,11 @@ export class MailService {
         secure: r.secure,
         fromName: r.fromName,
         isDefault: r.isDefault,
+        imapHost: r.imapHost,
+        imapPort: r.imapPort,
+        imapSecure: r.imapSecure,
+        inboxPollEnabled: r.inboxPollEnabled,
+        inboxPollSeconds: r.inboxPollSeconds,
       }));
     } catch (err: unknown) {
       this.logger.warn(`读取发信账号失败：${err instanceof Error ? err.message : String(err)}`);
@@ -501,6 +619,11 @@ export class MailService {
   async addAccount(input: {
     ownerId?: string;
     email: string;
+    imapHost?: string | null;
+    imapPort?: number;
+    imapSecure?: boolean;
+    inboxPollEnabled?: boolean;
+    inboxPollSeconds?: number;
     password: string;
     host: string;
     port: number;
@@ -522,6 +645,13 @@ export class MailService {
     const rows = await this.db.insert(smtpAccounts).values({
       ownerId: input.ownerId ?? null,
       email,
+      imapHost: input.imapHost !== undefined ? input.imapHost : null,
+      imapPort: Number.isFinite(input.imapPort) ? Number(input.imapPort) : 993,
+      imapSecure: input.imapSecure !== false,
+      inboxPollEnabled: input.inboxPollEnabled === true,
+      inboxPollSeconds: Number.isFinite(input.inboxPollSeconds)
+        ? Math.max(60, Number(input.inboxPollSeconds))
+        : 180,
       password: input.password,
       host: input.host.trim(),
       port: input.port,
@@ -545,6 +675,11 @@ export class MailService {
       port?: number;
       secure?: boolean;
       fromName?: string | null;
+      imapHost?: string | null;
+      imapPort?: number;
+      imapSecure?: boolean;
+      inboxPollEnabled?: boolean;
+      inboxPollSeconds?: number;
     },
     ownerId?: string,
   ): Promise<void> {
@@ -568,6 +703,13 @@ export class MailService {
     if (input.port !== undefined && Number.isFinite(input.port)) patch.port = Number(input.port);
     if (input.secure !== undefined) patch.secure = input.secure !== false;
     if (input.fromName !== undefined) patch.fromName = input.fromName?.trim() || null;
+    if (input.imapHost !== undefined) patch.imapHost = input.imapHost?.trim() || null;
+    if (input.imapPort !== undefined && Number.isFinite(input.imapPort)) patch.imapPort = Number(input.imapPort);
+    if (input.imapSecure !== undefined) patch.imapSecure = input.imapSecure !== false;
+    if (input.inboxPollEnabled !== undefined) patch.inboxPollEnabled = input.inboxPollEnabled === true;
+    if (input.inboxPollSeconds !== undefined && Number.isFinite(input.inboxPollSeconds)) {
+      patch.inboxPollSeconds = Math.max(60, Number(input.inboxPollSeconds));
+    }
     if (Object.keys(patch).length === 0) return;
     await this.db.update(smtpAccounts).set(patch).where(eq(smtpAccounts.id, id));
     this.transporter = null;

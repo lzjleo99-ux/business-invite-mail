@@ -160,6 +160,11 @@ export class AdminController {
       port: number;
       secure: boolean;
       fromName?: string;
+      imapHost?: string | null;
+      imapPort?: number;
+      imapSecure?: boolean;
+      inboxPollEnabled?: boolean;
+      inboxPollSeconds?: number;
     },
     @CurrentUser() user: JwtPayload,
   ): Promise<{ id: string }> {
@@ -182,6 +187,11 @@ export class AdminController {
       port?: number;
       secure?: boolean;
       fromName?: string | null;
+      imapHost?: string | null;
+      imapPort?: number;
+      imapSecure?: boolean;
+      inboxPollEnabled?: boolean;
+      inboxPollSeconds?: number;
     },
     @CurrentUser() user: JwtPayload,
   ): Promise<{ ok: true }> {

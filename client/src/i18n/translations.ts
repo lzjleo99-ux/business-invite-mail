@@ -20,6 +20,10 @@ export const enMessages: Record<string, string> = {
   '第 {page} / {totalPages} 页': 'Page {page} of {totalPages}',
 
   // ---- antd table locale ----
+  '收件（IMAP）': 'Inbox (IMAP)',
+  '后台自动收取': 'Background auto-fetch',
+  '轮询间隔（秒）': 'Poll interval (seconds)',
+  'IMAP SSL': 'IMAP SSL',
   '发信邮箱': 'Sender mailboxes',
   '点下面的邮箱可以进行编辑或删除；发送时在「一键发送」旁选择用哪个。': 'Click a mailbox below to edit or delete it. Choose which one to use next to 一键发送 when sending.',
   '添加邮箱': 'Add mailbox',
