@@ -190,7 +190,7 @@ const UserGuidePage: React.FC = () => {
    * 但 URL 没变，用户看到的还是上一版（表现为"改了没生效"）。
    * 以后每次替换截图文件，把这个数字 +1。
    */
-  const SHOT_VERSION = '3';
+  const SHOT_VERSION = '4';
   const shotFor = (shot: string): string => {
     const base = lang === 'en' && shot.endsWith('.png') ? shot.replace(/\.png$/, '-en.png') : shot;
     return `${base}?v=${SHOT_VERSION}`;
