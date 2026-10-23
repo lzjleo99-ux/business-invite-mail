@@ -42,7 +42,7 @@ import * as emailGeneratorApi from '@/api/email-generator';
 import { Label } from '@/components/ui/label';
 import { useAuth } from '@/contexts/AuthContext';
 import { useI18n } from '@/i18n';
-import { mergeModelLists, isReasoningModel } from '@shared/model-catalog';
+import { mergeModelLists, isReasoningModel, detectFamily } from '@shared/model-catalog';
 import type {
   ModelConfig,
   SenderConfig,
@@ -667,11 +667,26 @@ const SettingsPage = () => {
                             <FormMessage />
                             {/* 推理模型不吃自定义 temperature：说明一下，
                                 免得用户以为"设了 0.3 却没生效"是 bug */}
-                            {isReasoningModel(modelForm.watch('modelName') ?? '') && (
-                              <p className="mt-1 text-xs text-slate-500">
-                                {t('所选模型是推理模型，Temperature 不适用（由模型自身控制），保存时会被忽略。')}
-                              </p>
-                            )}
+                            {/* 一事一议：不同家族对 temperature/max_tokens 的接受度不同，
+                                后端 buildChatBody 会按家族翻译，这里只提示差异 */}
+                            {(() => {
+                              const m = modelForm.watch('modelName') ?? '';
+                              if (isReasoningModel(m)) {
+                                return (
+                                  <p className="mt-1 text-xs text-slate-500">
+                                    {t('推理模型不接受 Temperature：你的设置会换算成该模型认识的"思考力度"参数（reasoning_effort）。')}
+                                  </p>
+                                );
+                              }
+                              if (detectFamily(m) === 'anthropic') {
+                                return (
+                                  <p className="mt-1 text-xs text-slate-500">
+                                    {t('Claude 的 Temperature 范围是 0~1（不是 0~2），超出会自动收窄；输出上限为必填，未填时用默认 4096。')}
+                                  </p>
+                                );
+                              }
+                              return null;
+                            })()}
                           </FormItem>
                         );
                       }}

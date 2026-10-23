@@ -146,57 +146,128 @@ function lastSegment(model: string): string {
 }
 
 /**
- * 是不是推理模型。
- * 推理模型的硬限制：不接受自定义 temperature（只能 1），不接受 max_tokens。
- * 之前只有 GLM-5.x 被特判；o1/o3 系列、deepseek-reasoner 都会 400。
+ * 模型家族。**参数能不能传，完全由家族决定**，所以先分类再构造请求体。
+ *
+ * 各家族的硬约束（2026-10 核对自厂商文档）：
+ * - openai-reasoning（o1/o3/o4、gpt-5 thinking/pro）：
+ *     拒绝 temperature / top_p / penalties / max_tokens。
+ *     认 max_completion_tokens + reasoning_effort(low|medium|high)。
+ * - anthropic：max_tokens **必填**；temperature 范围 **0~1**（不是 0~2）。
+ * - deepseek-reasoner / glm-reasoning：temperature 和 max_tokens 都不吃。
+ * - qwen / gemini / 其他 OpenAI 兼容：temperature + max_tokens 都吃。
+ */
+export type ModelFamily =
+  | 'openai-reasoning'
+  | 'anthropic'
+  | 'deepseek-reasoning'
+  | 'glm-reasoning'
+  | 'qwen'
+  | 'openai'
+  | 'generic';
+
+export function detectFamily(model: string): ModelFamily {
+  const m = lastSegment(model);
+  if (!m) return 'generic';
+  if (/^claude-/.test(m)) return 'anthropic';
+  if (m.startsWith('deepseek-reasoner')) return 'deepseek-reasoning';
+  if (/^glm-5(\.|$)/.test(m)) return 'glm-reasoning';
+  if (/^qwen/.test(m)) return 'qwen';
+  if (/^o[1-9]\b/.test(m) || /^o[1-9]-/.test(m)) return 'openai-reasoning';
+  if (/^gpt-5.*(thinking|pro)/.test(m)) return 'openai-reasoning';
+  return 'openai';
+}
+
+/**
+ * 是不是推理模型（UI 用来提示"Temperature 不适用"）。
+ * 注意 anthropic 的 adaptive thinking 默认开启，但对 temperature 仍然接受，
+ * 所以这里**不把 Claude 算作推理模型**——它只是 max_tokens 必填、temperature 要收窄。
  */
 export function isReasoningModel(model: string): boolean {
-  const m = lastSegment(model);
-  if (!m) return false;
-  // OpenAI o 系列
-  if (/^o[1-9]\b/.test(m) || /^o[1-9]-/.test(m)) return true;
-  // GPT-5 的 thinking/pro 变体
-  if (/^gpt-5.*(thinking|pro)/.test(m)) return true;
-  // DeepSeek
-  if (m.startsWith('deepseek-reasoner')) return true;
-  // GLM 5.x 是推理模型；4.x 不是
-  if (/^glm-5(\.|$)/.test(m)) return true;
-  // Claude 4.6+ / Fable 是 adaptive thinking（默认开启）
-  if (/^claude-(fable|opus-5|sonnet-5|opus-4-[6-9]|sonnet-4-[6-9])/.test(m)) return true;
-  return false;
+  const f = detectFamily(model);
+  return (
+    f === 'openai-reasoning' || f === 'deepseek-reasoning' || f === 'glm-reasoning'
+  );
+}
+
+/**
+ * 把用户的 temperature 意图翻译成推理模型认的 reasoning_effort。
+ * temperature 低 = 要确定/严谨 → 多想想（high）；
+ * temperature 高 = 要发散/多样 → 少想（low）。
+ * 只用 low/medium/high：o 系列只认这三个，GPT-5 额外的 none/minimal/xhigh 不通用。
+ */
+function temperatureToEffort(temperature: number | null | undefined): 'low' | 'medium' | 'high' {
+  if (temperature == null) return 'medium';
+  if (temperature <= 0.3) return 'high';
+  if (temperature <= 0.7) return 'medium';
+  return 'low';
+}
+
+function clamp(v: number, lo: number, hi: number): number {
+  return Math.min(hi, Math.max(lo, v));
 }
 
 export interface ChatBodyInput {
   model: string;
   messages: Array<{ role: string; content: string }>;
-  /** 用户设的 temperature；推理模型会忽略 */
+  /** 用户设的 temperature；推理家族会翻译成别的参数 */
   temperature?: number | null;
   /** 需要 JSON 输出时传 'json_object' */
   jsonMode?: boolean;
-  /** 普通模型可限制输出长度；推理模型一律不传 */
+  /** 输出上限。anthropic 必填，不给就取 DEFAULT_MAX_TOKENS */
   maxTokens?: number;
 }
+
+/** anthropic 的 max_tokens 是必填项，调用方没给时的默认值 */
+const DEFAULT_MAX_TOKENS = 4096;
 
 /**
  * 按模型家族构造 /chat/completions 请求体。
  *
  * 这是"选完模型后台要怎么变"的唯一入口——之前 5 处各拼各的，
  * 加个新模型家族就得改 5 个地方，漏一处就静默用错参数。
+ *
+ * 关于"最小长度"：**这些 API 都没有 min_tokens / min_output_tokens 参数**
+ * （OpenAI 帮助中心明确说"There is no minimum tokens setting"）。
+ * 要控制下限只能在 prompt 里写清楚，这里不造一个不存在的参数。
  */
 export function buildChatBody(input: ChatBodyInput): Record<string, unknown> {
-  const reasoning = isReasoningModel(input.model);
+  const family = detectFamily(input.model);
   const body: Record<string, unknown> = {
     model: input.model,
     messages: input.messages,
   };
 
-  if (reasoning) {
-    // 推理模型：temperature 只能取默认值 1，max_tokens 会直接被拒。
-    // 用 max_completion_tokens 表达"别太长"的意图（不支持的实现会忽略未知字段）。
-    if (input.maxTokens != null) body.max_completion_tokens = input.maxTokens;
-  } else {
-    body.temperature = input.temperature ?? 0.7;
-    if (input.maxTokens != null) body.max_tokens = input.maxTokens;
+  switch (family) {
+    case 'openai-reasoning': {
+      // 不传 temperature（只能取默认值 1，传了直接 400）。
+      // 用户的温度意图翻译成 reasoning_effort；长度用 max_completion_tokens。
+      body.reasoning_effort = temperatureToEffort(input.temperature);
+      if (input.maxTokens != null) body.max_completion_tokens = input.maxTokens;
+      break;
+    }
+    case 'anthropic': {
+      // temperature 收窄到 0~1（官方范围；传 1.5 会 400）
+      body.temperature = clamp(input.temperature ?? 0.7, 0, 1);
+      // max_tokens 必填
+      body.max_tokens = input.maxTokens ?? DEFAULT_MAX_TOKENS;
+      break;
+    }
+    case 'deepseek-reasoning':
+    case 'glm-reasoning': {
+      // 两个都不吃，传了就是 400。意图同样翻译成思考预算类参数没有通用字段，
+      // 这里只能不传（调用方的 prompt 已经说明了输出要求）。
+      break;
+    }
+    case 'qwen': {
+      body.temperature = clamp(input.temperature ?? 0.7, 0, 2);
+      if (input.maxTokens != null) body.max_tokens = input.maxTokens;
+      break;
+    }
+    default: {
+      body.temperature = clamp(input.temperature ?? 0.7, 0, 2);
+      if (input.maxTokens != null) body.max_tokens = input.maxTokens;
+      break;
+    }
   }
 
   if (input.jsonMode) body.response_format = { type: 'json_object' };
