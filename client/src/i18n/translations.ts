@@ -20,6 +20,15 @@ export const enMessages: Record<string, string> = {
   '第 {page} / {totalPages} 页': 'Page {page} of {totalPages}',
 
   // ---- antd table locale ----
+  '推理模型不吃 Temperature：会换算成 reasoning_effort。': 'Reasoning model: Temperature is ignored and sent as reasoning_effort.',
+  'Claude 的 Temperature 范围是 0~1，超出自动收窄。': 'Claude takes Temperature in the 0~1 range; higher values are clamped automatically.',
+  '还可以在「设置 → Robot integration」里配置企业微信群机器人，收到回复时推一条提醒到你的企微群。': 'You can also set up a WeCom group bot under Settings → Robot integration to push an alert to your group on every reply.',
+  '「Model settings」第一行选模型（按公司分组）；选中后 API Base URL 自动切换为该厂商的官方端点，旁边给出申请 Key 的入口。': 'In Model settings, pick a model on the first row (grouped by company); the API Base URL switches to that vendor\'s official endpoint, with a link to apply for its key.',
+  '用聚合渠道时把 Base URL 手动改回它的地址即可；推理模型不吃 Temperature，会自动换算成 reasoning_effort。': 'For an aggregator, edit the Base URL back to its address; reasoning models ignore Temperature and get reasoning_effort instead.',
+  '「Email service」：点开一个邮箱编辑 SMTP / IMAP（腾讯企业邮箱 smtp.exmail.qq.com:465 SSL，IMAP 用 imap.exmail.qq.com:993），「后台自动收取」也在邮箱里开。': 'In Email service, click a mailbox to edit SMTP / IMAP (Tencent Exmail smtp.exmail.qq.com:465 SSL, IMAP imap.exmail.qq.com:993); background auto-fetch is configured inside the mailbox too.',
+  '第一个添加的邮箱自动成为默认收发邮箱；发送时不选账号就用它。': 'The first mailbox added becomes the default sender & receiver; it is used when no account is picked.',
+  '「Robot integration」：机器人导入密钥 + 企业微信提醒都在这个标签。填群机器人 webhook → 打开「启用回复提醒」→ 点「测试推送」确认能收到。': 'Robot integration holds the import secret and the WeCom alerts. Paste the group-bot webhook, enable reply alerts, then send a test alert to confirm.',
+  '设置页：模型选择（URL 自动跟随厂商）、发信邮箱、企微提醒': 'Settings: model picker (URL follows the vendor), sender mailboxes, WeCom alerts',
   '已切换到': 'Switched to',
   '的官方端点。': '\'s official endpoint.',
   '去申请这家': 'Get an API key from',

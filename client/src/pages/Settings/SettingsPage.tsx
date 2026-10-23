@@ -652,15 +652,15 @@ const SettingsPage = () => {
                               const m = modelForm.watch('modelName') ?? '';
                               if (isReasoningModel(m)) {
                                 return (
-                                  <p className="mt-1 text-xs text-slate-500">
-                                    {t('推理模型不接受 Temperature：你的设置会换算成该模型认识的"思考力度"参数（reasoning_effort）。')}
+                                  <p className="mt-1 break-words text-xs text-slate-500">
+                                    {t('推理模型不吃 Temperature：会换算成 reasoning_effort。')}
                                   </p>
                                 );
                               }
                               if (detectFamily(m) === 'anthropic') {
                                 return (
-                                  <p className="mt-1 text-xs text-slate-500">
-                                    {t('Claude 的 Temperature 范围是 0~1（不是 0~2），超出会自动收窄；输出上限为必填，未填时用默认 4096。')}
+                                  <p className="mt-1 break-words text-xs text-slate-500">
+                                    {t('Claude 的 Temperature 范围是 0~1，超出自动收窄。')}
                                   </p>
                                 );
                               }
@@ -687,7 +687,7 @@ const SettingsPage = () => {
                         {/* 选了目录里的模型 → 自动切到那家官方端点；
                             「From your API」组的模型不知道厂商，不动 URL */}
                         {selectedProvider && selectedProvider.baseUrl && (
-                          <p className="mt-1 text-xs text-slate-500">
+                          <p className="mt-1 break-words text-xs text-slate-500">
                             {t('已切换到')}{' '}
                             <span className="font-medium text-slate-700">{selectedProvider.company}</span>
                             {t('的官方端点。')}
@@ -1420,8 +1420,10 @@ const SettingsPage = () => {
           </Card>
         )}
 
-        {/* 企业微信群机器人：收到客户回复时推提醒 + 自动加星标 */}
-        {isAdmin && (
+        {/* 企业微信群机器人：收到客户回复时推提醒 + 自动加星标。
+            只放在「Robot integration」标签里——之前没有 tab 条件，
+            每个标签页下面都会重复渲染这一大块。 */}
+        {isAdmin && activeTab === 'robot' && (
           <Card>
             <CardHeader>
               <CardTitle className="flex items-center gap-2">
