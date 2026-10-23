@@ -568,61 +568,7 @@ const SettingsPage = () => {
                   onSubmit={modelForm.handleSubmit(onModelSubmit)}
                   className="space-y-5"
                 >
-                  <FormField
-                    control={modelForm.control}
-                    name="apiBaseUrl"
-                    render={({ field }) => (
-                      <FormItem>
-                        <FormLabel>API Base URL</FormLabel>
-                        <FormControl>
-                          <Input
-                            placeholder="https://api.openai.com/v1"
-                            {...field}
-                          />
-                        </FormControl>
-                        {/* 选了目录里的模型 → 自动切到那家官方端点；
-                            「From your API」组的模型不知道厂商，不动 URL */}
-                        {selectedProvider && (
-                          <p className="mt-1 text-xs text-slate-500">
-                            {t('已切换到')}{' '}
-                            <span className="font-medium text-slate-700">{selectedProvider.company}</span>
-                            {t('的官方端点。')}
-                            {selectedProvider.apiKeyUrl && (
-                              <>
-                                {' '}
-                                <a href={selectedProvider.apiKeyUrl} target="_blank" rel="noreferrer" className="text-blue-600 underline">
-                                  {t('去申请这家')}
-                                </a>
-                                {' '}{t('的 API Key。')}
-                              </>
-                            )}
-                            {' '}{t('用聚合渠道时手动改回它的地址即可。')}
-                          </p>
-                        )}
-                        <FormMessage />
-                      </FormItem>
-                    )}
-                  />
 
-
-                  <FormField
-                    control={modelForm.control}
-                    name="apiKey"
-                    render={({ field }) => (
-                      <FormItem>
-                        <FormLabel>API Key</FormLabel>
-                        <FormControl>
-                          <Input
-                            type="password"
-                            placeholder={t('留空则不修改')}
-                            {...field}
-                            value={field.value ?? ''}
-                          />
-                        </FormControl>
-                        <FormMessage />
-                      </FormItem>
-                    )}
-                  />
 
 
                   <div className="grid grid-cols-1 gap-5 md:grid-cols-2">
@@ -725,6 +671,61 @@ const SettingsPage = () => {
                       }}
                     />
                   </div>
+
+                  <FormField
+                    control={modelForm.control}
+                    name="apiBaseUrl"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>API Base URL</FormLabel>
+                        <FormControl>
+                          <Input
+                            placeholder="https://api.openai.com/v1"
+                            {...field}
+                          />
+                        </FormControl>
+                        {/* 选了目录里的模型 → 自动切到那家官方端点；
+                            「From your API」组的模型不知道厂商，不动 URL */}
+                        {selectedProvider && (
+                          <p className="mt-1 text-xs text-slate-500">
+                            {t('已切换到')}{' '}
+                            <span className="font-medium text-slate-700">{selectedProvider.company}</span>
+                            {t('的官方端点。')}
+                            {selectedProvider.apiKeyUrl && (
+                              <>
+                                {' '}
+                                <a href={selectedProvider.apiKeyUrl} target="_blank" rel="noreferrer" className="text-blue-600 underline">
+                                  {t('去申请这家')}
+                                </a>
+                                {' '}{t('的 API Key。')}
+                              </>
+                            )}
+                            {' '}{t('用聚合渠道时手动改回它的地址即可。')}
+                          </p>
+                        )}
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+
+<FormField
+                    control={modelForm.control}
+                    name="apiKey"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>API Key</FormLabel>
+                        <FormControl>
+                          <Input
+                            type="password"
+                            placeholder={t('留空则不修改')}
+                            {...field}
+                            value={field.value ?? ''}
+                          />
+                        </FormControl>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
 
                   <FormField
                     control={modelForm.control}
