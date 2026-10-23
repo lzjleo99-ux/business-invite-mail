@@ -43,10 +43,10 @@ export const MODEL_CATALOG: CatalogGroup[] = [
     company: 'aixapex (aggregator)',
     baseUrl: 'https://api.aixapex.com/v1',
     models: [
-      { id: 'TPK/GLM-5.2', note: '综合能力最强（推荐）', reasoning: true },
-      { id: 'TPK/DeepSeek-V4-Flash', note: '速度快、省额度' },
-      { id: 'TPK/Qwen3.6-35B-A3B', note: '中文好、性价比高' },
-      { id: 'TPK/Qwen3.8-27B', note: '轻量快速' },
+      { id: 'TPK/GLM-5.2', note: 'best overall (recommended)', reasoning: true },
+      { id: 'TPK/DeepSeek-V4-Flash', note: 'fast, token-efficient' },
+      { id: 'TPK/Qwen3.6-35B-A3B', note: 'strong Chinese, cost-effective' },
+      { id: 'TPK/Qwen3.8-27B', note: 'lightweight, fast' },
     ],
   },
   {
