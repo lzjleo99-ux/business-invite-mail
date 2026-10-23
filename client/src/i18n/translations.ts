@@ -20,6 +20,11 @@ export const enMessages: Record<string, string> = {
   '第 {page} / {totalPages} 页': 'Page {page} of {totalPages}',
 
   // ---- antd table locale ----
+  '已切换到': 'Switched to',
+  '的官方端点。': '\'s official endpoint.',
+  '去申请这家': 'Get an API key from',
+  '的 API Key。': '.',
+  '用聚合渠道时手动改回它的地址即可。': 'If you use an aggregator, edit this URL back to its address.',
   '推理模型不接受 Temperature：你的设置会换算成该模型认识的"思考力度"参数（reasoning_effort）。': 'Reasoning models do not take Temperature: your value is translated into the parameter they do accept (reasoning_effort).',
   'Claude 的 Temperature 范围是 0~1（不是 0~2），超出会自动收窄；输出上限为必填，未填时用默认 4096。': 'Claude takes Temperature in the 0~1 range (not 0~2); higher values are clamped automatically. An output cap is required - 4096 is used when unset.',
   '所选模型是推理模型，Temperature 不适用（由模型自身控制），保存时会被忽略。': 'This is a reasoning model: Temperature does not apply (the model controls it) and is ignored when saving.',

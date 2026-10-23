@@ -42,7 +42,7 @@ import * as emailGeneratorApi from '@/api/email-generator';
 import { Label } from '@/components/ui/label';
 import { useAuth } from '@/contexts/AuthContext';
 import { useI18n } from '@/i18n';
-import { mergeModelLists, isReasoningModel, detectFamily } from '@shared/model-catalog';
+import { mergeModelLists, isReasoningModel, detectFamily, findProviderByModel } from '@shared/model-catalog';
 import type {
   ModelConfig,
   SenderConfig,
@@ -307,6 +307,12 @@ const SettingsPage = () => {
   const modelGroups = useMemo(
     () => mergeModelLists(modelOptions?.models ?? []),
     [modelOptions],
+  );
+  /** 当前所选模型属于哪家供应商（决定自动填哪个官方端点） */
+  const watchedModel = modelForm.watch('modelName');
+  const selectedProvider = useMemo(
+    () => modelGroups.find((g) => g.models.some((m) => m.id === watchedModel)) ?? null,
+    [modelGroups, watchedModel],
   );
 
   const updateMutation = useMutation({
@@ -574,10 +580,30 @@ const SettingsPage = () => {
                             {...field}
                           />
                         </FormControl>
+                        {/* 选了目录里的模型 → 自动切到那家官方端点；
+                            「From your API」组的模型不知道厂商，不动 URL */}
+                        {selectedProvider && (
+                          <p className="mt-1 text-xs text-slate-500">
+                            {t('已切换到')}{' '}
+                            <span className="font-medium text-slate-700">{selectedProvider.company}</span>
+                            {t('的官方端点。')}
+                            {selectedProvider.apiKeyUrl && (
+                              <>
+                                {' '}
+                                <a href={selectedProvider.apiKeyUrl} target="_blank" rel="noreferrer" className="text-blue-600 underline">
+                                  {t('去申请这家')}
+                                </a>
+                                {' '}{t('的 API Key。')}
+                              </>
+                            )}
+                            {' '}{t('用聚合渠道时手动改回它的地址即可。')}
+                          </p>
+                        )}
                         <FormMessage />
                       </FormItem>
                     )}
                   />
+
 
                   <FormField
                     control={modelForm.control}
@@ -598,6 +624,7 @@ const SettingsPage = () => {
                     )}
                   />
 
+
                   <div className="grid grid-cols-1 gap-5 md:grid-cols-2">
                     <FormField
                       control={modelForm.control}
@@ -609,7 +636,13 @@ const SettingsPage = () => {
                             <select
                               className="flex h-10 w-full rounded-md border border-slate-200 bg-white px-3 py-2 text-sm ring-offset-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-400 disabled:cursor-not-allowed disabled:opacity-50"
                               value={field.value ?? ''}
-                              onChange={(e) => field.onChange(e.target.value)}
+                              onChange={(e) => {
+                                field.onChange(e.target.value);
+                                // ZCode 式供应商模板：选哪家的模型，就切到那家的官方端点。
+                                // 「From your API」组的模型查不到厂商，保留用户现在的地址。
+                                const prov = findProviderByModel(e.target.value);
+                                if (prov) modelForm.setValue('apiBaseUrl', prov.baseUrl);
+                              }}
                             >
                               {/* 当前值不在任何列表里（手填过 / API 下架了）也要能显示 */}
                               {field.value &&

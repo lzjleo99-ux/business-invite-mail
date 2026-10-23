@@ -19,7 +19,19 @@ export interface CatalogModel {
   reasoning?: boolean;
 }
 
-export interface CatalogGroup {
+/**
+ * 供应商模板（借鉴 ZCode 的 Provider 设计）：
+ * 选哪个模型，就用**那家公司自己的**端点和取 key 地址——
+ * 不能拿一家聚合渠道的 baseURL 去调所有厂商的模型。
+ */
+export interface ProviderPreset {
+  /** 官方 OpenAI 兼容端点（含 /v1 之类的版本段） */
+  baseUrl: string;
+  /** 去哪里申请 API Key */
+  apiKeyUrl?: string;
+}
+
+export interface CatalogGroup extends ProviderPreset {
   company: string;
   models: CatalogModel[];
 }
@@ -27,6 +39,8 @@ export interface CatalogGroup {
 export const MODEL_CATALOG: CatalogGroup[] = [
   {
     company: 'OpenAI',
+    baseUrl: 'https://api.openai.com/v1',
+    apiKeyUrl: 'https://platform.openai.com/api-keys',
     models: [
       { id: 'gpt-5.5', note: 'latest flagship' },
       { id: 'gpt-5.4', note: 'flagship' },
@@ -54,6 +68,8 @@ export const MODEL_CATALOG: CatalogGroup[] = [
   },
   {
     company: 'Anthropic',
+    baseUrl: 'https://api.anthropic.com/v1',
+    apiKeyUrl: 'https://console.anthropic.com/settings/keys',
     models: [
       { id: 'claude-fable-5-1', note: 'long-horizon agents', reasoning: true },
       { id: 'claude-opus-5-5', note: 'agentic coding', reasoning: true },
@@ -66,6 +82,8 @@ export const MODEL_CATALOG: CatalogGroup[] = [
   },
   {
     company: 'Google',
+    baseUrl: 'https://generativelanguage.googleapis.com/v1beta/openai',
+    apiKeyUrl: 'https://aistudio.google.com/app/apikey',
     models: [
       { id: 'gemini-3-pro', note: 'latest flagship' },
       { id: 'gemini-2.5-pro', note: '' },
@@ -77,6 +95,8 @@ export const MODEL_CATALOG: CatalogGroup[] = [
   },
   {
     company: 'DeepSeek',
+    baseUrl: 'https://api.deepseek.com/v1',
+    apiKeyUrl: 'https://platform.deepseek.com/api_keys',
     models: [
       { id: 'deepseek-chat', note: 'general' },
       { id: 'deepseek-reasoner', note: 'reasoning', reasoning: true },
@@ -84,6 +104,8 @@ export const MODEL_CATALOG: CatalogGroup[] = [
   },
   {
     company: 'Zhipu AI (GLM)',
+    baseUrl: 'https://open.bigmodel.cn/api/paas/v4',
+    apiKeyUrl: 'https://open.bigmodel.cn/usercenter/apikeys',
     models: [
       { id: 'glm-5.2', note: 'reasoning', reasoning: true },
       { id: 'glm-4.6', note: '' },
@@ -96,6 +118,8 @@ export const MODEL_CATALOG: CatalogGroup[] = [
   },
   {
     company: 'Alibaba (Qwen)',
+    baseUrl: 'https://dashscope.aliyuncs.com/compatible-mode/v1',
+    apiKeyUrl: 'https://bailian.console.aliyun.com/?apiKey=1#/api-key',
     models: [
       { id: 'qwen3-max', note: 'flagship' },
       { id: 'qwen-max', note: '' },
@@ -106,6 +130,8 @@ export const MODEL_CATALOG: CatalogGroup[] = [
   },
   {
     company: 'Moonshot (Kimi)',
+    baseUrl: 'https://api.moonshot.cn/v1',
+    apiKeyUrl: 'https://platform.moonshot.cn/console/api-keys',
     models: [
       { id: 'kimi-k2', note: 'latest' },
       { id: 'moonshot-v1-128k', note: 'long context' },
@@ -115,6 +141,8 @@ export const MODEL_CATALOG: CatalogGroup[] = [
   },
   {
     company: 'xAI',
+    baseUrl: 'https://api.x.ai/v1',
+    apiKeyUrl: 'https://console.x.ai',
     models: [
       { id: 'grok-4', note: 'latest' },
       { id: 'grok-3', note: '' },
@@ -123,6 +151,8 @@ export const MODEL_CATALOG: CatalogGroup[] = [
   },
   {
     company: 'MiniMax',
+    baseUrl: 'https://api.minimaxi.com/v1',
+    apiKeyUrl: 'https://platform.minimaxi.com/user-center/basic-information/interface-key',
     models: [
       { id: 'minimax-m2', note: 'agent' },
       { id: 'abab7-chat', note: '' },
@@ -130,6 +160,8 @@ export const MODEL_CATALOG: CatalogGroup[] = [
   },
   {
     company: 'ByteDance (Doubao)',
+    baseUrl: 'https://ark.cn-beijing.volces.com/api/v3',
+    apiKeyUrl: 'https://console.volcengine.com/ark/region:ark+cn-beijing/apiKey',
     models: [
       { id: 'doubao-pro-256k', note: 'long context' },
       { id: 'doubao-pro-128k', note: '' },
@@ -274,6 +306,18 @@ export function buildChatBody(input: ChatBodyInput): Record<string, unknown> {
   return body;
 }
 
+/** 按模型找供应商模板。**全字匹配，不剥前缀**：带前缀的 ID（TPK/GLM-5.2）
+ *  只在聚合渠道有效，发给厂商官方端点会 404——这种保持用户现有地址。
+ *  （isReasoningModel 才剥前缀：那是模型固有能力，跟走哪家渠道无关。） */
+export function findProviderByModel(model: string): ProviderPreset | null {
+  const lower = model.toLowerCase();
+  const hit = MODEL_CATALOG.find((g) =>
+    g.models.some((m) => m.id.toLowerCase() === lower),
+  );
+  if (hit) return { baseUrl: hit.baseUrl, apiKeyUrl: hit.apiKeyUrl };
+  return null;
+}
+
 /** 设置页下拉用：目录 + 当前 API 返回的模型合并去重 */
 export interface MergedModel {
   id: string;
@@ -285,9 +329,11 @@ export interface MergedModel {
 
 export function mergeModelLists(
   apiModels: Array<{ id: string; description?: string }>,
-): { company: string; models: MergedModel[] }[] {
-  const groups: { company: string; models: MergedModel[] }[] = MODEL_CATALOG.map((g) => ({
+): (CatalogGroup & { models: MergedModel[] })[] {
+  const groups: (CatalogGroup & { models: MergedModel[] })[] = MODEL_CATALOG.map((g) => ({
     company: g.company,
+    baseUrl: g.baseUrl,
+    apiKeyUrl: g.apiKeyUrl,
     models: g.models.map((m) => ({
       id: m.id,
       note: m.note ?? '',
@@ -309,7 +355,8 @@ export function mergeModelLists(
     });
   }
   if (extra.length > 0) {
-    groups.push({ company: 'From your API', models: extra });
+    // 聚合渠道/未登记厂商：没有官方端点可填，保持用户现有配置
+    groups.push({ company: 'From your API', baseUrl: '', models: extra });
   }
   return groups;
 }
