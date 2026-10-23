@@ -38,6 +38,18 @@ export interface CatalogGroup extends ProviderPreset {
 
 export const MODEL_CATALOG: CatalogGroup[] = [
   {
+    // 用户的聚合渠道（自己部署的系统，把日常用的渠道放最前面）。
+    // 模型清单来自其 /v1/models 实测（2026-10-24，用真实 key 拉的）。
+    company: 'aixapex (aggregator)',
+    baseUrl: 'https://api.aixapex.com/v1',
+    models: [
+      { id: 'TPK/GLM-5.2', note: '综合能力最强（推荐）', reasoning: true },
+      { id: 'TPK/DeepSeek-V4-Flash', note: '速度快、省额度' },
+      { id: 'TPK/Qwen3.6-35B-A3B', note: '中文好、性价比高' },
+      { id: 'TPK/Qwen3.8-27B', note: '轻量快速' },
+    ],
+  },
+  {
     company: 'OpenAI',
     baseUrl: 'https://api.openai.com/v1',
     apiKeyUrl: 'https://platform.openai.com/api-keys',
