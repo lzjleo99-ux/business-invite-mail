@@ -12,8 +12,14 @@ import RoutesComponent from '@client/src/app';
 import { I18nProvider, useI18n } from '@client/src/i18n';
 import { axiosForBackend } from '@lark-apaas/client-toolkit/utils/getAxiosForBackend';
 import { installOfflineIfStatic } from '@client/src/offline/offlineAdapter';
+import { setupErrorTranslation } from '@client/src/api/server-messages';
 
 import '@client/src/index.css';
+
+// 服务端报错是中文文案，英文界面用户读不懂。在唯一共享的 axios 实例上挂拦截器，
+// 把高频报错翻译成当前界面语言（见 api/server-messages.ts）。
+// 注意必须挂在 src/api/index.ts 之外——那个 barrel 没人引用，挂那里是死代码。
+setupErrorTranslation(axiosForBackend);
 
 // On static hosting (GitHub Pages) there is no NestJS backend; install a
 // localStorage-backed adapter so the app stays fully interactive. It is a
