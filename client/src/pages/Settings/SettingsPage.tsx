@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useMemo } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useForm } from 'react-hook-form';
 import { z } from 'zod';
@@ -42,6 +42,7 @@ import * as emailGeneratorApi from '@/api/email-generator';
 import { Label } from '@/components/ui/label';
 import { useAuth } from '@/contexts/AuthContext';
 import { useI18n } from '@/i18n';
+import { mergeModelLists, isReasoningModel } from '@shared/model-catalog';
 import type {
   ModelConfig,
   SenderConfig,
@@ -302,7 +303,11 @@ const SettingsPage = () => {
     staleTime: 5 * 60 * 1000,
     retry: false,
   });
-  const modelList = modelOptions?.models ?? [];
+  // 内置目录（按公司分组）+ 当前 API 返回的模型，合并去重
+  const modelGroups = useMemo(
+    () => mergeModelLists(modelOptions?.models ?? []),
+    [modelOptions],
+  );
 
   const updateMutation = useMutation({
     mutationFn: (values: ModelFormValues) => {
@@ -606,13 +611,19 @@ const SettingsPage = () => {
                               value={field.value ?? ''}
                               onChange={(e) => field.onChange(e.target.value)}
                             >
-                              {field.value && !modelList.some((m) => m.id === field.value) && (
-                                <option value={field.value}>{field.value}</option>
-                              )}
-                              {modelList.map((m) => (
-                                <option key={m.id} value={m.id}>
-                                  {m.description ? `${m.id} · ${m.description}` : m.id}
-                                </option>
+                              {/* 当前值不在任何列表里（手填过 / API 下架了）也要能显示 */}
+                              {field.value &&
+                                !modelGroups.some((g) =>
+                                  g.models.some((m) => m.id === field.value),
+                                ) && <option value={field.value}>{field.value}</option>}
+                              {modelGroups.map((g) => (
+                                <optgroup key={g.company} label={g.company}>
+                                  {g.models.map((m) => (
+                                    <option key={m.id} value={m.id}>
+                                      {m.note ? `${m.id} · ${m.note}` : m.id}
+                                    </option>
+                                  ))}
+                                </optgroup>
                               ))}
                             </select>
                           </FormControl>
@@ -654,6 +665,13 @@ const SettingsPage = () => {
                               />
                             </FormControl>
                             <FormMessage />
+                            {/* 推理模型不吃自定义 temperature：说明一下，
+                                免得用户以为"设了 0.3 却没生效"是 bug */}
+                            {isReasoningModel(modelForm.watch('modelName') ?? '') && (
+                              <p className="mt-1 text-xs text-slate-500">
+                                {t('所选模型是推理模型，Temperature 不适用（由模型自身控制），保存时会被忽略。')}
+                              </p>
+                            )}
                           </FormItem>
                         );
                       }}

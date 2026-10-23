@@ -1,4 +1,5 @@
 import type { UserRole } from '@shared/api.interface';
+import { buildChatBody } from '@shared/model-catalog';
 import { Injectable, Inject, Logger, BadRequestException } from '@nestjs/common';
 import {
   DRIZZLE_DATABASE,
@@ -555,7 +556,7 @@ Provide:
 
 Return ONLY a valid JSON object with these fields.`;
 
-    const body: Record<string, unknown> = {
+    const body = buildChatBody({
       model: config.modelName,
       messages: [
         { role: 'system', content: systemPrompt },
@@ -567,12 +568,12 @@ Return ONLY a valid JSON object with these fields.`;
               type: 'image_url',
               image_url: { url: `data:image/png;base64,${imageBase64}`, detail: 'low' },
             },
-          ],
+          ] as unknown as string,
         },
       ],
       temperature: config.temperature ?? 0.3,
-      response_format: { type: 'json_object' },
-    };
+      jsonMode: true,
+    });
 
     const response = await axios.post(
       `${config.apiBaseUrl.replace(/\/+$/, '')}/chat/completions`,
@@ -735,15 +736,15 @@ Return ONLY a valid JSON object. No extra text.
 Website content:
 ${content}`;
 
-    const body: Record<string, unknown> = {
+    const body = buildChatBody({
       model: config.modelName,
       messages: [
         { role: 'system', content: systemPrompt },
         { role: 'user', content: userPrompt },
       ],
       temperature: config.temperature ?? 0.3,
-      response_format: { type: 'json_object' },
-    };
+      jsonMode: true,
+    });
 
     const response = await axios.post(
       `${config.apiBaseUrl.replace(/\/+$/, '')}/chat/completions`,

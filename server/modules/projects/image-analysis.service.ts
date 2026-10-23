@@ -1,4 +1,5 @@
 import { Injectable, Inject, Logger } from '@nestjs/common';
+import { buildChatBody } from '@shared/model-catalog';
 import {
   DRIZZLE_DATABASE,
   type PostgresJsDatabase,
@@ -267,7 +268,7 @@ export class ImageAnalysisService {
     const url = `${config.apiBaseUrl.replace(/\/+$/, '')}/chat/completions`;
     const response = await axios.post(
       url,
-      {
+      buildChatBody({
         model: config.modelName,
         messages: [
           {
@@ -275,11 +276,11 @@ export class ImageAnalysisService {
             content: [
               { type: 'text', text: VISION_DESC_PROMPT },
               { type: 'image_url', image_url: { url: dataUrl } },
-            ],
+            ] as unknown as string,
           },
         ],
         temperature: 0.2,
-      },
+      }),
       {
         headers: {
           'Content-Type': 'application/json',

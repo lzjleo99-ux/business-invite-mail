@@ -1,4 +1,5 @@
 import type { UserRole } from '@shared/api.interface';
+import { buildChatBody } from '@shared/model-catalog';
 import {
   Injectable,
   Inject,
@@ -1128,15 +1129,17 @@ Return ONLY a JSON object with these exact keys:
 - main_relevance_point: string — the single alignment point you chose to focus on
 - self_check_passed: boolean — whether your final output passes the checklist`;
 
-    const body: Record<string, unknown> = {
+    // 邮件生成：创意度默认 0.9（原来硬编码在此，现在走统一构造器，
+    // 推理模型会自动忽略 temperature）
+    const body = buildChatBody({
       model: config.modelName,
       messages: [
         { role: 'system', content: systemPrompt },
         { role: 'user', content: userPrompt },
       ],
       temperature: config.temperature ?? 0.9,
-      response_format: { type: 'json_object' },
-    };
+      jsonMode: true,
+    });
 
     const response = await this.callModelWithRetry(config, body);
 
@@ -1310,15 +1313,15 @@ Return ONLY a JSON object with these exact keys:
 - main_relevance_point: string — the single point you focused on
 - self_check_passed: boolean`;
 
-    const body: Record<string, unknown> = {
+    const body = buildChatBody({
       model: config.modelName,
       messages: [
         { role: 'system', content: systemPrompt },
         { role: 'user', content: userPrompt },
       ],
-      temperature: config.temperature ?? 0.7,
-      response_format: { type: 'json_object' },
-    };
+      temperature: config.temperature,
+      jsonMode: true,
+    });
 
     const response = await this.callModelWithRetry(config, body);
 
