@@ -686,7 +686,7 @@ const SettingsPage = () => {
                         </FormControl>
                         {/* 选了目录里的模型 → 自动切到那家官方端点；
                             「From your API」组的模型不知道厂商，不动 URL */}
-                        {selectedProvider && (
+                        {selectedProvider && selectedProvider.baseUrl && (
                           <p className="mt-1 text-xs text-slate-500">
                             {t('已切换到')}{' '}
                             <span className="font-medium text-slate-700">{selectedProvider.company}</span>
