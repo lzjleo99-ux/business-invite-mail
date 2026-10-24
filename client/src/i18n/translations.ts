@@ -20,6 +20,7 @@ export const enMessages: Record<string, string> = {
   '第 {page} / {totalPages} 页': 'Page {page} of {totalPages}',
 
   // ---- antd table locale ----
+  '已保存，直接改上面的地址即可换新的。': 'Saved. Edit the address above to replace it.',
   '推理模型不吃 Temperature：会换算成 reasoning_effort。': 'Reasoning model: Temperature is ignored and sent as reasoning_effort.',
   'Claude 的 Temperature 范围是 0~1，超出自动收窄。': 'Claude takes Temperature in the 0~1 range; higher values are clamped automatically.',
   '还可以在「设置 → Robot integration」里配置企业微信群机器人，收到回复时推一条提醒到你的企微群。': 'You can also set up a WeCom group bot under Settings → Robot integration to push an alert to your group on every reply.',

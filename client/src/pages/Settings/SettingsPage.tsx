@@ -156,7 +156,8 @@ const SettingsPage = () => {
     setEditingAccount('new');
   };
 
-  // 企业微信群机器人通知（webhook 只写不读，回读只给 webhookSet）
+  // 企业微信群机器人通知。webhook 之前按"只写不读"处理，但用户明确要
+  // 已保存的地址一直显示（空的看起来像被删了），后端本来就回传原文，直接展示。
   const [wecom, setWecom] = useState({
     webhookUrl: '',
     enabled: false,
@@ -172,7 +173,7 @@ const SettingsPage = () => {
       .getWecomNotifyConfig()
       .then((c) =>
         setWecom({
-          webhookUrl: '',
+          webhookUrl: (c as { webhookUrl?: string }).webhookUrl ?? '',
           enabled: !!c.enabled,
           autoStarOnReply: c.autoStarOnReply !== false,
           includeSnippet: c.includeSnippet !== false,
@@ -1076,11 +1077,22 @@ const SettingsPage = () => {
                     </p>
                     {/* 默认邮箱：不选账号时收发都用它。之前只能靠列表里的「默认」小标，
                         用户找不到"在哪设置默认"——这里直接写出来。 */}
+                    {/* 默认收发邮箱：直接一个下拉选，不用展开某个邮箱再点按钮 */}
                     {defaultAccount && (
-                      <p className="mt-1.5 text-sm text-slate-600">
+                      <p className="mt-1.5 flex flex-wrap items-center gap-2 text-sm text-slate-600">
                         <span className="font-semibold text-slate-800">{t('默认邮箱')}</span>
-                        {'：'}
-                        <span className="font-mono">{defaultAccount.email}</span>
+                        <select
+                          className="flex h-8 rounded-md border border-slate-200 bg-white px-2 text-sm"
+                          value={defaultAccount.id}
+                          disabled={accountBusy}
+                          onChange={(e) => void handleSetDefaultAccount(e.target.value)}
+                        >
+                          {accounts.map((a) => (
+                            <option key={a.id} value={a.id}>
+                              {a.email}
+                            </option>
+                          ))}
+                        </select>
                         <span className="text-slate-400">
                           {t('（不选账号时，收发都用这个；后台收取也读它的 IMAP 配置）')}
                         </span>
@@ -1444,7 +1456,7 @@ const SettingsPage = () => {
                 />
                 <p className="text-xs text-slate-500">
                   {wecom.webhookSet
-                    ? t('已保存（出于安全不显示原文；留空则不修改）')
+                    ? t('已保存，直接改上面的地址即可换新的。')
                     : t(
                         '在企业微信群里「添加群机器人」，弹窗里复制「Webhook 地址」那一整条。它应以 https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key= 开头——注意不是浏览器地址栏的网址。',
                       )}
@@ -1492,7 +1504,8 @@ const SettingsPage = () => {
                         autoStarOnReply: wecom.autoStarOnReply,
                         includeSnippet: wecom.includeSnippet,
                       });
-                      setWecom((prev) => ({ ...prev, webhookUrl: '' }));
+                      // 已保存的地址继续显示，别清空（清空像被删了）
+                      setWecom((prev) => ({ ...prev, webhookSet: true }));
                       toast.success(t('企业微信提醒已保存'));
                     } catch (err: unknown) {
                       toast.error(t('保存失败'), {
