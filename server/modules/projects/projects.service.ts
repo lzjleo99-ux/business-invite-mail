@@ -81,6 +81,18 @@ export class ProjectsService {
           await run(
             `CREATE UNIQUE INDEX IF NOT EXISTS idx_project_meta_code ON project_meta (code) WHERE code IS NOT NULL`,
           );
+          // 请求路径的查询走 anon_/authenticated_ 角色——新表不授权就是
+          // "permission denied"（表由运行时身份拥有）。平台托管库没有这些角色，
+          // 授权失败可容忍。
+          try {
+            await run(
+              'GRANT ALL PRIVILEGES ON TABLE project_meta TO anon_, authenticated_, service_role_',
+            );
+          } catch (err) {
+            this.logger.warn(
+              `project_meta 授权失败（可忽略于非自建环境）: ${String(err).split('\n')[0]}`,
+            );
+          }
           // 回填：还没有 meta 行的项目逐个建（代码撞唯一索引就换一个重试）
           const need = await run(
             `SELECT id FROM projects WHERE id NOT IN (SELECT project_id FROM project_meta)`,
