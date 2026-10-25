@@ -119,17 +119,29 @@ const ProjectListPageInner: React.FC = () => {
   const copyProjectCode = async (e: React.MouseEvent, name: string) => {
     e.stopPropagation();
     try {
+      let ok = false;
+      // 先试异步 clipboard API；被拒（无权限/非安全上下文）时抛异常，
+      // 这时也要走 textarea 降级——不能只在 API 不存在时才降级。
       if (navigator.clipboard?.writeText) {
-        await navigator.clipboard.writeText(name);
-      } else {
+        try {
+          await navigator.clipboard.writeText(name);
+          ok = true;
+        } catch {
+          ok = false;
+        }
+      }
+      if (!ok) {
         const ta = document.createElement('textarea');
         ta.value = name;
+        ta.style.position = 'fixed';
+        ta.style.opacity = '0';
         document.body.appendChild(ta);
         ta.select();
-        document.execCommand('copy');
+        ok = document.execCommand('copy');
         document.body.removeChild(ta);
       }
-      toast.success(t('已复制项目代码'));
+      if (ok) toast.success(t('已复制项目代码'));
+      else toast.error(t('复制失败，请手动选择复制'));
     } catch {
       toast.error(t('复制失败，请手动选择复制'));
     }
