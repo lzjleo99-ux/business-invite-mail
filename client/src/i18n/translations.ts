@@ -20,6 +20,9 @@ export const enMessages: Record<string, string> = {
   '第 {page} / {totalPages} 页': 'Page {page} of {totalPages}',
 
   // ---- antd table locale ----
+  '跟随对应国家官方语言': 'Follow the recipient country\'s official language',
+  '项目网址': 'Project website',
+  'https://your-company.com（AI 写邮件时会引用这里的内容）': 'https://your-company.com (the AI references this when writing emails)',
   '机器人代码': 'Robot code',
   '复制项目代码': 'Copy project code',
   '已复制项目代码': 'Project code copied',

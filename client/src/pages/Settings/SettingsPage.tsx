@@ -572,7 +572,8 @@ const SettingsPage = () => {
 
 
 
-                  <div className="grid grid-cols-1 gap-5 md:grid-cols-2">
+                  {/* 模型名称占 2/3、温度占 1/3：一行放得下且主次分明 */}
+                  <div className="grid grid-cols-1 gap-5 md:grid-cols-[2fr,1fr]">
                     <FormField
                       control={modelForm.control}
                       name="modelName"
@@ -744,6 +745,7 @@ const SettingsPage = () => {
                             </SelectTrigger>
                           </FormControl>
                           <SelectContent>
+                            <SelectItem value="country">{t('跟随对应国家官方语言')}</SelectItem>
                             <SelectItem value="auto">{t('跟随网站语言')}</SelectItem>
                             <SelectItem value="serbian">{t('塞尔维亚语')}</SelectItem>
                             <SelectItem value="english">{t('英语')}</SelectItem>
@@ -893,7 +895,120 @@ const SettingsPage = () => {
           </Card>
         )}
 
-        {activeTab === 'robot' && (
+                {/* 企业微信群机器人：收到客户回复时推提醒 + 自动加星标。
+            只放在「Robot integration」标签里——之前没有 tab 条件，
+            每个标签页下面都会重复渲染这一大块。 */}
+        {isAdmin && (
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <Bell size={16} className="text-primary" />
+                {t('企业微信提醒')}
+              </CardTitle>
+              <CardDescription>
+                {t('客户回复被后台收取时，往企业微信群推一条提醒，并自动给该公司加星标')}
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div className="space-y-1.5">
+                <Label>{t('群机器人 Webhook 地址')}</Label>
+                <Input
+                  value={wecom.webhookUrl}
+                  onChange={(e) => setWecom({ ...wecom, webhookUrl: e.target.value })}
+                  placeholder="https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=..."
+                />
+                <p className="text-xs text-slate-500">
+                  {wecom.webhookSet
+                    ? t('已保存，直接改上面的地址即可换新的。')
+                    : t(
+                        '在企业微信群里「添加群机器人」，弹窗里复制「Webhook 地址」那一整条。它应以 https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key= 开头——注意不是浏览器地址栏的网址。',
+                      )}
+                </p>
+              </div>
+
+              <div className="flex flex-wrap gap-6">
+                <label className="flex items-center gap-2 text-sm">
+                  <input
+                    type="checkbox"
+                    checked={wecom.enabled}
+                    onChange={(e) => setWecom({ ...wecom, enabled: e.target.checked })}
+                  />
+                  {t('启用回复提醒')}
+                </label>
+                <label className="flex items-center gap-2 text-sm">
+                  <input
+                    type="checkbox"
+                    checked={wecom.autoStarOnReply}
+                    onChange={(e) =>
+                      setWecom({ ...wecom, autoStarOnReply: e.target.checked })
+                    }
+                  />
+                  {t('收到回复自动加星标')}
+                </label>
+                <label className="flex items-center gap-2 text-sm">
+                  <input
+                    type="checkbox"
+                    checked={wecom.includeSnippet}
+                    onChange={(e) => setWecom({ ...wecom, includeSnippet: e.target.checked })}
+                  />
+                  {t('提醒里带正文摘要')}
+                </label>
+              </div>
+
+              <div className="flex flex-wrap gap-2">
+                <Button
+                  disabled={wecomBusy}
+                  onClick={async () => {
+                    setWecomBusy(true);
+                    try {
+                      await adminApi.saveWecomNotifyConfig({
+                        webhookUrl: wecom.webhookUrl || undefined,
+                        enabled: wecom.enabled,
+                        autoStarOnReply: wecom.autoStarOnReply,
+                        includeSnippet: wecom.includeSnippet,
+                      });
+                      // 已保存的地址继续显示，别清空（清空像被删了）
+                      setWecom((prev) => ({ ...prev, webhookSet: true }));
+                      toast.success(t('企业微信提醒已保存'));
+                    } catch (err: unknown) {
+                      toast.error(t('保存失败'), {
+                        description: err instanceof Error ? err.message : String(err),
+                      });
+                    } finally {
+                      setWecomBusy(false);
+                    }
+                  }}
+                >
+                  {wecomBusy ? t('保存中...') : t('保存')}
+                </Button>
+                <Button
+                  variant="outline"
+                  disabled={wecomBusy || !(wecom.webhookSet || wecom.webhookUrl.trim())}
+                  onClick={async () => {
+                    setWecomBusy(true);
+                    try {
+                      const r = await adminApi.testWecomNotify(
+                        wecom.webhookUrl.trim() || undefined,
+                      );
+                      if (r.ok) toast.success(t('推送成功'), { description: r.message });
+                      else toast.error(t('推送失败'), { description: r.message });
+                    } catch (err: unknown) {
+                      toast.error(t('推送失败'), {
+                        description: err instanceof Error ? err.message : String(err),
+                      });
+                    } finally {
+                      setWecomBusy(false);
+                    }
+                  }}
+                >
+                  {t('测试推送')}
+                </Button>
+              </div>
+            </CardContent>
+          </Card>
+        )}
+
+{activeTab === 'robot' && (
           <div className="space-y-6">
             <Card>
               <CardContent className="p-5 space-y-5">
@@ -1432,118 +1547,6 @@ const SettingsPage = () => {
           </Card>
         )}
 
-        {/* 企业微信群机器人：收到客户回复时推提醒 + 自动加星标。
-            只放在「Robot integration」标签里——之前没有 tab 条件，
-            每个标签页下面都会重复渲染这一大块。 */}
-        {isAdmin && activeTab === 'robot' && (
-          <Card>
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2">
-                <Bell size={16} className="text-primary" />
-                {t('企业微信提醒')}
-              </CardTitle>
-              <CardDescription>
-                {t('客户回复被后台收取时，往企业微信群推一条提醒，并自动给该公司加星标')}
-              </CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              <div className="space-y-1.5">
-                <Label>{t('群机器人 Webhook 地址')}</Label>
-                <Input
-                  value={wecom.webhookUrl}
-                  onChange={(e) => setWecom({ ...wecom, webhookUrl: e.target.value })}
-                  placeholder="https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=..."
-                />
-                <p className="text-xs text-slate-500">
-                  {wecom.webhookSet
-                    ? t('已保存，直接改上面的地址即可换新的。')
-                    : t(
-                        '在企业微信群里「添加群机器人」，弹窗里复制「Webhook 地址」那一整条。它应以 https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key= 开头——注意不是浏览器地址栏的网址。',
-                      )}
-                </p>
-              </div>
-
-              <div className="flex flex-wrap gap-6">
-                <label className="flex items-center gap-2 text-sm">
-                  <input
-                    type="checkbox"
-                    checked={wecom.enabled}
-                    onChange={(e) => setWecom({ ...wecom, enabled: e.target.checked })}
-                  />
-                  {t('启用回复提醒')}
-                </label>
-                <label className="flex items-center gap-2 text-sm">
-                  <input
-                    type="checkbox"
-                    checked={wecom.autoStarOnReply}
-                    onChange={(e) =>
-                      setWecom({ ...wecom, autoStarOnReply: e.target.checked })
-                    }
-                  />
-                  {t('收到回复自动加星标')}
-                </label>
-                <label className="flex items-center gap-2 text-sm">
-                  <input
-                    type="checkbox"
-                    checked={wecom.includeSnippet}
-                    onChange={(e) => setWecom({ ...wecom, includeSnippet: e.target.checked })}
-                  />
-                  {t('提醒里带正文摘要')}
-                </label>
-              </div>
-
-              <div className="flex flex-wrap gap-2">
-                <Button
-                  disabled={wecomBusy}
-                  onClick={async () => {
-                    setWecomBusy(true);
-                    try {
-                      await adminApi.saveWecomNotifyConfig({
-                        webhookUrl: wecom.webhookUrl || undefined,
-                        enabled: wecom.enabled,
-                        autoStarOnReply: wecom.autoStarOnReply,
-                        includeSnippet: wecom.includeSnippet,
-                      });
-                      // 已保存的地址继续显示，别清空（清空像被删了）
-                      setWecom((prev) => ({ ...prev, webhookSet: true }));
-                      toast.success(t('企业微信提醒已保存'));
-                    } catch (err: unknown) {
-                      toast.error(t('保存失败'), {
-                        description: err instanceof Error ? err.message : String(err),
-                      });
-                    } finally {
-                      setWecomBusy(false);
-                    }
-                  }}
-                >
-                  {wecomBusy ? t('保存中...') : t('保存')}
-                </Button>
-                <Button
-                  variant="outline"
-                  disabled={wecomBusy || !(wecom.webhookSet || wecom.webhookUrl.trim())}
-                  onClick={async () => {
-                    setWecomBusy(true);
-                    try {
-                      const r = await adminApi.testWecomNotify(
-                        wecom.webhookUrl.trim() || undefined,
-                      );
-                      if (r.ok) toast.success(t('推送成功'), { description: r.message });
-                      else toast.error(t('推送失败'), { description: r.message });
-                    } catch (err: unknown) {
-                      toast.error(t('推送失败'), {
-                        description: err instanceof Error ? err.message : String(err),
-                      });
-                    } finally {
-                      setWecomBusy(false);
-                    }
-                  }}
-                >
-                  {t('测试推送')}
-                </Button>
-              </div>
-            </CardContent>
-          </Card>
-        )}
       </div></>
 );
 };

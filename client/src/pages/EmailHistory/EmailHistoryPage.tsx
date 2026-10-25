@@ -25,7 +25,8 @@ const EmailHistoryPage: React.FC = () => {
   const { t } = useI18n();
   const [search, setSearch] = useState('');
   const [appliedSearch, setAppliedSearch] = useState('');
-  const [direction, setDirection] = useState<'all' | 'outbound' | 'inbound'>('all');
+  // 'bounce' 不是真的方向——选中时映射成 status=bounce 查询
+  const [direction, setDirection] = useState<'all' | 'outbound' | 'inbound' | 'bounce'>('all');
   const [status, setStatus] = useState<'all' | 'sent' | 'failed' | 'received'>('all');
   // 按项目筛选：只看某个项目里发生的邮件
   const [projectId, setProjectId] = useState('all');
@@ -46,8 +47,8 @@ const EmailHistoryPage: React.FC = () => {
     queryFn: () =>
       getEmailHistories({
         search: appliedSearch || undefined,
-        direction: direction === 'all' ? undefined : direction,
-        status: status === 'all' ? undefined : status,
+        direction: direction === 'all' || direction === 'bounce' ? undefined : direction,
+        status: status === 'all' ? status : direction === 'bounce' ? 'bounce' : status,
         projectId: projectId === 'all' ? undefined : projectId,
         email: mailbox === 'all' ? undefined : mailbox,
         page,
@@ -111,6 +112,9 @@ const EmailHistoryPage: React.FC = () => {
             <SelectItem value="all">{t('全部方向')}</SelectItem>
             <SelectItem value="outbound">{t('发信')}</SelectItem>
             <SelectItem value="inbound">{t('收信')}</SelectItem>
+            {/* 退信本质是状态不是方向，但用户习惯在这里找——
+                选中时映射成 status=bounce 查询 */}
+            <SelectItem value="bounce">{t('退信')}</SelectItem>
           </SelectContent>
         </Select>
         <Select

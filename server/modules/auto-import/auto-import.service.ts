@@ -208,6 +208,7 @@ export class AutoImportService {
     projectName: string,
     rawLeads: Array<Record<string, unknown>>,
     secretHeader: string | undefined,
+    projectCode?: string,
   ): Promise<AutoImportResponse> {
     // Validate secret
     const stored = await this.readStoredSecret();
@@ -227,8 +228,29 @@ export class AutoImportService {
 
     // 机器人导入的项目归属一个真实用户（原来传的是字符串 'system_auto_import'）
     const owner = await this.resolveAutoImportOwner();
-    // Find or create project, scoped to that owner (case-insensitive)
-    const projectId = await this.findOrCreateProject(projectName.trim(), owner.userId);
+
+    // 优先按代码定位：代码是站点自动生成的唯一短码，比名字可靠。
+    // 查不到就明确报错——绝不静默按名字新建（那会推错项目）。
+    let projectId: string | null = null;
+    const code = (projectCode || '').trim().toUpperCase();
+    if (code) {
+      const byCode = await this.db
+        .select({ id: projects.id, name: projects.name })
+        .from(projects)
+        .where(eq(projects.code, code))
+        .limit(1);
+      if (byCode.length === 0) {
+        throw new BadRequestException(
+          `项目代码 ${code} 不存在。请在设置页核对项目代码后重试（代码区分大小写由系统生成，不要手改）。`,
+        );
+      }
+      projectId = byCode[0].id;
+    }
+
+    // 没给代码才走按名字找/建（旧行为，兼容已在线上跑的机器人）
+    if (!projectId) {
+      projectId = await this.findOrCreateProject(projectName.trim(), owner.userId);
+    }
 
     // Map raw leads to AutoImportLead
     const leads: AutoImportLead[] = rawLeads.map(

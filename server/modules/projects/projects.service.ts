@@ -12,6 +12,8 @@ import {
 } from '@lark-apaas/fullstack-nestjs-core';
 import { eq, asc, max, sql, isNotNull, count, and } from 'drizzle-orm';
 import { projects, projectMaterials, restaurants, materialImageDescriptions } from '@server/database/schema';
+import { runIdempotentMigration } from '@server/common/utils/ddl-runner';
+import { generateProjectCode } from './project-code';
 import { ImageAnalysisService } from './image-analysis.service';
 import type {
   Project,
@@ -40,8 +42,51 @@ export class ProjectsService {
     private readonly imageAnalysis: ImageAnalysisService,
   ) {}
 
+  /** 加列迁移的 memoize：进程内只跑一次（查询路径上的请求期 DDL 已验证可行） */
+  private ensureColumnsPromise?: Promise<void>;
+
   private isAdmin(user: UserContext): boolean {
     return user.role === 'super_admin';
+  }
+
+  /**
+   * 幂等加列迁移：projects.code（机器人项目代码）+ projects.website（项目网址）。
+   * 沿用 image-analysis 的"查询路径上的请求期 DDL"模式——onModuleInit 在该平台
+   * 不可靠，首次查询时补齐，memoize 后零开销。存量项目在此回填代码。
+   */
+  private ensureProjectColumns(): Promise<void> {
+    if (!this.ensureColumnsPromise) {
+      this.ensureColumnsPromise = runIdempotentMigration(
+        this.db,
+        'projects 加列迁移（code/website）',
+        async (run) => {
+          await run(`ALTER TABLE projects ADD COLUMN IF NOT EXISTS code varchar(16)`);
+          await run(`ALTER TABLE projects ADD COLUMN IF NOT EXISTS website varchar(500)`);
+          await run(`CREATE UNIQUE INDEX IF NOT EXISTS idx_projects_code ON projects (code) WHERE code IS NOT NULL`);
+          // 回填存量项目的代码（逐行生成，撞唯一索引就换一个重试）
+          const need = await run(`SELECT id FROM projects WHERE code IS NULL`);
+          const rows = (need as { id: string }[] | undefined) ?? [];
+          for (const row of rows) {
+            for (let attempt = 0; attempt < 5; attempt += 1) {
+              const code = generateProjectCode();
+              try {
+                await run(`UPDATE projects SET code = '${code}' WHERE id = '${row.id}' AND code IS NULL`);
+                break;
+              } catch {
+                if (attempt === 4) this.logger.warn(`项目 ${row.id} 代码生成连续碰撞，跳过（下次查询再试）`);
+              }
+            }
+          }
+        },
+      )
+        .then(() => undefined)
+        .catch((err: unknown) => {
+          // 迁移失败不能永久卡死后续查询：清掉 memoize，下次请求重试
+          this.ensureColumnsPromise = undefined;
+          throw err;
+        });
+    }
+    return this.ensureColumnsPromise;
   }
 
   private ownerCondition(user: UserContext) {
@@ -50,6 +95,7 @@ export class ProjectsService {
   }
 
   async findAll(user: UserContext): Promise<Project[]> {
+    await this.ensureProjectColumns();
     const ownerCond = this.ownerCondition(user);
     const whereClause = ownerCond ? ownerCond : undefined;
 
@@ -99,6 +145,8 @@ export class ProjectsService {
         id: p.id,
         name: p.name,
         description: p.description,
+        code: p.code,
+        website: p.website,
         sortOrder: p.sortOrder,
         companyCount: stats.companyCount,
         generatedCount: stats.generatedCount,
@@ -111,6 +159,7 @@ export class ProjectsService {
   }
 
   async findOne(id: string, user: UserContext): Promise<Project> {
+    await this.ensureProjectColumns();
     const ownerCond = this.ownerCondition(user);
     const whereClause = ownerCond
       ? and(eq(projects.id, id), ownerCond)
@@ -174,6 +223,8 @@ export class ProjectsService {
       id: p.id,
       name: p.name,
       description: p.description,
+      code: p.code,
+      website: p.website,
       sortOrder: p.sortOrder,
       companyCount: Number(stats.companyCount),
       generatedCount: Number(stats.generatedCount),
@@ -184,6 +235,7 @@ export class ProjectsService {
   }
 
   async create(data: CreateProjectRequest, user: UserContext): Promise<Project> {
+    await this.ensureProjectColumns();
     const maxOrderResult = await this.db
       .select({ max: max(projects.sortOrder) })
       .from(projects);
@@ -196,6 +248,7 @@ export class ProjectsService {
         description: data.description ?? '',
         sortOrder: nextSortOrder,
         ownerId: user.userId,
+        code: generateProjectCode(),
       })
       .returning();
 
@@ -204,6 +257,8 @@ export class ProjectsService {
       id: p.id,
       name: p.name,
       description: p.description,
+      code: p.code,
+      website: p.website,
       sortOrder: p.sortOrder,
       companyCount: 0,
       generatedCount: 0,
@@ -221,6 +276,7 @@ export class ProjectsService {
     const patch: Partial<typeof projects.$inferInsert> = {};
     if (data.name !== undefined) patch.name = data.name;
     if (data.description !== undefined) patch.description = data.description;
+    if (data.website !== undefined) patch.website = data.website;
 
     if (Object.keys(patch).length === 0) {
       return this.findOne(id, user);

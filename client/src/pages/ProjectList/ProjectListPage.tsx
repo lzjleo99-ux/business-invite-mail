@@ -116,7 +116,7 @@ const ProjectListPageInner: React.FC = () => {
    * 复制机器人项目代码。机器人导入按 projectName 精确匹配，
    * 所以代码就是项目名本身——给个复制按钮，免得手敲打错字。
    */
-  const copyProjectCode = async (e: React.MouseEvent, name: string) => {
+  const copyProjectCode = async (e: React.MouseEvent, code: string) => {
     e.stopPropagation();
     try {
       let ok = false;
@@ -124,7 +124,7 @@ const ProjectListPageInner: React.FC = () => {
       // 这时也要走 textarea 降级——不能只在 API 不存在时才降级。
       if (navigator.clipboard?.writeText) {
         try {
-          await navigator.clipboard.writeText(name);
+          await navigator.clipboard.writeText(code);
           ok = true;
         } catch {
           ok = false;
@@ -132,7 +132,7 @@ const ProjectListPageInner: React.FC = () => {
       }
       if (!ok) {
         const ta = document.createElement('textarea');
-        ta.value = name;
+        ta.value = code;
         ta.style.position = 'fixed';
         ta.style.opacity = '0';
         document.body.appendChild(ta);
@@ -267,20 +267,20 @@ const ProjectListPageInner: React.FC = () => {
                 <p className="text-sm text-slate-600 line-clamp-3 leading-relaxed">
                   {project.description || t('暂无简介')}
                 </p>
-                {/* 机器人项目代码 = 项目名（导入接口按 projectName 精确匹配）。
-                    小字 + 复制按钮，不抢主视觉。 */}
+                {/* 机器人项目代码：站点自动生成的唯一短码（FF1357 风格）。
+                    机器人导入时按它定位项目，复制即所得。 */}
                 <div className="mt-3 flex items-center gap-1.5 rounded-md bg-slate-50 px-2 py-1.5">
                   <span className="shrink-0 text-[11px] text-slate-400">
                     {t('机器人代码')}
                   </span>
-                  <span className="truncate font-mono text-[11px] text-slate-500">
-                    {project.name}
+                  <span className="truncate font-mono text-[11px] font-semibold text-slate-600">
+                    {project.code || '—'}
                   </span>
                   <button
                     type="button"
                     title={t('复制项目代码')}
                     className="ml-auto shrink-0 rounded p-0.5 text-slate-400 transition-colors hover:text-slate-600"
-                    onClick={(e) => void copyProjectCode(e, project.name)}
+                    onClick={(e) => project.code && void copyProjectCode(e, project.code)}
                   >
                     <Copy className="h-3 w-3" />
                   </button>

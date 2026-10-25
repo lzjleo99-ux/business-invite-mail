@@ -27,10 +27,12 @@ export interface ProjectInfoTabProps {
   project: Project | undefined;
   editName: string;
   editDescription: string;
+  editWebsite: string;
   isSavingProject: boolean;
   isUploadingMaterial: boolean;
   setEditName: (v: string) => void;
   setEditDescription: (v: string) => void;
+  setEditWebsite: (v: string) => void;
   onSaveProject: () => void;
   onUploadMaterial: (file: File) => void;
   onDeleteMaterial: (materialId: string) => void;
@@ -42,10 +44,12 @@ const ProjectInfoTab: React.FC<ProjectInfoTabProps> = ({
   project,
   editName,
   editDescription,
+  editWebsite,
   isSavingProject,
   isUploadingMaterial,
   setEditName,
   setEditDescription,
+  setEditWebsite,
   onSaveProject,
   onUploadMaterial,
   onDeleteMaterial,
@@ -100,6 +104,18 @@ const ProjectInfoTab: React.FC<ProjectInfoTabProps> = ({
               onChange={(e) => setEditName(e.target.value)}
               onFocus={onStartEdit}
               placeholder={t('请输入项目名称')}
+            />
+          </div>
+          {/* 项目网址：写进邮件生成提示词，让模型引用真实产品/官网信息 */}
+          <div className="space-y-1">
+            <label className="text-sm font-medium text-slate-700">
+              {t('项目网址')}
+            </label>
+            <Input
+              value={editWebsite || project?.website || ''}
+              onChange={(e) => setEditWebsite(e.target.value)}
+              onFocus={onStartEdit}
+              placeholder={t('https://your-company.com（AI 写邮件时会引用这里的内容）')}
             />
           </div>
           <div className="space-y-1">

@@ -9,7 +9,7 @@ import {
   Logger,
   UnauthorizedException,
 } from '@nestjs/common';
-import { IsString, IsArray, MinLength } from 'class-validator';
+import { IsString, IsArray, MinLength, IsOptional } from 'class-validator';
 import { Type } from 'class-transformer';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { AdminGuard } from '@server/common/guards/admin.guard';
@@ -30,6 +30,11 @@ class AutoImportBodyDto {
   @IsString()
   @MinLength(1)
   projectName!: string;
+
+  /** 可选：机器人项目代码（FF1357）。给了就按代码定位项目，名字只作展示兜底。 */
+  @IsOptional()
+  @IsString()
+  projectCode?: string;
 
   @IsArray()
   @Type(() => Object)
@@ -84,6 +89,7 @@ export class AutoImportController {
       body.projectName,
       body.leads,
       importSecret,
+      body.projectCode,
     );
   }
 }

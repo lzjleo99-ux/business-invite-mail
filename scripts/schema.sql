@@ -32,12 +32,16 @@ CREATE TABLE IF NOT EXISTS projects (
   description    text NOT NULL,
   sort_order     integer NOT NULL DEFAULT 0,
   owner_id       uuid,
+  code           varchar(16),
+  website        varchar(500),
   _created_at    timestamptz(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
   _created_by    user_profile DEFAULT (CASE WHEN current_setting('app.user_id', true) = '' THEN NULL::user_profile END),
   _updated_at    timestamptz(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
   _updated_by    user_profile DEFAULT (CASE WHEN current_setting('app.user_id', true) = '' THEN NULL::user_profile END)
 );
 CREATE INDEX IF NOT EXISTS idx_projects_owner_id ON projects (owner_id);
+-- 机器人项目代码：全局唯一（NULL 不参与唯一约束，允许多条无代码历史行）
+CREATE UNIQUE INDEX IF NOT EXISTS idx_projects_code ON projects (code) WHERE code IS NOT NULL;
 DO $$ BEGIN
   ALTER TABLE projects
     ADD CONSTRAINT fk_projects_owner FOREIGN KEY (owner_id)

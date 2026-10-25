@@ -259,6 +259,10 @@ export const projects = pgTable("projects", {
   description: text("description").notNull(),
   sortOrder: integer("sort_order").notNull().default(0),
   ownerId: uuid("owner_id"),
+  // 机器人项目代码：机器人导入时按它定位项目（站点自动生成的唯一短码）
+  code: varchar("code", { length: 16 }),
+  // 项目网址：写进邮件生成提示词，让模型引用真实产品/公司信息
+  website: varchar("website", { length: 500 }),
   // System field: Creation time (auto-filled, do not modify)
   createdAt: customTimestamptz("_created_at", { precision: 3 }).notNull().default(sql`CURRENT_TIMESTAMP`),
   // System field: Creator (auto-filled, do not modify)

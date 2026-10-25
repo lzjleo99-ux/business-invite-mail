@@ -140,6 +140,10 @@ export interface Project {
   id: string;
   name: string;
   description: string;
+  /** 机器人项目代码（站点自动生成，导入接口按它定位项目） */
+  code?: string | null;
+  /** 项目网址（写进邮件生成提示词） */
+  website?: string | null;
   sortOrder: number;
   companyCount: number;
   generatedCount: number;
@@ -169,6 +173,8 @@ export interface CreateProjectRequest {
 export interface UpdateProjectRequest {
   name?: string;
   description?: string;
+  /** 项目网址（可空） */
+  website?: string;
 }
 
 export interface SenderConfig {

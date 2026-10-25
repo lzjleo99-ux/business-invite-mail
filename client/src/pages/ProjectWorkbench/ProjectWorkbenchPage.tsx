@@ -105,6 +105,7 @@ const ProjectWorkbenchInner: React.FC = () => {
 
   // Project edit state
   const [editName, setEditName] = useState('');
+  const [editWebsite, setEditWebsite] = useState('');
   const [editDescription, setEditDescription] = useState('');
   const [isSavingProject, setIsSavingProject] = useState(false);
 
@@ -751,6 +752,8 @@ const ProjectWorkbenchInner: React.FC = () => {
             project={project}
             editName={editName}
             editDescription={editDescription}
+            editWebsite={editWebsite}
+            setEditWebsite={setEditWebsite}
             isSavingProject={isSavingProject}
             isUploadingMaterial={isUploadingMaterial}
             setEditName={setEditName}

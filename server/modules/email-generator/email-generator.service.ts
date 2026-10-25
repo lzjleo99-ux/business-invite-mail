@@ -1,6 +1,11 @@
 import type { UserRole } from '@shared/api.interface';
 import { buildChatBody } from '@shared/model-catalog';
 import {
+  resolveCountryLanguage,
+  secondaryCountryLanguages,
+  languageNameOf,
+} from '@shared/country-languages';
+import {
   Injectable,
   Inject,
   Logger,
@@ -211,7 +216,12 @@ export class EmailGeneratorService {
         }
       }
 
-      const languageCode = this.getLocalLanguageCode(company.country);
+      // 设置里的「邮件语言」此前存了但生成从未读它（一直是装饰品）——
+      // 现在真正接入：指定语言优先，否则跟随公司国家官方语言。
+      const languageCode = this.resolveGenerationLanguage(
+        config.emailLanguage,
+        company.country,
+      );
 
       const result = await this.callBilingualEmailModel({
         company,
@@ -846,13 +856,13 @@ export class EmailGeneratorService {
 
   private async getProjectContext(
     projectId: string | null,
-  ): Promise<{ project: { name: string; description: string } | null; materials: string[] }> {
+  ): Promise<{ project: { name: string; description: string; website: string | null } | null; materials: string[] }> {
     if (!projectId) {
       return { project: null, materials: [] };
     }
 
     const projectRows = await this.db
-      .select({ name: projects.name, description: projects.description })
+      .select({ name: projects.name, description: projects.description, website: projects.website })
       .from(projects)
       .where(eq(projects.id, projectId))
       .limit(1);
@@ -917,59 +927,36 @@ export class EmailGeneratorService {
   }
 
   private getLocalLanguageCode(country: string | null): string {
-    const c = (country || '').toLowerCase().trim();
-    if (!c) return 'en';
+    // 195 国官方语言表（含中文国名/本地语名/常见别名）。
+    // 查不到兜底英语——老代码只有 10 个硬编码国家，其余全错推英语。
+    return resolveCountryLanguage(country)?.code ?? 'en';
+  }
 
-    // Serbia
-    if (c.includes('serbia') || c.includes('србија') || c.includes('srbija')) return 'sr';
-    // France
-    if (c.includes('france')) return 'fr';
-    // Germany
-    if (c.includes('germany') || c.includes('deutschland')) return 'de';
-    // Italy
-    if (c.includes('italy') || c.includes('italia')) return 'it';
-    // Spain
-    if (c.includes('spain') || c.includes('españa')) return 'es';
-    // Netherlands
-    if (c.includes('netherlands') || c.includes('nederland')) return 'nl';
-    // Croatia
-    if (c.includes('croatia') || c.includes('hrvatska')) return 'hr';
-    // Bosnia
-    if (c.includes('bosnia') || c.includes('bosna')) return 'bs';
-    // UK
-    if (
-      c.includes('uk') ||
-      c.includes('england') ||
-      c.includes('united kingdom') ||
-      c.includes('britain') ||
-      c.includes('gb')
-    ) return 'en';
-    // USA
-    if (
-      c.includes('usa') ||
-      c.includes('united states') ||
-      c.includes('america')
-    ) return 'en';
-    // China
-    if (c.includes('china') || c.includes('中国')) return 'zh';
-
-    return 'en';
+  /**
+   * 生成语言的三层决策：
+   * 1. 用户在设置里指定了具体语言（serbian/english/chinese）→ 用它
+   * 2. 「跟随对应国家官方语言」（country）或默认 auto → 按公司国家解析
+   * 3. 解析不出（国家名怪异/为空）→ 兜底英语
+   * 次要官方语言（如瑞士的法/意）会写进提示词，供模型自行决定是否兼顾。
+   */
+  private resolveGenerationLanguage(
+    setting: string | null | undefined,
+    country: string | null,
+  ): string {
+    if (setting === 'serbian') return 'sr';
+    if (setting === 'english') return 'en';
+    if (setting === 'chinese') return 'zh';
+    // auto / country / 未设置：跟随公司国家的官方语言
+    return this.getLocalLanguageCode(country);
   }
 
   private getLanguageName(code: string): string {
-    const names: Record<string, string> = {
-      sr: 'Serbian',
-      fr: 'French',
-      de: 'German',
-      it: 'Italian',
-      es: 'Spanish',
-      nl: 'Dutch',
-      hr: 'Croatian',
-      bs: 'Bosnian',
-      en: 'English',
-      zh: 'Chinese',
-    };
-    return names[code] ?? 'English';
+    return languageNameOf(code);
+  }
+
+  /** 次要官方语言名列表（提示词用），如瑞士 → ['French','Italian'] */
+  private getSecondaryLanguageNames(country: string | null): string[] {
+    return secondaryCountryLanguages(country).map((l) => l.name);
   }
 
   private isUKCompany(country: string | null): boolean {
@@ -986,7 +973,7 @@ export class EmailGeneratorService {
 
   private async callBilingualEmailModel(params: {
     company: typeof restaurants.$inferSelect;
-    projectContext: { project: { name: string; description: string } | null; materials: string[] };
+    projectContext: { project: { name: string; description: string; website: string | null } | null; materials: string[] };
     sender: { senderName: string; senderTitle: string | null; personalStory: string | null };
     languageCode: string;
     config: {
@@ -1027,6 +1014,11 @@ export class EmailGeneratorService {
 
     const langName = this.getLanguageName(languageCode);
     const isUK = this.isUKCompany(company.country);
+    // 多官方语言国家（瑞士/比利时/印度/南非…）：告诉模型主语言之外还有哪些可接受
+    const secondaryNames = this.getSecondaryLanguageNames(company.country);
+    const secondaryNote = secondaryNames.length
+      ? ` Other official languages widely used for business there: ${secondaryNames.join(', ')}. ${langName} remains the primary choice.`
+      : '';
 
     const systemPrompt = `You are a thoughtful business development professional writing highly personalized cold outreach emails. Your top priority is genuine relevance — not quantity of selling points.
 
@@ -1067,7 +1059,7 @@ CORE RULES (non-negotiable):
     ];
     const styleHint = styleVariants[Math.floor(seed * styleVariants.length)];
 
-    const userPrompt = `Write a cold outreach email for the company below. Generate TWO complete versions: one in ${langName} (local language, primary) and one in English. Both versions must be full, standalone emails.
+    const userPrompt = `Write a cold outreach email for the company below. Generate TWO complete versions: one in ${langName} (local language, primary) and one in English. Both versions must be full, standalone emails.${secondaryNote}
 
 ## RECIPIENT COMPANY
 ${companyInfo}
@@ -1207,7 +1199,7 @@ Return ONLY a JSON object with these exact keys:
 
   private async callWhatsAppModel(params: {
     company: typeof restaurants.$inferSelect;
-    projectContext: { project: { name: string; description: string } | null; materials: string[] };
+    projectContext: { project: { name: string; description: string; website: string | null } | null; materials: string[] };
     sender: { senderName: string; senderTitle: string | null; personalStory: string | null };
     config: {
       apiBaseUrl: string;
@@ -1512,7 +1504,7 @@ Return ONLY a JSON object with these exact keys:
   }
 
   private buildProjectInfo(projectContext: {
-    project: { name: string; description: string } | null;
+    project: { name: string; description: string; website: string | null } | null;
     materials: string[];
   }): string {
     if (!projectContext.project) {
@@ -1521,6 +1513,13 @@ Return ONLY a JSON object with these exact keys:
     const lines: string[] = [];
     lines.push(`Project: ${projectContext.project.name}`);
     lines.push(projectContext.project.description);
+    if (projectContext.project.website) {
+      lines.push(
+        `Company website: ${projectContext.project.website}\n` +
+        `Use this website as a factual source about our products/company, ` +
+        `and you may include the link naturally in the email body.`,
+      );
+    }
     if (projectContext.materials.length > 0) {
       lines.push('\nReference materials (key excerpts):');
       for (const m of projectContext.materials.slice(0, 3)) {
