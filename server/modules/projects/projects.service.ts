@@ -357,8 +357,9 @@ export class ProjectsService {
     const patch: Partial<typeof projects.$inferInsert> = {};
     if (data.name !== undefined) patch.name = data.name;
     if (data.description !== undefined) patch.description = data.description;
-
-    if (Object.keys(patch).length === 0) {
+    // website 不进 patch（它在 meta 表），但不能因为"只改了网址"就在这里提前返回——
+    // 下面的 website upsert 才是真正的写入点
+    if (Object.keys(patch).length === 0 && data.website === undefined) {
       return this.findOne(id, user);
     }
 
