@@ -368,22 +368,26 @@ export class ProjectsService {
       ? and(eq(projects.id, id), ownerCond)
       : eq(projects.id, id);
 
-    const updated = await this.db
-      .update(projects)
-      .set(patch)
-      .where(whereClause)
-      .returning({ id: projects.id });
+    // 只改 website 时 patch 为空——drizzle 的 .set({}) 会抛 "No values to set"，
+    // 有更新才跑这句
+    if (Object.keys(patch).length > 0) {
+      const updated = await this.db
+        .update(projects)
+        .set(patch)
+        .where(whereClause)
+        .returning({ id: projects.id });
 
-    if (updated.length === 0) {
-      // 区分不存在和无权限
-      const existing = await this.db
-        .select({ id: projects.id })
-        .from(projects)
-        .where(eq(projects.id, id));
-      if (existing.length === 0) {
-        throw new NotFoundException('项目不存在');
+      if (updated.length === 0) {
+        // 区分不存在和无权限
+        const existing = await this.db
+          .select({ id: projects.id })
+          .from(projects)
+          .where(eq(projects.id, id));
+        if (existing.length === 0) {
+          throw new NotFoundException('项目不存在');
+        }
+        throw new ForbiddenException('无权操作该项目');
       }
-      throw new ForbiddenException('无权操作该项目');
     }
 
     // website 存 meta 表：upsert（旧项目回填后才有 meta 行）
