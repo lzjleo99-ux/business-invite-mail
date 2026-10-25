@@ -259,10 +259,6 @@ export const projects = pgTable("projects", {
   description: text("description").notNull(),
   sortOrder: integer("sort_order").notNull().default(0),
   ownerId: uuid("owner_id"),
-  // 机器人项目代码：机器人导入时按它定位项目（站点自动生成的唯一短码）
-  code: varchar("code", { length: 16 }),
-  // 项目网址：写进邮件生成提示词，让模型引用真实产品/公司信息
-  website: varchar("website", { length: 500 }),
   // System field: Creation time (auto-filled, do not modify)
   createdAt: customTimestamptz("_created_at", { precision: 3 }).notNull().default(sql`CURRENT_TIMESTAMP`),
   // System field: Creator (auto-filled, do not modify)
@@ -280,6 +276,22 @@ export const projects = pgTable("projects", {
     foreignColumns: [appUsers.id],
     name: "fk_projects_owner",
   }).onDelete("set null"),
+]);
+
+// 机器人项目代码 + 项目网址：独立表（projects 表由平台 init-db 身份拥有，
+// 请求路径上的 ALTER 会 "must be owner"；新表由运行时身份创建即可拥有）。
+export const projectMeta = pgTable("project_meta", {
+  projectId: uuid("project_id")
+    .primaryKey()
+    .references(() => projects.id, { onDelete: "cascade" }),
+  // 机器人项目代码：全局唯一（FF1357 风格）
+  code: varchar("code", { length: 16 }),
+  // 项目网址：写进邮件生成提示词
+  website: varchar("website", { length: 500 }),
+  createdAt: customTimestamptz("_created_at", { precision: 3 }).notNull().default(sql`CURRENT_TIMESTAMP`),
+  updatedAt: customTimestamptz("_updated_at", { precision: 3 }).notNull().default(sql`CURRENT_TIMESTAMP`),
+}, (table) => [
+  uniqueIndex("idx_project_meta_code").on(table.code).where(sql`code IS NOT NULL`),
 ]);
 
 export const restaurants = pgTable("restaurants", {

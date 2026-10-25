@@ -20,7 +20,7 @@ import axios from 'axios';
 import {
   restaurants,
   modelConfig,
-  projects,
+  projects, projectMeta,
   projectMaterials,
   senderConfig,
 } from '@server/database/schema';
@@ -862,8 +862,13 @@ export class EmailGeneratorService {
     }
 
     const projectRows = await this.db
-      .select({ name: projects.name, description: projects.description, website: projects.website })
+      .select({
+        name: projects.name,
+        description: projects.description,
+        website: projectMeta.website,
+      })
       .from(projects)
+      .leftJoin(projectMeta, eq(projectMeta.projectId, projects.id))
       .where(eq(projects.id, projectId))
       .limit(1);
 

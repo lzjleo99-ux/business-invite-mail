@@ -11,8 +11,14 @@ import {
   type PostgresJsDatabase,
 } from '@lark-apaas/fullstack-nestjs-core';
 import { eq, asc, max, sql, isNotNull, count, and } from 'drizzle-orm';
-import { projects, projectMaterials, restaurants, materialImageDescriptions } from '@server/database/schema';
-import { getDdlRunner } from '@server/common/utils/ddl-runner';
+import {
+  projects,
+  projectMaterials,
+  restaurants,
+  materialImageDescriptions,
+  projectMeta,
+} from '@server/database/schema';
+import { runIdempotentMigration } from '@server/common/utils/ddl-runner';
 import { generateProjectCode } from './project-code';
 import { ImageAnalysisService } from './image-analysis.service';
 import type {
@@ -42,55 +48,56 @@ export class ProjectsService {
     private readonly imageAnalysis: ImageAnalysisService,
   ) {}
 
-  /** 加列迁移的 memoize：进程内只跑一次（查询路径上的请求期 DDL 已验证可行） */
+  /** 建表迁移的 memoize：进程内只跑一次（查询路径上的请求期 DDL 已验证可行） */
   private ensureColumnsPromise?: Promise<void>;
-
-  /**
-   * ALTER 既有表必须用**表属主**连接。getDdlRunner 会优先走 $client（请求用户
-   * 只有 DML 权限，ALTER 直接 "must be owner"），所以这里强制 SUDA_DATABASE_URL
-   * 专连（init-db 用的同一身份，就是 schema owner）。新表建表可以走 $client，
-   * 加列不行——这是两种迁移的本质区别。
-   */
-  private runOwnerConnectionMigration = async (
-    label: string,
-    migrate: (run: (q: string) => Promise<unknown>) => Promise<void>,
-  ): Promise<void> => {
-    const runner = await getDdlRunner({ $client: null, session: null }, label);
-    try {
-      await migrate(runner.run);
-    } finally {
-      await runner.dispose();
-    }
-  };
 
   private isAdmin(user: UserContext): boolean {
     return user.role === 'super_admin';
   }
 
   /**
-   * 幂等加列迁移：projects.code（机器人项目代码）+ projects.website（项目网址）。
-   * 沿用 image-analysis 的"查询路径上的请求期 DDL"模式——onModuleInit 在该平台
-   * 不可靠，首次查询时补齐，memoize 后零开销。存量项目在此回填代码。
+   * 幂等迁移：CREATE 新表 project_meta（机器人项目代码 + 项目网址）。
+   *
+   * 为什么独立成表：projects 由 init-db 身份拥有，请求路径上的 ALTER 会
+   * "must be owner"（生产已踩过）；而 CREATE 新表由运行时身份建、即拥有，
+   * 已验证可行（material_image_descriptions 先例）。onModuleInit 在该平台
+   * 不可靠，沿用"查询路径上的请求期 DDL" + memoize。存量项目在此回填代码。
    */
   private ensureProjectColumns(): Promise<void> {
     if (!this.ensureColumnsPromise) {
-      this.ensureColumnsPromise = this.runOwnerConnectionMigration(
-        'projects 加列迁移（code/website）',
+      this.ensureColumnsPromise = runIdempotentMigration(
+        this.db,
+        'project_meta 建表迁移',
         async (run) => {
-          await run(`ALTER TABLE projects ADD COLUMN IF NOT EXISTS code varchar(16)`);
-          await run(`ALTER TABLE projects ADD COLUMN IF NOT EXISTS website varchar(500)`);
-          await run(`CREATE UNIQUE INDEX IF NOT EXISTS idx_projects_code ON projects (code) WHERE code IS NOT NULL`);
-          // 回填存量项目的代码（逐行生成，撞唯一索引就换一个重试）
-          const need = await run(`SELECT id FROM projects WHERE code IS NULL`);
+          await run(`
+            CREATE TABLE IF NOT EXISTS project_meta (
+              project_id  uuid PRIMARY KEY REFERENCES projects(id) ON DELETE CASCADE,
+              code        varchar(16),
+              website     varchar(500),
+              _created_at timestamptz(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+              _updated_at timestamptz(3) NOT NULL DEFAULT CURRENT_TIMESTAMP
+            )
+          `);
+          await run(
+            `CREATE UNIQUE INDEX IF NOT EXISTS idx_project_meta_code ON project_meta (code) WHERE code IS NOT NULL`,
+          );
+          // 回填：还没有 meta 行的项目逐个建（代码撞唯一索引就换一个重试）
+          const need = await run(
+            `SELECT id FROM projects WHERE id NOT IN (SELECT project_id FROM project_meta)`,
+          );
           const rows = (need as { id: string }[] | undefined) ?? [];
           for (const row of rows) {
             for (let attempt = 0; attempt < 5; attempt += 1) {
               const code = generateProjectCode();
               try {
-                await run(`UPDATE projects SET code = '${code}' WHERE id = '${row.id}' AND code IS NULL`);
+                await run(
+                  `INSERT INTO project_meta (project_id, code) VALUES ('${row.id}', '${code}') ON CONFLICT (project_id) DO NOTHING`,
+                );
                 break;
               } catch {
-                if (attempt === 4) this.logger.warn(`项目 ${row.id} 代码生成连续碰撞，跳过（下次查询再试）`);
+                if (attempt === 4) {
+                  this.logger.warn(`项目 ${row.id} 代码生成连续碰撞，跳过（下次查询再试）`);
+                }
               }
             }
           }
@@ -116,9 +123,26 @@ export class ProjectsService {
     const ownerCond = this.ownerCondition(user);
     const whereClause = ownerCond ? ownerCond : undefined;
 
+    const projectFields = {
+      id: projects.id,
+      name: projects.name,
+      description: projects.description,
+      sortOrder: projects.sortOrder,
+      createdAt: projects.createdAt,
+      updatedAt: projects.updatedAt,
+      code: projectMeta.code,
+      website: projectMeta.website,
+    };
     const baseQuery = whereClause
-      ? this.db.select().from(projects).where(whereClause)
-      : this.db.select().from(projects);
+      ? this.db
+          .select(projectFields)
+          .from(projects)
+          .leftJoin(projectMeta, eq(projectMeta.projectId, projects.id))
+          .where(whereClause)
+      : this.db
+          .select(projectFields)
+          .from(projects)
+          .leftJoin(projectMeta, eq(projectMeta.projectId, projects.id));
 
     const projectRows = await baseQuery.orderBy(asc(projects.sortOrder));
 
@@ -183,8 +207,18 @@ export class ProjectsService {
       : eq(projects.id, id);
 
     const projectRows = await this.db
-      .select()
+      .select({
+        id: projects.id,
+        name: projects.name,
+        description: projects.description,
+        sortOrder: projects.sortOrder,
+        createdAt: projects.createdAt,
+        updatedAt: projects.updatedAt,
+        code: projectMeta.code,
+        website: projectMeta.website,
+      })
       .from(projects)
+      .leftJoin(projectMeta, eq(projectMeta.projectId, projects.id))
       .where(whereClause);
 
     if (projectRows.length === 0) {
@@ -265,23 +299,41 @@ export class ProjectsService {
         description: data.description ?? '',
         sortOrder: nextSortOrder,
         ownerId: user.userId,
-        code: generateProjectCode(),
       })
-      .returning();
+      .returning({ id: projects.id });
+
+    // meta 行带生成的代码；撞唯一索引就换一个重试
+    let code: string | null = null;
+    for (let attempt = 0; attempt < 5; attempt += 1) {
+      const candidate = generateProjectCode();
+      try {
+        await this.db
+          .insert(projectMeta)
+          .values({ projectId: inserted[0].id, code: candidate });
+        code = candidate;
+        break;
+      } catch {
+        if (attempt === 4) {
+          this.logger.warn(
+            `项目 ${inserted[0].id} 代码生成连续碰撞，创建为无代码（下次查询回填）`,
+          );
+        }
+      }
+    }
 
     const p = inserted[0];
     return {
       id: p.id,
-      name: p.name,
-      description: p.description,
-      code: p.code,
-      website: p.website,
-      sortOrder: p.sortOrder,
+      name: data.name,
+      description: data.description ?? '',
+      code,
+      website: null,
+      sortOrder: nextSortOrder,
       companyCount: 0,
       generatedCount: 0,
       materials: [],
-      createdAt: p.createdAt.toISOString(),
-      updatedAt: p.updatedAt.toISOString(),
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
     };
   }
 
@@ -293,7 +345,6 @@ export class ProjectsService {
     const patch: Partial<typeof projects.$inferInsert> = {};
     if (data.name !== undefined) patch.name = data.name;
     if (data.description !== undefined) patch.description = data.description;
-    if (data.website !== undefined) patch.website = data.website;
 
     if (Object.keys(patch).length === 0) {
       return this.findOne(id, user);
@@ -320,6 +371,17 @@ export class ProjectsService {
         throw new NotFoundException('项目不存在');
       }
       throw new ForbiddenException('无权操作该项目');
+    }
+
+    // website 存 meta 表：upsert（旧项目回填后才有 meta 行）
+    if (data.website !== undefined) {
+      await this.db
+        .insert(projectMeta)
+        .values({ projectId: id, website: data.website || null })
+        .onConflictDoUpdate({
+          target: projectMeta.projectId,
+          set: { website: data.website || null, updatedAt: new Date() },
+        });
     }
 
     return this.findOne(id, user);

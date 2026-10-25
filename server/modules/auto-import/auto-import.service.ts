@@ -12,7 +12,7 @@ import {
   type PostgresJsDatabase,
 } from '@lark-apaas/fullstack-nestjs-core';
 import { eq, sql, ilike, max, inArray, and, asc } from 'drizzle-orm';
-import { modelConfig, projects, restaurants, appUsers } from '@server/database/schema';
+import { modelConfig, projects, projectMeta, restaurants, appUsers } from '@server/database/schema';
 import { RestaurantsService } from '../restaurants/restaurants.service';
 import type { UserContext } from '../restaurants/restaurants.service';
 import type {
@@ -236,8 +236,9 @@ export class AutoImportService {
     if (code) {
       const byCode = await this.db
         .select({ id: projects.id, name: projects.name })
-        .from(projects)
-        .where(eq(projects.code, code))
+        .from(projectMeta)
+        .innerJoin(projects, eq(projectMeta.projectId, projects.id))
+        .where(eq(projectMeta.code, code))
         .limit(1);
       if (byCode.length === 0) {
         throw new BadRequestException(
