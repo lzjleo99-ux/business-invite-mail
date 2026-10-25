@@ -12,7 +12,7 @@ import {
 } from '@lark-apaas/fullstack-nestjs-core';
 import { eq, asc, max, sql, isNotNull, count, and } from 'drizzle-orm';
 import { projects, projectMaterials, restaurants, materialImageDescriptions } from '@server/database/schema';
-import { runIdempotentMigration } from '@server/common/utils/ddl-runner';
+import { getDdlRunner } from '@server/common/utils/ddl-runner';
 import { generateProjectCode } from './project-code';
 import { ImageAnalysisService } from './image-analysis.service';
 import type {
@@ -45,6 +45,24 @@ export class ProjectsService {
   /** 加列迁移的 memoize：进程内只跑一次（查询路径上的请求期 DDL 已验证可行） */
   private ensureColumnsPromise?: Promise<void>;
 
+  /**
+   * ALTER 既有表必须用**表属主**连接。getDdlRunner 会优先走 $client（请求用户
+   * 只有 DML 权限，ALTER 直接 "must be owner"），所以这里强制 SUDA_DATABASE_URL
+   * 专连（init-db 用的同一身份，就是 schema owner）。新表建表可以走 $client，
+   * 加列不行——这是两种迁移的本质区别。
+   */
+  private runOwnerConnectionMigration = async (
+    label: string,
+    migrate: (run: (q: string) => Promise<unknown>) => Promise<void>,
+  ): Promise<void> => {
+    const runner = await getDdlRunner({ $client: null, session: null }, label);
+    try {
+      await migrate(runner.run);
+    } finally {
+      await runner.dispose();
+    }
+  };
+
   private isAdmin(user: UserContext): boolean {
     return user.role === 'super_admin';
   }
@@ -56,8 +74,7 @@ export class ProjectsService {
    */
   private ensureProjectColumns(): Promise<void> {
     if (!this.ensureColumnsPromise) {
-      this.ensureColumnsPromise = runIdempotentMigration(
-        this.db,
+      this.ensureColumnsPromise = this.runOwnerConnectionMigration(
         'projects 加列迁移（code/website）',
         async (run) => {
           await run(`ALTER TABLE projects ADD COLUMN IF NOT EXISTS code varchar(16)`);
