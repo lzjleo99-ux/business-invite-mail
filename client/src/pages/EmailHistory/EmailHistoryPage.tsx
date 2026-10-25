@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { Inbox, Send, XCircle, RefreshCw } from 'lucide-react';
 import { getEmailHistories, type EmailHistoryItem } from '@client/src/api/email-generator';
+import * as projectsApi from '@client/src/api/projects';
 import { useI18n } from '@client/src/i18n';
 import { Button } from '@client/src/components/ui/button';
 import { EmailHistoryList } from '@client/src/components/EmailHistoryList';
@@ -26,19 +27,28 @@ const EmailHistoryPage: React.FC = () => {
   const [appliedSearch, setAppliedSearch] = useState('');
   const [direction, setDirection] = useState<'all' | 'outbound' | 'inbound'>('all');
   const [status, setStatus] = useState<'all' | 'sent' | 'failed' | 'received'>('all');
-  // 按邮箱筛选：看哪个邮箱的往来
+  // 按项目筛选：只看某个项目里发生的邮件
+  const [projectId, setProjectId] = useState('all');
   const [mailbox, setMailbox] = useState('all');
   const [mailboxes, setMailboxes] = useState<string[]>([]);
   const [page, setPage] = useState(1);
   const pageSize = 20;
 
+  // 项目下拉的数据源（自己的项目，天然隔离）
+  const { data: projects } = useQuery({
+    queryKey: ['projects'],
+    queryFn: () => projectsApi.getProjects(),
+    staleTime: 60_000,
+  });
+
   const { data, isLoading } = useQuery({
-    queryKey: ['email-history-global', appliedSearch, direction, status, mailbox, page],
+    queryKey: ['email-history-global', appliedSearch, direction, status, projectId, mailbox, page],
     queryFn: () =>
       getEmailHistories({
         search: appliedSearch || undefined,
         direction: direction === 'all' ? undefined : direction,
         status: status === 'all' ? undefined : status,
+        projectId: projectId === 'all' ? undefined : projectId,
         email: mailbox === 'all' ? undefined : mailbox,
         page,
         pageSize,
@@ -119,6 +129,26 @@ const EmailHistoryPage: React.FC = () => {
             <SelectItem value="received">{t('已收到')}</SelectItem>
             <SelectItem value="bounce">{t('退信')}</SelectItem>
             <SelectItem value="failed">{t('失败')}</SelectItem>
+          </SelectContent>
+        </Select>
+        {/* 按项目筛选：只看这个项目里发生的邮件 */}
+        <Select
+          value={projectId}
+          onValueChange={(v) => {
+            setProjectId(v);
+            setPage(1);
+          }}
+        >
+          <SelectTrigger className="w-[220px]">
+            <SelectValue placeholder={t('全部项目')} />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">{t('全部项目')}</SelectItem>
+            {(projects ?? []).map((p) => (
+              <SelectItem key={p.id} value={p.id}>
+                {p.name}
+              </SelectItem>
+            ))}
           </SelectContent>
         </Select>
         {/* 按邮箱筛选：看某个邮箱的全部往来 */}

@@ -10,6 +10,7 @@ import {
   Mail,
   FolderPlus,
   Loader2,
+  Copy,
 } from 'lucide-react';
 
 import * as projectsApi from '@client/src/api/projects';
@@ -109,6 +110,29 @@ const ProjectListPageInner: React.FC = () => {
 
   const handleCardClick = (projectId: string) => {
     navigate(`/projects/${projectId}`);
+  };
+
+  /**
+   * 复制机器人项目代码。机器人导入按 projectName 精确匹配，
+   * 所以代码就是项目名本身——给个复制按钮，免得手敲打错字。
+   */
+  const copyProjectCode = async (e: React.MouseEvent, name: string) => {
+    e.stopPropagation();
+    try {
+      if (navigator.clipboard?.writeText) {
+        await navigator.clipboard.writeText(name);
+      } else {
+        const ta = document.createElement('textarea');
+        ta.value = name;
+        document.body.appendChild(ta);
+        ta.select();
+        document.execCommand('copy');
+        document.body.removeChild(ta);
+      }
+      toast.success(t('已复制项目代码'));
+    } catch {
+      toast.error(t('复制失败，请手动选择复制'));
+    }
   };
 
   const handleDeleteClick = (
@@ -231,6 +255,24 @@ const ProjectListPageInner: React.FC = () => {
                 <p className="text-sm text-slate-600 line-clamp-3 leading-relaxed">
                   {project.description || t('暂无简介')}
                 </p>
+                {/* 机器人项目代码 = 项目名（导入接口按 projectName 精确匹配）。
+                    小字 + 复制按钮，不抢主视觉。 */}
+                <div className="mt-3 flex items-center gap-1.5 rounded-md bg-slate-50 px-2 py-1.5">
+                  <span className="shrink-0 text-[11px] text-slate-400">
+                    {t('机器人代码')}
+                  </span>
+                  <span className="truncate font-mono text-[11px] text-slate-500">
+                    {project.name}
+                  </span>
+                  <button
+                    type="button"
+                    title={t('复制项目代码')}
+                    className="ml-auto shrink-0 rounded p-0.5 text-slate-400 transition-colors hover:text-slate-600"
+                    onClick={(e) => void copyProjectCode(e, project.name)}
+                  >
+                    <Copy className="h-3 w-3" />
+                  </button>
+                </div>
               </CardContent>
 
               <CardFooter className="p-5 pt-0 flex-col items-start gap-3">

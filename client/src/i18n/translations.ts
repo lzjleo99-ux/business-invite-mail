@@ -20,6 +20,11 @@ export const enMessages: Record<string, string> = {
   '第 {page} / {totalPages} 页': 'Page {page} of {totalPages}',
 
   // ---- antd table locale ----
+  '机器人代码': 'Robot code',
+  '复制项目代码': 'Copy project code',
+  '已复制项目代码': 'Project code copied',
+  '复制失败，请手动选择复制': 'Copy failed - please select and copy manually',
+  '全部项目': 'All projects',
   '已保存，直接改上面的地址即可换新的。': 'Saved. Edit the address above to replace it.',
   '推理模型不吃 Temperature：会换算成 reasoning_effort。': 'Reasoning model: Temperature is ignored and sent as reasoning_effort.',
   'Claude 的 Temperature 范围是 0~1，超出自动收窄。': 'Claude takes Temperature in the 0~1 range; higher values are clamped automatically.',
