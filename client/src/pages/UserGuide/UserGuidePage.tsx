@@ -191,15 +191,29 @@ const UserGuidePage: React.FC = () => {
    * 但 URL 没变，用户看到的还是上一版（表现为"改了没生效"）。
    * 以后每次替换截图文件，把这个数字 +1。
    */
-  const SHOT_VERSION = '4';
+  const SHOT_VERSION = '5';
   const shotFor = (shot: string): string => {
-    // 语言感知截图：中文用基础名，英文用 -en 后缀。中文版缺失时回退英文版
-    // （截图是英文界面截的，总比裂图强——中文版截图补齐后此兜底自然不触发）。
+    // 语言感知截图：中文用基础名，英文用 -en 后缀。中文版只有 5 张
+    // （03-company-detail 没拍到），缺的在 onError 里回退 -en 版本。
     let base = shot;
     if (lang === 'en' && shot.endsWith('.png')) {
       base = shot.replace(/\.png$/, '-en.png');
     }
     return `${base}?v=${SHOT_VERSION}`;
+  };
+
+  /** 中文截图 404 时换 -en 变体（只换一次，避免循环） */
+  const handleShotError = (
+    e: React.SyntheticEvent<HTMLImageElement>,
+    shot: string,
+  ) => {
+    const img = e.currentTarget;
+    const fallback = shot.replace(/\.png$/, '-en.png');
+    const next = `${fallback}?v=${SHOT_VERSION}`;
+    if (!img.src.endsWith(fallback) && img.dataset.fellBack !== '1') {
+      img.dataset.fellBack = '1';
+      img.src = next;
+    }
   };
 
   /** 顶部章节按钮：跳到对应章节并高亮 */
@@ -274,6 +288,7 @@ const UserGuidePage: React.FC = () => {
             <figure className="space-y-2 pt-1">
               <img
                 src={shotFor(s.shot)}
+                onError={(e) => handleShotError(e, s.shot)}
                 alt={t(s.shotCaption)}
                 className="w-full rounded-lg border border-slate-200 bg-white shadow-sm"
               />
