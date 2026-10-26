@@ -115,11 +115,12 @@ export class EmailHistoryService {
           await run(`ALTER TABLE email_histories ADD COLUMN IF NOT EXISTS poll_owner uuid`);
           await run(`
             UPDATE email_histories h
-            SET poll_owner = a.owner_id
+            SET poll_owner = a.owner_id::uuid
             FROM smtp_accounts a
             WHERE h.status = 'bounce'
               AND h.poll_owner IS NULL
               AND lower(h.to_addr) = lower(a.email)
+              AND a.owner_id ~* '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'
           `);
 try {
             await run('CREATE UNIQUE INDEX IF NOT EXISTS uq_email_histories_message ON email_histories (message_id)');

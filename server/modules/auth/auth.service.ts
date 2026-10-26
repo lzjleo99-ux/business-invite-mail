@@ -165,7 +165,26 @@ export class AuthService implements OnModuleInit {
             );
           }
         }
-      })().catch((err: unknown) => {
+      })().then(async () => {
+        // 机器人代建的项目归部署所有者：机器人导入的 owner 解析指向
+        // super_admin，历史数据可能落在别人名下（WM0923 事件）。幂等搬正。
+        const ownerRow = await this.db
+          .select({ id: appUsers.id })
+          .from(appUsers)
+          .orderBy(asc(appUsers.createdAt))
+          .limit(1);
+        const ownerId = ownerRow[0]?.id;
+        if (!ownerId) return;
+        await this.db
+          .update(projects)
+          .set({ ownerId })
+          .where(
+            and(
+              eq(projects.description, 'Auto-created by auto-import'),
+              sql`${projects.ownerId} IS DISTINCT FROM ${ownerId}`,
+            ),
+          );
+      }).catch((err: unknown) => {
         this.roleFixPromise = undefined;
         throw err;
       });
