@@ -310,6 +310,7 @@ export class EmailInboxService implements OnModuleInit, OnModuleDestroy {
               const ok = await this.history.recordInbound({
                 companyId: match[0]?.id ?? null,
                 projectId: match[0]?.projectId ?? null,
+                pollOwnerId: userId,
                 fromAddr,
                 toAddr: toAddrs[0] || s.fromEmail,
                 ccAddr: ccAddrs.length > 0 ? ccAddrs.join(',') : null,

@@ -492,6 +492,8 @@ export const emailHistories = pgTable(
     toAddr: varchar("to_addr", { length: 320 }).notNull(),
     // 抄送地址（逗号分隔；项目归属判定含 cc）
     ccAddr: varchar("cc_addr", { length: 320 }),
+    // 退信属主：哪个用户的邮箱轮询收到的（退信可见性用它隔离）
+    pollOwner: uuid("poll_owner"),
     subject: varchar("subject", { length: 500 }).notNull().default(""),
     bodyText: text("body_text").notNull().default(""),
     bodyHtml: text("body_html"),

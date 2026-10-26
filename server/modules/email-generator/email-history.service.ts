@@ -110,6 +110,17 @@ export class EmailHistoryService {
           `);
                     // 抄送地址（2026-10-26 加）：项目归属判定要含 cc。自建表可 ALTER。
           await run(`ALTER TABLE email_histories ADD COLUMN IF NOT EXISTS cc_addr varchar(320)`);
+          // 退信属主（2026-10-26 加）：退信的收发件人匹配不到项目邮箱，
+          // 用"谁轮询的邮箱收到的"来归属——否则所有人的退信互相可见。
+          await run(`ALTER TABLE email_histories ADD COLUMN IF NOT EXISTS poll_owner uuid`);
+          await run(`
+            UPDATE email_histories h
+            SET poll_owner = a.owner_id
+            FROM smtp_accounts a
+            WHERE h.status = 'bounce'
+              AND h.poll_owner IS NULL
+              AND lower(h.to_addr) = lower(a.email)
+          `);
 try {
             await run('CREATE UNIQUE INDEX IF NOT EXISTS uq_email_histories_message ON email_histories (message_id)');
             await run('CREATE INDEX IF NOT EXISTS idx_email_histories_company ON email_histories (company_id, _created_at DESC)');
@@ -193,6 +204,8 @@ try {
     toAddr: string;
     /** 抄送地址，逗号分隔（可空） */
     ccAddr?: string | null;
+    /** 轮询者（邮箱属主）——退信可见性按它隔离 */
+    pollOwnerId?: string | null;
     subject: string;
     bodyText: string;
     bodyHtml?: string | null;
@@ -219,6 +232,7 @@ try {
       fromAddr: input.fromAddr.slice(0, 320),
       toAddr: input.toAddr.slice(0, 320),
       ccAddr: input.ccAddr ? input.ccAddr.slice(0, 320) : null,
+      pollOwner: input.pollOwnerId ?? null,
       subject: input.subject.slice(0, 500),
       bodyText: input.bodyText.slice(0, 20000),
       bodyHtml: input.bodyHtml ? input.bodyHtml.slice(0, 50000) : null,
@@ -524,7 +538,7 @@ try {
         );
       }
     } else if (visible !== null) {
-      // 所有人（含 super_admin）：只看自己项目相关的 + 自己的退信
+      // 所有人（含 super_admin）：只看自己项目相关的 + **自己邮箱**的退信
       if (visible.length === 0) return { items: [], total: 0 };
       const emails = await this.projectCompanyEmails(visible);
       conditions.push(
@@ -534,8 +548,11 @@ try {
             inArray(emailHistories.projectId, visible),
           ),
           ...(emails.length > 0 ? [this.emailMatchCondition(emails)] : []),
-          // 退信放行（mailer-daemon ↔ 自己的邮箱，匹配不到项目邮箱）
-          eq(emailHistories.status, 'bounce'),
+          // 退信只看自己邮箱收到的（poll_owner = 我）
+          and(
+            eq(emailHistories.status, 'bounce'),
+            eq(emailHistories.pollOwner, query.user!.userId),
+          ),
         ),
       );
     } else {
