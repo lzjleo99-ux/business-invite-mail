@@ -124,7 +124,57 @@ export class AuthService implements OnModuleInit {
     return { user, token };
   }
 
+  /** 角色自愈迁移的 memoize：进程内只跑一次 */
+  private roleFixPromise?: Promise<void>;
+
+  /**
+   * 多租户隔离前置条件：**部署所有者 = 最早注册的用户 = 唯一 super_admin**。
+   * 实际发生过两次倒挂：① 同事被建成了 super_admin（全量可见）；② 真正的
+   * 所有者反而是 admin。此迁移按 createdAt 找到最早的注册用户：
+   *   - 把它设为 super_admin（无论当前是什么角色）；
+   *   - 其他任何 super_admin 一律降为 user。
+   * 登录路径触发（幂等，memoize 后零开销）。
+   */
+  private ensureSingleSuperAdmin(): Promise<void> {
+    if (!this.roleFixPromise) {
+      this.roleFixPromise = (async () => {
+        const all = await this.db
+          .select({ id: appUsers.id, email: appUsers.email, role: appUsers.role })
+          .from(appUsers)
+          .orderBy(asc(appUsers.createdAt));
+        if (all.length === 0) return;
+        const owner = all[0]; // 最早注册 = 部署所有者
+        for (const u of all) {
+          if (u.id === owner.id) {
+            if (u.role !== 'super_admin') {
+              await this.db
+                .update(appUsers)
+                .set({ role: 'super_admin' })
+                .where(eq(appUsers.id, u.id));
+              this.logger.warn(
+                `多租户隔离：部署所有者 ${u.email} 提升为 super_admin`,
+              );
+            }
+          } else if (u.role === 'super_admin') {
+            await this.db
+              .update(appUsers)
+              .set({ role: 'user' })
+              .where(eq(appUsers.id, u.id));
+            this.logger.warn(
+              `多租户隔离：${u.email} 从 super_admin 降级为 user（部署所有者是 ${owner.email}）`,
+            );
+          }
+        }
+      })().catch((err: unknown) => {
+        this.roleFixPromise = undefined;
+        throw err;
+      });
+    }
+    return this.roleFixPromise;
+  }
+
   async login(email: string, password: string): Promise<AuthResponse> {
+    await this.ensureSingleSuperAdmin().catch(() => undefined);
     const normalizedEmail = email.toLowerCase().trim();
 
     const rows = await this.db

@@ -421,8 +421,8 @@ try {
     query: { companyId?: string; projectId?: string },
     user?: { userId: string; role: UserRole },
   ): Promise<void> {
-    // 只有超级管理员能看全量；admin 与普通用户一样只能看自己项目
-    if (!user || user.role === 'super_admin') return;
+    // 多租户隔离：登录用户一律按自己的项目校验（管理面走独立端点）
+    if (!user) return;
     if (query.projectId) {
       const owned = await this.db
         .select({ id: projects.id })
@@ -453,7 +453,9 @@ try {
   private async visibleProjectIds(
     user?: { userId: string; role: UserRole },
   ): Promise<string[] | null> {
-    if (!user || user.role === 'super_admin') return null;
+    // 多租户隔离：所有角色（含 super_admin）都只看自己的项目相关往来。
+    // 管理面走 /api/admin/users 等独立端点，不与业务数据混流。
+    if (!user) return null;
     const rows = await this.db
       .select({ id: projects.id })
       .from(projects)
@@ -522,25 +524,22 @@ try {
         );
       }
     } else if (visible !== null) {
-      // 非 super_admin：只看自己项目相关的
+      // 所有人（含 super_admin）：只看自己项目相关的 + 自己的退信
       if (visible.length === 0) return { items: [], total: 0 };
       const emails = await this.projectCompanyEmails(visible);
-      if (emails.length === 0) return { items: [], total: 0 };
       conditions.push(
         or(
           and(
             isNotNull(emailHistories.projectId),
             inArray(emailHistories.projectId, visible),
           ),
-          this.emailMatchCondition(emails),
-          // 退信放行（同上：mailer-daemon ↔ 自己的邮箱，匹配不到项目邮箱）
+          ...(emails.length > 0 ? [this.emailMatchCondition(emails)] : []),
+          // 退信放行（mailer-daemon ↔ 自己的邮箱，匹配不到项目邮箱）
           eq(emailHistories.status, 'bounce'),
         ),
       );
     } else {
-      // super_admin：只显示与任意项目相关的邮件，广告/无关邮箱全部过滤。
-      // 退信例外：它的收发件人是 mailer-daemon 和自己的邮箱，匹配不到任何
-      // 项目公司邮箱，但它是我们自己 campaign 的投递失败，不是广告——放行。
+      // 无登录上下文（服务端内部调用）：与任意项目相关 + 退信
       const emails = await this.projectCompanyEmails(null);
       if (emails.length === 0) return { items: [], total: 0 };
       conditions.push(

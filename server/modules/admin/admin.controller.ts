@@ -130,7 +130,7 @@ export class AdminController {
     includeSnippet: boolean;
     webhookSet: boolean;
   }> {
-    const cfg = await this.wecomNotifyService.getConfig();
+    const cfg = await this.wecomNotifyService.getConfig(user.userId, user.displayName);
     return {
       enabled: cfg.enabled,
       autoStarOnReply: cfg.autoStarOnReply,

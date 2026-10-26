@@ -51,10 +51,6 @@ export class ProjectsService {
   /** 建表迁移的 memoize：进程内只跑一次（查询路径上的请求期 DDL 已验证可行） */
   private ensureColumnsPromise?: Promise<void>;
 
-  private isAdmin(user: UserContext): boolean {
-    return user.role === 'super_admin';
-  }
-
   /**
    * 幂等迁移：CREATE 新表 project_meta（机器人项目代码 + 项目网址）。
    *
@@ -125,8 +121,12 @@ export class ProjectsService {
     return this.ensureColumnsPromise;
   }
 
+  /**
+   * 多租户隔离（Finbuckle 式集中过滤）：项目列表/详情一律只看自己的。
+   * super_admin 不再有"全量可见"例外——管理面（用户管理）走独立端点，
+   * 业务数据（项目/公司/邮件）严格按属主隔离，任何用户互不可见。
+   */
   private ownerCondition(user: UserContext) {
-    if (this.isAdmin(user)) return undefined;
     return eq(projects.ownerId, user.userId);
   }
 

@@ -173,6 +173,7 @@ export class EmailGeneratorService {
   }
 
   async generateEmail(companyId: string, userId: string): Promise<GeneratedEmail> {
+    await this.assertCompanyAccess(companyId, userId);
     const company = await this.getCompanyById(companyId);
     if (!company) {
       throw new BadRequestException('公司不存在');
@@ -306,6 +307,7 @@ export class EmailGeneratorService {
   }
 
   async getEml(companyId: string, userId?: string): Promise<EmlDownloadResponse> {
+    if (userId) await this.assertCompanyAccess(companyId, userId);
     const company = await this.getCompanyById(companyId);
     if (!company) {
       throw new BadRequestException('公司不存在');
@@ -442,7 +444,9 @@ export class EmailGeneratorService {
     lang: 'local' | 'en' = 'local',
     accountId?: string,
     userId?: string,
-  ): Promise<{ to: string; subject: string }> {
+  ): Promise<{
+    to: string; subject: string }> {
+    if (userId) await this.assertCompanyAccess(companyId, userId);
     const company = await this.getCompanyById(companyId);
     if (!company) {
       throw new BadRequestException('公司不存在');
@@ -642,7 +646,8 @@ export class EmailGeneratorService {
       .where(eq(restaurants.id, companyId));
   }
 
-  async getWhatsAppInfo(companyId: string): Promise<WhatsAppInfo> {
+  async getWhatsAppInfo(companyId: string, userId?: string): Promise<WhatsAppInfo> {
+    if (userId) await this.assertCompanyAccess(companyId, userId);
     const company = await this.getCompanyById(companyId);
     if (!company) {
       throw new BadRequestException('公司不存在');
@@ -696,6 +701,7 @@ export class EmailGeneratorService {
   }
 
   async generateWhatsAppForCompany(companyId: string, userId: string): Promise<WhatsAppInfo> {
+    await this.assertCompanyAccess(companyId, userId);
     const company = await this.getCompanyById(companyId);
     if (!company) {
       throw new BadRequestException('公司不存在');
@@ -760,7 +766,7 @@ export class EmailGeneratorService {
     return { total };
   }
 
-  async getCompose(companyId: string): Promise<{
+  async getCompose(companyId: string, userId?: string): Promise<{
     recipientEmail: string | null;
     subject: string;
     body: string;
@@ -769,6 +775,7 @@ export class EmailGeneratorService {
     languageCode: string | null;
     companyName: string;
   }> {
+    if (userId) await this.assertCompanyAccess(companyId, userId);
     const company = await this.getCompanyById(companyId);
     if (!company) {
       throw new BadRequestException('公司不存在');
@@ -790,6 +797,7 @@ export class EmailGeneratorService {
 
   async saveCompose(
     companyId: string,
+    userId: string | undefined,
     data: {
       subject: string;
       body: string;
@@ -798,6 +806,7 @@ export class EmailGeneratorService {
       language: string;
     },
   ): Promise<void> {
+    if (userId) await this.assertCompanyAccess(companyId, userId);
     const company = await this.getCompanyById(companyId);
     if (!company) {
       throw new BadRequestException('公司不存在');
@@ -853,6 +862,29 @@ export class EmailGeneratorService {
       .from(restaurants)
       .where(eq(restaurants.id, id));
     return rows[0] ?? null;
+  }
+
+  /**
+   * 多租户 IDOR 防护：公司必须挂在**调用者自己的项目**下。
+   * 之前 generate/send/eml/whatsapp/compose 拿着 companyId 直接查
+   * restaurants（不 join projects.ownerId），任何登录用户传别人的
+   * companyId 就能读资料、下载完整邮件 .eml、甚至以对方身份发信。
+   */
+  private async assertCompanyAccess(
+    companyId: string,
+    userId?: string,
+  ): Promise<void> {
+    // 无登录上下文（服务端内部流程）不做用户校验；HTTP 路径一律带 user
+    if (!userId) return;
+    const rows = await this.db
+      .select({ id: restaurants.id })
+      .from(restaurants)
+      .innerJoin(projects, eq(projects.id, restaurants.projectId))
+      .where(and(eq(restaurants.id, companyId), eq(projects.ownerId, userId)))
+      .limit(1);
+    if (rows.length === 0) {
+      throw new BadRequestException('公司不存在或无权访问');
+    }
   }
 
   private async getProjectContext(

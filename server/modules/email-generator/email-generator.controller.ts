@@ -159,10 +159,11 @@ export class EmailGeneratorController {
 
   @Get('eml/:companyId')
   async getEml(
+    @CurrentUser() user: JwtPayload,
     @Param('companyId') companyId: string,
     @Res() res: Response,
   ): Promise<void> {
-    const result: EmlDownloadResponse = await this.emailGeneratorService.getEml(companyId);
+    const result: EmlDownloadResponse = await this.emailGeneratorService.getEml(companyId, user.userId);
     // 带 CID 内嵌图时 emlContent 可达数 MB（base64）——必须 @Res() 接管直接写出，
     // 返回 void。平台 LoggingInterceptor 会对 handler 返回值无条件 JSON.stringify
     // （见 projects.controller downloadMaterial 的注释），返回大字符串会白白放大进日志。
@@ -176,9 +177,10 @@ export class EmailGeneratorController {
 
   @Get('whatsapp/:companyId')
   async getWhatsApp(
+    @CurrentUser() user: JwtPayload,
     @Param('companyId') companyId: string,
   ): Promise<WhatsAppInfo> {
-    return this.emailGeneratorService.getWhatsAppInfo(companyId);
+    return this.emailGeneratorService.getWhatsAppInfo(companyId, user.userId);
   }
 
   @Post('whatsapp/:companyId')
@@ -304,12 +306,15 @@ export class EmailGeneratorController {
 
   /** 手动收取一次收件箱（设置页「立即收取」按钮；后台轮询与此同路径） */
   @Post('inbox-poll')
-  async inboxPoll(): Promise<InboxPollResult> {
-    return this.emailInboxService.poll();
+  async inboxPoll(@CurrentUser() user: JwtPayload): Promise<InboxPollResult> {
+    // 多租户：手动收取只轮**调用者自己**的账号（之前无参调用会按全局
+    // 回退配置轮别人的邮箱）
+    return this.emailInboxService.poll(user.userId);
   }
 
   @Get('compose/:companyId')
   async getCompose(
+    @CurrentUser() user: JwtPayload,
     @Param('companyId') companyId: string,
   ): Promise<{
     recipientEmail: string | null;
@@ -323,18 +328,19 @@ export class EmailGeneratorController {
     if (!companyId) {
       throw new BadRequestException('companyId 不能为空');
     }
-    return this.emailGeneratorService.getCompose(companyId);
+    return this.emailGeneratorService.getCompose(companyId, user.userId);
   }
 
   @Patch('compose/:companyId')
   async saveCompose(
+    @CurrentUser() user: JwtPayload,
     @Param('companyId') companyId: string,
     @Body() dto: ComposeSaveDto,
   ): Promise<{ success: boolean }> {
     if (!companyId) {
       throw new BadRequestException('companyId 不能为空');
     }
-    await this.emailGeneratorService.saveCompose(companyId, {
+    await this.emailGeneratorService.saveCompose(companyId, user.userId, {
       subject: dto.subject,
       body: dto.body,
       subjectLocal: dto.subjectLocal,

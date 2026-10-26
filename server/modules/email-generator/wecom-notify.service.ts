@@ -1,6 +1,6 @@
 import { Injectable, Inject, Logger, BadRequestException } from '@nestjs/common';
 import { DRIZZLE_DATABASE, type PostgresJsDatabase } from '@lark-apaas/fullstack-nestjs-core';
-import { asc, eq, isNull, or, sql } from 'drizzle-orm';
+import { asc, desc, eq, isNull, sql } from 'drizzle-orm';
 import axios from 'axios';
 import { wecomNotifySettings } from '@server/database/schema';
 import { runIdempotentMigration } from '@server/common/utils/ddl-runner';
@@ -85,24 +85,45 @@ export class WeComNotifyService {
     return this.ensurePromise;
   }
 
-  async getConfig(userId?: string): Promise<WeComNotifyConfig> {
+  async getConfig(userId?: string, displayName?: string): Promise<WeComNotifyConfig> {
     try {
       await this.ensureTable();
-      // 每用户独立：自己的行优先，没有再回退旧的全局行（owner_id IS NULL）
-      const rows = userId
-        ? await this.db
-            .select()
-            .from(wecomNotifySettings)
-            .where(
-              or(eq(wecomNotifySettings.ownerId, userId), isNull(wecomNotifySettings.ownerId)),
-            )
-            .orderBy(isNull(wecomNotifySettings.ownerId), asc(wecomNotifySettings.createdAt))
-            .limit(1)
-        : await this.db
-            .select()
-            .from(wecomNotifySettings)
-            .where(isNull(wecomNotifySettings.ownerId))
-            .limit(1);
+      // 多租户隔离：登录用户**只读自己的行**（不再回退全局行——之前同事
+      // 能通过兜底读到部署者的企微 webhook）。没有自己的行时播种一份
+      // （内容从全局行复制，webhook 一并带入自己的私有行）。
+      if (userId) {
+        const own = await this.db
+          .select()
+          .from(wecomNotifySettings)
+          .where(eq(wecomNotifySettings.ownerId, userId))
+          .orderBy(asc(wecomNotifySettings.createdAt))
+          .limit(1);
+        if (own[0]) return this.toConfig(own[0]);
+        // 播种
+        const glob = await this.db
+          .select()
+          .from(wecomNotifySettings)
+          .where(isNull(wecomNotifySettings.ownerId))
+          .orderBy(desc(wecomNotifySettings.createdAt))
+          .limit(1);
+        const g = glob[0];
+        const seeded = await this.db
+          .insert(wecomNotifySettings)
+          .values({
+            ownerId: userId,
+            enabled: g?.enabled ?? false,
+            autoStarOnReply: g?.autoStarOnReply ?? true,
+            includeSnippet: g?.includeSnippet ?? true,
+            webhookUrl: g?.webhookUrl ?? null,
+          })
+          .returning();
+        return this.toConfig(seeded[0]);
+      }
+      const rows = await this.db
+        .select()
+        .from(wecomNotifySettings)
+        .where(isNull(wecomNotifySettings.ownerId))
+        .limit(1);
       const r = rows[0];
       if (!r) return { ...DEFAULTS };
       return {
@@ -115,6 +136,16 @@ export class WeComNotifyService {
     } catch {
       return { ...DEFAULTS };
     }
+  }
+
+  private toConfig(r: typeof wecomNotifySettings.$inferSelect): WeComNotifyConfig {
+    return {
+      enabled: r.enabled,
+      autoStarOnReply: r.autoStarOnReply,
+      includeSnippet: r.includeSnippet,
+      webhookUrl: r.webhookUrl,
+      webhookSet: !!r.webhookUrl,
+    };
   }
 
   async saveConfig(input: {

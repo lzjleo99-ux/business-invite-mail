@@ -116,7 +116,9 @@ export class MailService {
       }
     }
 
-    // 2) 回退：旧的全局单行（smtp_config）
+    // 2) 回退：旧的全局单行（smtp_config）——仅限**无登录上下文**的内部调用。
+    // 登录用户没有自己的 SMTP 账号 = 未配置（不能看部署者的全局配置）。
+    if (userId) return null;
     const rows = await this.db
       .select({
         id: smtpConfig.id,
