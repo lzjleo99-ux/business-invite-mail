@@ -48,13 +48,16 @@ const EmailHistoryPage: React.FC = () => {
       getEmailHistories({
         search: appliedSearch || undefined,
         direction: direction === 'all' || direction === 'bounce' ? undefined : direction,
-        // 退信是状态不是方向：选中"退信"时强制 status=bounce（优先于状态下拉）
+        // 退信在数据里 direction=inbound，但用户语义里"收信"=客户回信不含退信：
+        // 选收信 → 强制 status=received；选退信 → 强制 status=bounce
         status:
           direction === 'bounce'
             ? 'bounce'
-            : status === 'all'
-              ? undefined
-              : status,
+            : direction === 'inbound'
+              ? 'received'
+              : status === 'all'
+                ? undefined
+                : status,
         projectId: projectId === 'all' ? undefined : projectId,
         email: mailbox === 'all' ? undefined : mailbox,
         page,

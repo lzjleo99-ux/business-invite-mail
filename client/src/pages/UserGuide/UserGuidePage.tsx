@@ -193,7 +193,12 @@ const UserGuidePage: React.FC = () => {
    */
   const SHOT_VERSION = '4';
   const shotFor = (shot: string): string => {
-    const base = lang === 'en' && shot.endsWith('.png') ? shot.replace(/\.png$/, '-en.png') : shot;
+    // 语言感知截图：中文用基础名，英文用 -en 后缀。中文版缺失时回退英文版
+    // （截图是英文界面截的，总比裂图强——中文版截图补齐后此兜底自然不触发）。
+    let base = shot;
+    if (lang === 'en' && shot.endsWith('.png')) {
+      base = shot.replace(/\.png$/, '-en.png');
+    }
     return `${base}?v=${SHOT_VERSION}`;
   };
 

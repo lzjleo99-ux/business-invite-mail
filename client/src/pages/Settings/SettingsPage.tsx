@@ -896,9 +896,9 @@ const SettingsPage = () => {
         )}
 
                 {/* 企业微信群机器人：收到客户回复时推提醒 + 自动加星标。
-            只放在「Robot integration」标签里——之前没有 tab 条件，
-            每个标签页下面都会重复渲染这一大块。 */}
-        {isAdmin && (
+            只放在「Robot integration」标签里。上一次把它移到标签顶部时
+            误删了 tab 条件（又变成每页都有）——两个条件缺一不可。 */}
+        {isAdmin && activeTab === 'robot' && (
           <Card>
             <CardHeader>
               <CardTitle className="flex items-center gap-2">
