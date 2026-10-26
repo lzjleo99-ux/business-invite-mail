@@ -248,9 +248,31 @@ export class AutoImportService {
       projectId = byCode[0].id;
     }
 
-    // 没给代码才走按名字找/建（旧行为，兼容已在线上跑的机器人）
+    // 没给代码才走按名字找/建（旧行为，兼容已在线上跑的机器人）。
+    // 但名字长得像代码（XX1234，站点自动生成的代码同构）时绝不能按名字建——
+    // 那几乎必然是"用户报了代码但机器人没识别"，按名字建会造出一个新项目。
+    // 先按代码查：命中就用；查不到明确报错，让用户核对代码。
     if (!projectId) {
-      projectId = await this.findOrCreateProject(projectName.trim(), owner.userId);
+      const nameLooksLikeCode = /^[A-Z]{2}[0-9]{4}$/.test(projectName.trim().toUpperCase());
+      if (nameLooksLikeCode) {
+        const byName = await this.db
+          .select({ id: projects.id, name: projects.name })
+          .from(projectMeta)
+          .innerJoin(projects, eq(projectMeta.projectId, projects.id))
+          .where(eq(projectMeta.code, projectName.trim().toUpperCase()))
+          .limit(1);
+        if (byName[0]) {
+          projectId = byName[0].id;
+        } else {
+          throw new BadRequestException(
+            `"${projectName.trim()}" 形似项目代码，但系统中不存在该代码。` +
+              '请到项目列表核对项目卡片上的「机器人代码」后重试' +
+              '（若它确实是项目名，请使用完整项目名）。',
+          );
+        }
+      } else {
+        projectId = await this.findOrCreateProject(projectName.trim(), owner.userId);
+      }
     }
 
     // Map raw leads to AutoImportLead
