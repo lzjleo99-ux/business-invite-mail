@@ -20,6 +20,7 @@ export const enMessages: Record<string, string> = {
   '第 {page} / {totalPages} 页': 'Page {page} of {totalPages}',
 
   // ---- antd table locale ----
+  '示例用的是你当前第一个真实项目（{name}，代码 {code}）——代码即项目卡片上的「机器人代码」，两边永远一致。': 'The example uses your first real project ({name}, code {code}) - the code is the same \'Robot code\' shown on the project card, so the two always match.',
   '跟随对应国家官方语言': 'Follow the recipient country\'s official language',
   '项目网址': 'Project website',
   'https://your-company.com（AI 写邮件时会引用这里的内容）': 'https://your-company.com (the AI references this when writing emails)',

@@ -38,6 +38,7 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/com
 import * as modelConfigApi from '@/api/model-config';
 import * as senderConfigApi from '@/api/sender-config';
 import * as adminApi from '@/api/admin';
+import * as projectsApi from '@/api/projects';
 import * as emailGeneratorApi from '@/api/email-generator';
 import { Label } from '@/components/ui/label';
 import { useAuth } from '@/contexts/AuthContext';
@@ -428,6 +429,15 @@ const SettingsPage = () => {
   };
 
   // ---- 导入密钥 / 机器人对接 ----
+  // 机器人对接文档的示例要用**真实项目**渲染（曾经写死了一个不存在的
+  // 「塞尔维亚餐厅拓展 / ff357fb6」，跟项目卡片的代码对不上，Daddy 困惑过）
+  const { data: docProjects } = useQuery({
+    queryKey: ['projects'],
+    queryFn: () => projectsApi.getProjects(),
+    staleTime: 60_000,
+  });
+  const docProject = docProjects?.[0];
+
   const { data: importSecretData, isLoading: secretLoading } = useQuery({
     queryKey: ['import-secret'],
     queryFn: modelConfigApi.getImportSecret,
@@ -1119,7 +1129,8 @@ const SettingsPage = () => {
                     </p>
                     <pre className="rounded-md bg-slate-900 p-3 text-xs text-slate-100 overflow-x-auto leading-relaxed">
   {`{
-    "projectName": "塞尔维亚餐厅拓展",
+    "projectName": "${docProject?.name ?? '你的项目名'}",
+    "projectCode": "${docProject?.code ?? 'XXXXXXXX'}",
     "leads": [
       {
         "序号": 1,
@@ -1150,13 +1161,16 @@ const SettingsPage = () => {
                     </p>
                     <pre className="rounded-md bg-slate-900 p-3 text-xs text-slate-100 overflow-x-auto leading-relaxed">
   {`{
-    "projectId": "ff357fb6-009c-...",
-    "projectUrl": "/projects/ff357fb6-009c-...",
+    "projectId": "${docProject?.id ?? '…'}",
+    "projectCode": "${docProject?.code ?? 'XXXXXXXX'}",
+    "projectUrl": "/projects/${docProject?.id ?? '…'}",
     "imported": 48,
     "duplicates": 2
   }`}
                     </pre>
                     <p className="text-xs text-slate-500 mt-2">
+                      {t('示例用的是你当前第一个真实项目（{name}，代码 {code}）——代码即项目卡片上的「机器人代码」，两边永远一致。', { name: docProject?.name ?? '-', code: docProject?.code ?? '-' })}
+                      {' '}
                       <strong>projectUrl</strong>：{t('把这个链接发给用户，点击直接进入该项目工作台。')}
                       {' '}
                       {t('还可以加上')} <code className="bg-slate-100 px-1 rounded">?lead=&lt;{t('线索id')}&gt;&action=generate</code> {t('来定位单条线索并自动生成邮件。')}

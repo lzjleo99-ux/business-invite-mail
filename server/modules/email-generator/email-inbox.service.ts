@@ -283,6 +283,10 @@ export class EmailInboxService implements OnModuleInit, OnModuleDestroy {
               const toAddrs = (parsed.to?.value ?? [])
                 .map((v) => v.address?.toLowerCase() ?? '')
                 .filter(Boolean);
+              // 抄送地址：项目归属判定要含 cc（收/发/抄送命中项目邮箱即归属）
+              const ccAddrs = (parsed.cc?.value ?? [])
+                .map((v) => v.address?.toLowerCase() ?? '')
+                .filter(Boolean);
               if (!fromAddr) continue;
 
               // 按发件地址匹配公司（任意项目的邮箱列）
@@ -308,6 +312,7 @@ export class EmailInboxService implements OnModuleInit, OnModuleDestroy {
                 projectId: match[0]?.projectId ?? null,
                 fromAddr,
                 toAddr: toAddrs[0] || s.fromEmail,
+                ccAddr: ccAddrs.length > 0 ? ccAddrs.join(',') : null,
                 subject: parsed.subject ?? '',
                 bodyText: parsed.text ?? '',
                 bodyHtml: typeof parsed.html === 'string' ? parsed.html : null,

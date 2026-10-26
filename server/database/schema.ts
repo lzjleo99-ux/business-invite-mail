@@ -490,6 +490,8 @@ export const emailHistories = pgTable(
     status: varchar("status", { length: 20 }).notNull(), // sent | failed | received
     fromAddr: varchar("from_addr", { length: 320 }).notNull(),
     toAddr: varchar("to_addr", { length: 320 }).notNull(),
+    // 抄送地址（逗号分隔；项目归属判定含 cc）
+    ccAddr: varchar("cc_addr", { length: 320 }),
     subject: varchar("subject", { length: 500 }).notNull().default(""),
     bodyText: text("body_text").notNull().default(""),
     bodyHtml: text("body_html"),

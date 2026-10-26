@@ -1,7 +1,7 @@
 import type { UserRole } from '@shared/api.interface';
 import { Injectable, Inject, Logger, BadRequestException } from '@nestjs/common';
 import { DRIZZLE_DATABASE, type PostgresJsDatabase } from '@lark-apaas/fullstack-nestjs-core';
-import { and, desc, eq, ilike, inArray, or, sql } from 'drizzle-orm';
+import { and, isNotNull, desc, eq, ilike, inArray, or, sql } from 'drizzle-orm';
 import { emailHistories, projects, restaurants } from '@server/database/schema';
 import { runIdempotentMigration } from '@server/common/utils/ddl-runner';
 
@@ -108,7 +108,9 @@ export class EmailHistoryService {
               _created_at    timestamptz(3) NOT NULL DEFAULT CURRENT_TIMESTAMP
             )
           `);
-          try {
+                    // 抄送地址（2026-10-26 加）：项目归属判定要含 cc。自建表可 ALTER。
+          await run(`ALTER TABLE email_histories ADD COLUMN IF NOT EXISTS cc_addr varchar(320)`);
+try {
             await run('CREATE UNIQUE INDEX IF NOT EXISTS uq_email_histories_message ON email_histories (message_id)');
             await run('CREATE INDEX IF NOT EXISTS idx_email_histories_company ON email_histories (company_id, _created_at DESC)');
             await run('CREATE INDEX IF NOT EXISTS idx_email_histories_project ON email_histories (project_id, _created_at DESC)');
@@ -189,6 +191,8 @@ export class EmailHistoryService {
     projectId: string | null;
     fromAddr: string;
     toAddr: string;
+    /** 抄送地址，逗号分隔（可空） */
+    ccAddr?: string | null;
     subject: string;
     bodyText: string;
     bodyHtml?: string | null;
@@ -214,6 +218,7 @@ export class EmailHistoryService {
       status: input.isBounce ? 'bounce' : 'received',
       fromAddr: input.fromAddr.slice(0, 320),
       toAddr: input.toAddr.slice(0, 320),
+      ccAddr: input.ccAddr ? input.ccAddr.slice(0, 320) : null,
       subject: input.subject.slice(0, 500),
       bodyText: input.bodyText.slice(0, 20000),
       bodyHtml: input.bodyHtml ? input.bodyHtml.slice(0, 50000) : null,
@@ -456,19 +461,91 @@ export class EmailHistoryService {
     return rows.map((r) => r.id);
   }
 
+  /**
+   * 收集可见项目里所有公司的邮箱地址（小写）。
+   * 归属规则：一封邮件的收/发/抄送只要包含某个项目的邮箱，就属于那个项目。
+   * 广告/无关邮件（收发件人不在任何项目里）一律不显示。
+   */
+  private async projectCompanyEmails(
+    projectIds: string[] | null,
+  ): Promise<string[]> {
+    const rows = await this.db
+      .select({ email: restaurants.email, web: restaurants.websiteContactEmail })
+      .from(restaurants)
+      .where(
+        projectIds
+          ? and(
+              isNotNull(restaurants.projectId),
+              inArray(restaurants.projectId, projectIds),
+            )
+          : isNotNull(restaurants.projectId),
+      );
+    const set = new Set<string>();
+    for (const r of rows) {
+      for (const e of [r.email, r.web]) {
+        const v = (e || '').trim().toLowerCase();
+        if (v) set.add(v);
+      }
+    }
+    return [...set];
+  }
+
+  /** 收/发/抄送命中任一项目邮箱的 SQL 条件 */
+  private emailMatchCondition(emails: string[]) {
+    const arr = sql`ARRAY[${sql.join(
+      emails.map((e) => sql`${e}`),
+      sql`, `,
+    )}]::text[]`;
+    return or(
+      sql`lower(${emailHistories.fromAddr}) = ANY(${arr})`,
+      sql`lower(${emailHistories.toAddr}) = ANY(${arr})`,
+      sql`lower(COALESCE(${emailHistories.ccAddr}, '')) = ANY(${arr})`,
+    );
+  }
+
   async list(query: EmailHistoryQuery): Promise<{ items: EmailHistoryRow[]; total: number }> {
     await this.assertCanRead(query, query.user);
     await this.ensureTable();
     const conditions = [];
     if (query.companyId) conditions.push(eq(emailHistories.companyId, query.companyId));
     if (query.projectId) conditions.push(eq(emailHistories.projectId, query.projectId));
-    // 没指定项目时，非 super_admin 只能看自己项目下的往来
-    if (!query.projectId) {
-      const own = await this.visibleProjectIds(query.user);
-      if (own !== null) {
-        if (own.length === 0) return { items: [], total: 0 };
-        conditions.push(inArray(emailHistories.projectId, own));
+
+    // ===== 项目归属过滤：收/发/抄送包含可见项目的公司邮箱才算 =====
+    const visible = await this.visibleProjectIds(query.user);
+    if (query.projectId) {
+      // 显式选了项目：项目列命中 OR 邮箱命中该项目的公司邮箱
+      // （入库时没匹配上的历史邮件，靠邮箱反查也能归进项目）
+      const emails = await this.projectCompanyEmails([query.projectId]);
+      if (emails.length > 0) {
+        conditions.push(
+          or(eq(emailHistories.projectId, query.projectId), this.emailMatchCondition(emails)),
+        );
       }
+    } else if (visible !== null) {
+      // 非 super_admin：只看自己项目相关的
+      if (visible.length === 0) return { items: [], total: 0 };
+      const emails = await this.projectCompanyEmails(visible);
+      if (emails.length === 0) return { items: [], total: 0 };
+      conditions.push(
+        or(
+          and(
+            isNotNull(emailHistories.projectId),
+            inArray(emailHistories.projectId, visible),
+          ),
+          this.emailMatchCondition(emails),
+          // 退信放行（同上：mailer-daemon ↔ 自己的邮箱，匹配不到项目邮箱）
+          eq(emailHistories.status, 'bounce'),
+        ),
+      );
+    } else {
+      // super_admin：只显示与任意项目相关的邮件，广告/无关邮箱全部过滤。
+      // 退信例外：它的收发件人是 mailer-daemon 和自己的邮箱，匹配不到任何
+      // 项目公司邮箱，但它是我们自己 campaign 的投递失败，不是广告——放行。
+      const emails = await this.projectCompanyEmails(null);
+      if (emails.length === 0) return { items: [], total: 0 };
+      conditions.push(
+        or(this.emailMatchCondition(emails), eq(emailHistories.status, 'bounce')),
+      );
     }
     if (query.direction) conditions.push(eq(emailHistories.direction, query.direction));
     if (query.status) conditions.push(eq(emailHistories.status, query.status));
