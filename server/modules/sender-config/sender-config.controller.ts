@@ -29,7 +29,9 @@ export class SenderConfigController {
 
   @Get()
   async getConfig(@CurrentUser() user: JwtPayload): Promise<SenderConfig> {
-    return this.senderConfigService.getConfig(user.userId);
+    // displayName 用于播种恢复：bug 期间同事保存的数据落在无主行里，
+    // 按 sender_name ≈ 显示名 找回他的档案
+    return this.senderConfigService.getConfig(user.userId, user.displayName);
   }
 
   @Patch()
@@ -37,6 +39,6 @@ export class SenderConfigController {
     @Body() dto: UpdateSenderConfigDto,
     @CurrentUser() user: JwtPayload,
   ): Promise<SenderConfig> {
-    return this.senderConfigService.updateConfig(dto, user.userId);
+    return this.senderConfigService.updateConfig(dto, user.userId, user.displayName);
   }
 }

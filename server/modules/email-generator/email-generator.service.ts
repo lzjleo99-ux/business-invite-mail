@@ -15,7 +15,7 @@ import {
   DRIZZLE_DATABASE,
   type PostgresJsDatabase,
 } from '@lark-apaas/fullstack-nestjs-core';
-import { eq, and, isNotNull, inArray, asc, or, isNull, sql } from 'drizzle-orm';
+import { eq, and, isNotNull, inArray, asc, or, isNull, desc, sql } from 'drizzle-orm';
 import axios from 'axios';
 import {
   restaurants,
@@ -24,6 +24,7 @@ import {
   projectMaterials,
   senderConfig,
 } from '@server/database/schema';
+import { ensureOwnSenderRow } from '@server/modules/sender-config/sender-config.service';
 import type {
   Company,
   CompanyStatus,
@@ -902,33 +903,27 @@ export class EmailGeneratorService {
    * 发件人签名：优先取当前用户的（每人一份），没有则回退全局行，
    * 都没有就用内置默认值。之前这里是 limit 1 全局取，改签名会覆盖所有人。
    */
+  /**
+   * 生成邮件用的发件人身份：**只读当前用户自己的档案**（GitHub 资料式隔离）。
+   * 没有就播种一份（从无主行找回/复制），绝不拿别人的签名发给客户。
+   */
   private async getSenderConfig(userId?: string) {
-    const rows = userId
-      ? await this.db
-          .select()
-          .from(senderConfig)
-          .where(
-            or(
-              sql`(${senderConfig.createdBy}).user_id = ${userId}`,
-              isNull(senderConfig.createdBy),
-            ),
-          )
-          .orderBy(sql`(${senderConfig.createdBy}) is null asc`)
-          .limit(1)
-      : await this.db
-          .select()
-          .from(senderConfig)
-          .where(isNull(senderConfig.createdBy))
-          .limit(1);
-    if (rows.length > 0) {
-      return rows[0];
+    if (!userId) {
+      const rows = await this.db
+        .select()
+        .from(senderConfig)
+        .where(isNull(senderConfig.createdBy))
+        .orderBy(desc(senderConfig.createdAt))
+        .limit(1);
+      if (rows[0]) return rows[0];
+      return {
+        senderName: 'Zijian Lang',
+        senderTitle: 'Global Sourcing Specialist',
+        personalStory:
+          '曾在英国 Cranfield University（位于米尔顿凯恩斯 Milton Keynes 附近）留学，对英国市场有深厚感情和深入了解，也因此更加珍惜每一次与英国企业合作的机会。',
+      };
     }
-    return {
-      senderName: 'Zijian Lang',
-      senderTitle: 'Global Sourcing Specialist',
-      personalStory:
-        '曾在英国 Cranfield University（位于米尔顿凯恩斯 Milton Keynes 附近）留学，对英国市场有深厚感情和深入了解，也因此更加珍惜每一次与英国企业合作的机会。',
-    };
+    return ensureOwnSenderRow(this.db, userId);
   }
 
   private getLocalLanguageCode(country: string | null): string {
