@@ -665,6 +665,7 @@ export class EmailGeneratorService {
         'email_attachments 建表迁移',
         async (run) => {
           await run(`CREATE TABLE IF NOT EXISTS email_attachments (
+            id          uuid PRIMARY KEY DEFAULT gen_random_uuid(),
             company_id  uuid REFERENCES restaurants(id) ON DELETE CASCADE,
             owner_id    text NOT NULL,
             filename    varchar(255) NOT NULL,
@@ -672,6 +673,13 @@ export class EmailGeneratorService {
             bytes       bytea NOT NULL,
             _created_at timestamptz(3) NOT NULL DEFAULT CURRENT_TIMESTAMP
           )`);
+          // 修补：首版建表漏了 id 列（已存在的表补列，空表可直接加主键）
+          await run(`ALTER TABLE email_attachments ADD COLUMN IF NOT EXISTS id uuid`);
+          await run(`UPDATE email_attachments SET id = gen_random_uuid() WHERE id IS NULL`);
+          await run(`DO $$ BEGIN
+            ALTER TABLE email_attachments ALTER COLUMN id SET DEFAULT gen_random_uuid();
+            ALTER TABLE email_attachments ADD PRIMARY KEY (id);
+          EXCEPTION WHEN duplicate_object THEN NULL; END $$;`);
           await run(`CREATE INDEX IF NOT EXISTS idx_email_attachments_company
             ON email_attachments (company_id, _created_at)`);
           try {
