@@ -123,6 +123,15 @@ export class AdminController {
   /** 企业微信群机器人通知配置（webhook 只写不读，只回 webhookSet） */
   // 每用户独立的设置：只需登录，不需要管理员
   @UseGuards(JwtAuthGuard)
+  /** 临时诊断：强制重跑租户自愈迁移并返回统计（super_admin 专用） */
+  @UseGuards(JwtAuthGuard, SuperAdminGuard)
+  @Get('tenant-bootstrap')
+  async tenantBootstrap(): Promise<{
+    owner: string; roleChanges: string[]; transferred: number; backfilled: number;
+  }> {
+    return this.authService.runTenantBootstrap(true);
+  }
+
   @Get('wecom-notify-config')
   async getWecomNotifyConfig(@CurrentUser() user: JwtPayload): Promise<{
     enabled: boolean;

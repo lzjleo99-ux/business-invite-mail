@@ -136,14 +136,35 @@ export class AuthService implements OnModuleInit {
    *   - 其他任何 super_admin 一律降为 user。
    * 登录路径触发（幂等，memoize 后零开销）。
    */
-  private ensureSingleSuperAdmin(): Promise<void> {
+  ensureSingleSuperAdmin(): Promise<void> {
     if (!this.roleFixPromise) {
-      this.roleFixPromise = (async () => {
+      this.roleFixPromise = this.runTenantBootstrap().then(() => undefined).catch((err: unknown) => {
+        this.roleFixPromise = undefined;
+        throw err;
+      });
+    }
+    return this.roleFixPromise;
+  }
+
+  /**
+   * 租户自愈迁移（诊断端点可强制重跑）：角色收敛 + 机器人代建项目归属 +
+   * 团队成员 AI 配置回填。返回执行统计。
+   */
+  async runTenantBootstrap(force = false): Promise<{
+    owner: string; roleChanges: string[]; transferred: number; backfilled: number;
+  }> {
+    if (force) this.roleFixPromise = undefined;
+    if (!force && this.roleFixPromise) {
+      await this.roleFixPromise;
+      return { owner: 'cached', roleChanges: [], transferred: 0, backfilled: 0 };
+    }
+    return (async () => {
+        const roleChanges: string[] = [];
         const all = await this.db
           .select({ id: appUsers.id, email: appUsers.email, role: appUsers.role })
           .from(appUsers)
           .orderBy(asc(appUsers.createdAt));
-        if (all.length === 0) return;
+        if (all.length === 0) return { owner: '-', roleChanges: [], transferred: 0, backfilled: 0 };
         const owner = all[0]; // 最早注册 = 部署所有者
         for (const u of all) {
           if (u.id === owner.id) {
@@ -152,6 +173,7 @@ export class AuthService implements OnModuleInit {
                 .update(appUsers)
                 .set({ role: 'super_admin' })
                 .where(eq(appUsers.id, u.id));
+              roleChanges.push(`${u.email} -> super_admin`);
               this.logger.warn(
                 `多租户隔离：部署所有者 ${u.email} 提升为 super_admin`,
               );
@@ -161,12 +183,14 @@ export class AuthService implements OnModuleInit {
               .update(appUsers)
               .set({ role: 'user' })
               .where(eq(appUsers.id, u.id));
+            roleChanges.push(`${u.email} -> user`);
             this.logger.warn(
               `多租户隔离：${u.email} 从 super_admin 降级为 user（部署所有者是 ${owner.email}）`,
             );
           }
         }
-      })().then(async () => {
+        let transferred = 0;
+        let backfilled = 0;
         // 机器人代建的项目归部署所有者：机器人导入的 owner 解析指向
         // super_admin，历史数据可能落在别人名下（WM0923 事件）。幂等搬正。
         //
@@ -185,14 +209,15 @@ export class AuthService implements OnModuleInit {
           '机器人代建项目归属迁移',
         );
         try {
-          await runner.run(
+          const moved = await runner.run(
             `UPDATE projects SET owner_id = '${ownerId}'
              WHERE description = 'Auto-created by auto-import'
-               AND owner_id IS DISTINCT FROM '${ownerId}'::uuid`,
+               AND owner_id IS DISTINCT FROM '${ownerId}'::uuid RETURNING id`,
           );
+          transferred = Array.isArray(moved) ? (moved as unknown[]).length : 0;
           // 团队成员的 AI 配置回填：从部署所有者的行复制（仅限从未配置过的行，
           // api_key 为空），让新成员拿到能用的 Key/签名做起点。GitHub fork 模式。
-          await runner.run(
+          const bf = await runner.run(
             `WITH owner_cfg AS (
                SELECT mc.api_base_url, mc.api_key, mc.model_name, mc.email_language, mc.sender_signature
                FROM model_config mc
@@ -206,17 +231,17 @@ export class AuthService implements OnModuleInit {
                  sender_signature = o.sender_signature
              FROM owner_cfg o
              WHERE (mc._created_by).user_id <> (SELECT id FROM app_users ORDER BY _created_at ASC LIMIT 1)
-               AND (mc.api_key IS NULL OR mc.api_key = '')`,
+               AND (mc.api_key IS NULL OR mc.api_key = '') RETURNING id`,
           );
+          backfilled = Array.isArray(bf) ? (bf as unknown[]).length : 0;
         } finally {
           await runner.dispose();
         }
-      }).catch((err: unknown) => {
+        return { owner: owner.email, roleChanges, transferred, backfilled };
+      })().catch((err: unknown) => {
         this.roleFixPromise = undefined;
         throw err;
       });
-    }
-    return this.roleFixPromise;
   }
 
   async login(email: string, password: string): Promise<AuthResponse> {
