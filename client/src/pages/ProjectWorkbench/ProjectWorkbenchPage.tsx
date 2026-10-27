@@ -506,6 +506,7 @@ const ProjectWorkbenchInner: React.FC = () => {
   const handleStartEditProject = useCallback(() => {
     if (project) {
       setEditName(project.name);
+      setEditWebsite(project.website || '');
       setEditDescription(project.description);
     }
   }, [project]);

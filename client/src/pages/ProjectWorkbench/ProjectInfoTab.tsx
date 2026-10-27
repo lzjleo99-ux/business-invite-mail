@@ -61,6 +61,14 @@ const ProjectInfoTab: React.FC<ProjectInfoTabProps> = ({
 }) => {
   const { t } = useI18n();
 
+  // 进入编辑后（聚焦任一字段）空字符串就是有效值——不再回退到项目原值，
+  // 否则用户删光网址/简介会立刻弹回（删不掉）。
+  const [editingStarted, setEditingStarted] = useState(false);
+  const handleStart = (): void => {
+    setEditingStarted(true);
+    onStartEdit();
+  };
+
   const handleFilePick = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -103,9 +111,9 @@ const ProjectInfoTab: React.FC<ProjectInfoTabProps> = ({
               {t('项目名称')}
             </label>
             <Input
-              value={editName || project?.name || ''}
+              value={editingStarted ? editName : (project?.name || '')}
               onChange={(e) => setEditName(e.target.value)}
-              onFocus={onStartEdit}
+              onFocus={handleStart}
               placeholder={t('请输入项目名称')}
             />
           </div>
@@ -115,9 +123,9 @@ const ProjectInfoTab: React.FC<ProjectInfoTabProps> = ({
               {t('项目网址')}
             </label>
             <Input
-              value={editWebsite || project?.website || ''}
+              value={editingStarted ? editWebsite : (project?.website || '')}
               onChange={(e) => setEditWebsite(e.target.value)}
-              onFocus={onStartEdit}
+              onFocus={handleStart}
               placeholder={t('https://your-company.com（AI 写邮件时会引用这里的内容）')}
             />
           </div>
@@ -130,9 +138,9 @@ const ProjectInfoTab: React.FC<ProjectInfoTabProps> = ({
               {t('项目简介')}
             </label>
             <Textarea
-              value={editDescription || project?.description || ''}
+              value={editingStarted ? editDescription : (project?.description || '')}
               onChange={(e) => setEditDescription(e.target.value)}
-              onFocus={onStartEdit}
+              onFocus={handleStart}
               placeholder={t('请输入项目简介，AI 生成邮件时会参考此内容')}
               rows={6}
             />

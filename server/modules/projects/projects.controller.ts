@@ -160,6 +160,8 @@ export class ProjectsController {
     } catch (err) {
       this.logger.warn(`文件解析失败 ${fileName}: ${String(err)}`);
     }
+    // 双保险：解析失败的原始字节回退也在此净化（NUL/控制字符会让 INSERT 报 22021）
+    parsedContent = this.sanitizeText(parsedContent);
 
     // 生成摘要（前 500 字，后续替换为 AI 摘要）
     const contentSummary: string | null = parsedContent
@@ -244,6 +246,7 @@ export class ProjectsController {
     } catch (err) {
       this.logger.warn(`文件解析失败 ${fileName}: ${String(err)}`);
     }
+    parsedContent = this.sanitizeText(parsedContent);
 
     const contentSummary: string | null = parsedContent
       ? parsedContent.slice(0, 500)
@@ -641,6 +644,21 @@ sys.exit(1)
     });
   }
 
+  /**
+   * 文本净化：解析失败回退原始字节时，二进制内容（NUL/控制字符/非法 UTF-8）
+   * 会让 Postgres 报 22021 invalid encoding。入库前剥掉所有不可见字符。
+   */
+  private sanitizeText(value: string | null | undefined): string | null {
+    if (!value) return value ?? null;
+    // eslint-disable-next-line no-control-regex
+    const cleaned = value
+      .replace(/\u0000/g, '')
+      // eslint-disable-next-line no-control-regex
+      .replace(/[\u0001-\u0008\u000B\u000C\u000E-\u001F\u007F]/g, '')
+      .replace(/\uFFFD/g, '');
+    return cleaned.trim() || null;
+  }
+
   private async parseFileContent(
     buffer: Buffer,
     fileType: string,
@@ -676,7 +694,7 @@ sys.exit(1)
       case 'spreadsheet': {
         try {
           if (lowerName.endsWith('.csv')) {
-            const text = buffer.toString('utf-8').trim();
+            const text = this.sanitizeText(buffer.toString('utf-8'));
             return text || null;
           }
           const workbook = XLSX.read(buffer, { type: 'buffer' });
@@ -702,12 +720,12 @@ sys.exit(1)
               const pyText = await this.extractXlsxText(buffer);
               return pyText?.trim() || null;
             }
-            const text = buffer.toString('utf-8').trim();
+            const text = this.sanitizeText(buffer.toString('utf-8'));
             return text || null;
           } catch (pyErr) {
             this.logger.warn(`Excel Python 兜底也失败 ${fileName}: ${String(pyErr)}`);
             try {
-              const text = buffer.toString('utf-8').trim();
+              const text = this.sanitizeText(buffer.toString('utf-8'));
               return text || null;
             } catch {
               return null;
@@ -751,7 +769,7 @@ sys.exit(1)
 
       case 'text': {
         try {
-          const text = buffer.toString('utf-8').trim();
+          const text = this.sanitizeText(buffer.toString('utf-8'));
           return text || null;
         } catch {
           return null;
