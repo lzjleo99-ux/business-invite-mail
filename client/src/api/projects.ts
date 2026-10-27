@@ -73,16 +73,18 @@ export async function uploadMaterial(
   projectId: string,
   file: File,
 ): Promise<ProjectMaterial> {
-  const contentBase64: string = await readFileAsBase64(file);
-  const body: UploadMaterialByBase64Request = {
-    fileName: file.name,
-    mimeType: file.type || 'application/octet-stream',
-    contentBase64,
-  };
+  // 走 multipart（不是 base64）：base64 会把体积撑大 33%，大文件更容易撞上
+  // 网关/平台请求体上限；multipart 直接传原始字节。
+  const form = new FormData();
+  form.append('file', file, file.name);
   const response = await axiosForBackend.post(
-    `/api/projects/${projectId}/materials-base64`,
-    body,
-    { maxContentLength: 30 * 1024 * 1024, maxBodyLength: 30 * 1024 * 1024 },
+    `/api/projects/${projectId}/materials`,
+    form,
+    {
+      maxContentLength: 30 * 1024 * 1024,
+      maxBodyLength: 30 * 1024 * 1024,
+      timeout: 300_000,
+    },
   );
   return response.data;
 }

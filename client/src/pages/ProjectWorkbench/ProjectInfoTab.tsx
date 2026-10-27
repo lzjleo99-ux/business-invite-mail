@@ -37,7 +37,7 @@ export interface ProjectInfoTabProps {
   setEditDescription: (v: string) => void;
   setEditWebsite: (v: string) => void;
   onSaveProject: () => void;
-  onUploadMaterial: (file: File) => void;
+  onUploadMaterial: (files: File | File[]) => void;
   onDeleteMaterial: (materialId: string) => void;
   onPreviewMaterial: (materialId: string) => void;
   onStartEdit: () => void;
@@ -65,22 +65,22 @@ const ProjectInfoTab: React.FC<ProjectInfoTabProps> = ({
   // 否则用户删光网址/简介会立刻弹回（删不掉）。
   const [editingStarted, setEditingStarted] = useState(false);
   const handleStart = (): void => {
+    // 只标记"进入编辑态"——不再触发重置（否则切字段会丢改动）
     setEditingStarted(true);
-    onStartEdit();
   };
 
   const handleFilePick = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-    onUploadMaterial(file);
+    const files = Array.from(e.target.files || []);
+    if (files.length === 0) return;
+    onUploadMaterial(files);
     e.target.value = '';
   };
 
   const handleDrop = (e: React.DragEvent<HTMLDivElement>) => {
     e.preventDefault();
-    const file = e.dataTransfer.files?.[0];
-    if (!file) return;
-    onUploadMaterial(file);
+    const files = Array.from(e.dataTransfer.files || []);
+    if (files.length === 0) return;
+    onUploadMaterial(files);
   };
 
   const handleCopyProjectLink = async () => {

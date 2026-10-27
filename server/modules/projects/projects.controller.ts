@@ -61,6 +61,15 @@ class UpdateProjectDto implements UpdateProjectRequest {
   @IsOptional()
   @IsString()
   description?: string;
+  /**
+   * 项目网址（存 project_meta 表）。
+   * DTO 里漏了这个字段 → ValidationPipe 的 whitelist 把它剥掉，
+   * 服务端永远收不到网址 → 前端改完保存又变回去。
+   * 允许空串（表示清空网址）。
+   */
+  @IsOptional()
+  @IsString()
+  website?: string;
 }
 
 class UploadMaterialByBase64Dto {
@@ -659,6 +668,14 @@ sys.exit(1)
     return cleaned.trim() || null;
   }
 
+  /**
+   * 解析护栏：容器内存有限（488MB），大文件解析（xlsx 全量读 + python 兜底 +
+   * tesseract OCR）会直接把进程 OOM 掉——表现为上传时网关 503 / 容器重启。
+   * 超过阈值的文件只入库二进制（blob 完整保留），不做文本解析。
+   */
+  private static readonly MAX_PARSE_BYTES = 6 * 1024 * 1024; // 6MB
+  private static readonly MAX_OCR_BYTES = 3 * 1024 * 1024; // 3MB
+
   private async parseFileContent(
     buffer: Buffer,
     fileType: string,
@@ -666,8 +683,22 @@ sys.exit(1)
   ): Promise<string | null> {
     const lowerName: string = fileName.toLowerCase();
 
+    // 大文件不解析（防 OOM）；文件本体仍会完整存进 blob
+    if (buffer.length > ProjectsController.MAX_PARSE_BYTES) {
+      this.logger.warn(
+        `文件超过解析上限，跳过文本解析（仅存二进制）: ${fileName} (${Math.round(buffer.length / 1024 / 1024)}MB)`,
+      );
+      return null;
+    }
+
     switch (fileType) {
       case 'image': {
+        if (buffer.length > ProjectsController.MAX_OCR_BYTES) {
+          this.logger.warn(
+            `图片超过 OCR 上限，跳过识别: ${fileName} (${Math.round(buffer.length / 1024 / 1024)}MB)`,
+          );
+          return null;
+        }
         try {
           const worker = await tesseract.createWorker('eng');
           const result = await worker.recognize(buffer);

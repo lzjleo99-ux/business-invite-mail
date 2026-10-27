@@ -503,13 +503,22 @@ const ProjectWorkbenchInner: React.FC = () => {
   };
 
   // --- Project save ---
-  const handleStartEditProject = useCallback(() => {
-    if (project) {
-      setEditName(project.name);
-      setEditWebsite(project.website || '');
-      setEditDescription(project.description);
-    }
+  // 编辑初值只在本项目加载时设置一次。
+  // 之前每次聚焦任一字段都重置三个字段 → 切到下一个字段时前一个字段的
+  // 修改被抹掉（"改完自动变回去"）。
+  const editInitProjectIdRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (!project || editInitProjectIdRef.current === project.id) return;
+    editInitProjectIdRef.current = project.id;
+    setEditName(project.name);
+    setEditWebsite(project.website || '');
+    setEditDescription(project.description);
   }, [project]);
+
+  // 保留给子组件的回调：不再覆盖用户正在编辑的内容
+  const handleStartEditProject = useCallback(() => {
+    // no-op：初值已在项目加载时设置
+  }, []);
 
   const handleSaveProject = async () => {
     setIsSavingProject(true);
@@ -517,6 +526,7 @@ const ProjectWorkbenchInner: React.FC = () => {
       await projectsApi.updateProject(id, {
         name: editName,
         description: editDescription,
+        website: editWebsite,
       });
       toast.success(t('项目资料已保存'));
       void qc.invalidateQueries({ queryKey: ['project', id] });
@@ -530,6 +540,13 @@ const ProjectWorkbenchInner: React.FC = () => {
 
   // --- Material upload ---
   const handleUploadMaterial = async (file: File) => {
+    // 体积预检：超过 25MB 直接说清楚，别让用户对着"上传失败"猜
+    if (file.size > 25 * 1024 * 1024) {
+      toast.error(t('文件超过 25MB（当前 {size}MB），请压缩后再上传', {
+        size: (file.size / 1024 / 1024).toFixed(1),
+      }));
+      return;
+    }
     setIsUploadingMaterial(true);
     try {
       await projectsApi.uploadMaterial(id, file);
@@ -537,9 +554,18 @@ const ProjectWorkbenchInner: React.FC = () => {
       void qc.invalidateQueries({ queryKey: ['project', id] });
     } catch (err: unknown) {
       logger.error('上传素材失败', err);
-      toast.error(t('上传失败，请稍后重试'));
+      // 把真实原因带出来（网关超时 / 体积超限 / 权限 / 网络）
+      toast.error(errMessage(err, t('上传失败')));
     } finally {
       setIsUploadingMaterial(false);
+    }
+  };
+
+  /** 批量上传：多选/多拖的文件逐个传（之前只传第一个，其余被静默丢弃） */
+  const handleUploadMaterials = async (files: File[]) => {
+    for (const f of files) {
+      // eslint-disable-next-line no-await-in-loop
+      await handleUploadMaterial(f);
     }
   };
 
@@ -761,7 +787,7 @@ const ProjectWorkbenchInner: React.FC = () => {
             setEditName={setEditName}
             setEditDescription={setEditDescription}
             onSaveProject={() => void handleSaveProject()}
-            onUploadMaterial={(f) => void handleUploadMaterial(f)}
+            onUploadMaterial={(f) => void handleUploadMaterials(Array.isArray(f) ? f : [f])}
             onDeleteMaterial={(mid) => void handleDeleteMaterial(mid)}
             onPreviewMaterial={(mid) => void handlePreviewMaterial(mid)}
             onStartEdit={handleStartEditProject}

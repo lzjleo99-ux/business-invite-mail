@@ -20,6 +20,8 @@ export const enMessages: Record<string, string> = {
   '第 {page} / {totalPages} 页': 'Page {page} of {totalPages}',
 
   // ---- antd table locale ----
+  '文件超过 25MB（当前 {size}MB），请压缩后再上传': 'File exceeds 25MB (currently {size}MB) - please compress it and try again',
+  '上传失败': 'Upload failed',
   '图片操作：单击选中图片后按 Delete 删除；误删可 Ctrl+Z 撤销；拖动图片可排版。': 'Image: click to select then press Delete to remove; Ctrl+Z to undo; drag to reposition.',
   '插入项目图片…': 'Insert project image…',
   '此项目暂无图片素材——可在 Project info 上传并填写描述': 'No image materials in this project - upload them in Project info and add descriptions',
