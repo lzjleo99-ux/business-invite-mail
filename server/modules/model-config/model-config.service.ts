@@ -41,7 +41,7 @@ export class ModelConfigService {
       .select()
       .from(modelConfig)
       .where(sql`(${modelConfig.createdBy}).user_id = ${userId}`)
-      .orderBy(sql`(${modelConfig.createdBy}).created_at asc`)
+      .orderBy(sql`_created_at asc`)
       .limit(1);
 
     if (rows.length > 0) {
