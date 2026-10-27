@@ -190,6 +190,24 @@ export class AuthService implements OnModuleInit {
              WHERE description = 'Auto-created by auto-import'
                AND owner_id IS DISTINCT FROM '${ownerId}'::uuid`,
           );
+          // 团队成员的 AI 配置回填：从部署所有者的行复制（仅限从未配置过的行，
+          // api_key 为空），让新成员拿到能用的 Key/签名做起点。GitHub fork 模式。
+          await runner.run(
+            `WITH owner_cfg AS (
+               SELECT mc.api_base_url, mc.api_key, mc.model_name, mc.email_language, mc.sender_signature
+               FROM model_config mc
+               WHERE (mc._created_by).user_id = (SELECT id FROM app_users ORDER BY _created_at ASC LIMIT 1)
+             )
+             UPDATE model_config mc
+             SET api_base_url = o.api_base_url,
+                 api_key = o.api_key,
+                 model_name = o.model_name,
+                 email_language = o.email_language,
+                 sender_signature = o.sender_signature
+             FROM owner_cfg o
+             WHERE (mc._created_by).user_id <> (SELECT id FROM app_users ORDER BY _created_at ASC LIMIT 1)
+               AND (mc.api_key IS NULL OR mc.api_key = '')`,
+          );
         } finally {
           await runner.dispose();
         }

@@ -1,8 +1,8 @@
 import { Injectable, Inject, Logger } from '@nestjs/common';
 import { DRIZZLE_DATABASE, type PostgresJsDatabase } from '@lark-apaas/fullstack-nestjs-core';
-import { eq, sql } from 'drizzle-orm';
+import { eq, asc, sql } from 'drizzle-orm';
 import axios from 'axios';
-import { modelConfig } from '@server/database/schema';
+import { modelConfig, appUsers } from '@server/database/schema';
 import type {
   ModelConfig,
   UpdateModelConfigRequest,
@@ -41,26 +41,71 @@ export class ModelConfigService {
       .select()
       .from(modelConfig)
       .where(sql`(${modelConfig.createdBy}).user_id = ${userId}`)
+      .orderBy(sql`(${modelConfig.createdBy}).created_at asc`)
       .limit(1);
 
     if (rows.length > 0) {
       return rows[0];
     }
 
+    // 新用户播种：从**部署所有者**（最早注册用户）的行复制一份工作配置作起点
+    // （GitHub "fork from default profile" 模式）——团队成员拿到能用的 Key/签名，
+    // 之后各自修改互不影响。所有者自己还没有行时才用出厂默认值。
+    const seed = await this.seedFromOwner(userId);
     const inserted = await this.db
       .insert(modelConfig)
       .values({
-        apiBaseUrl: DEFAULT_BASE_URL,
-        apiKey: '',
-        modelName: DEFAULT_MODEL,
+        apiBaseUrl: seed.apiBaseUrl,
+        apiKey: seed.apiKey,
+        modelName: seed.modelName,
         temperature: null,
-        emailLanguage: DEFAULT_EMAIL_LANGUAGE,
-        senderSignature: DEFAULT_SENDER_SIGNATURE,
+        emailLanguage: seed.emailLanguage,
+        senderSignature: seed.senderSignature,
         createdBy: sql`ROW(${userId}::text)`,
       })
       .returning();
 
     return inserted[0];
+  }
+
+  /** 部署所有者（最早注册用户）的配置；没有则返回出厂默认值 */
+  private async seedFromOwner(userId: string): Promise<{
+    apiBaseUrl: string; apiKey: string; modelName: string;
+    emailLanguage: string; senderSignature: string;
+  }> {
+    const defaults = {
+      apiBaseUrl: DEFAULT_BASE_URL,
+      apiKey: '',
+      modelName: DEFAULT_MODEL,
+      emailLanguage: DEFAULT_EMAIL_LANGUAGE,
+      senderSignature: DEFAULT_SENDER_SIGNATURE,
+    };
+    try {
+      const ownerRows = await this.db
+        .select({
+          apiBaseUrl: modelConfig.apiBaseUrl,
+          apiKey: modelConfig.apiKey,
+          modelName: modelConfig.modelName,
+          emailLanguage: modelConfig.emailLanguage,
+          senderSignature: modelConfig.senderSignature,
+        })
+        .from(modelConfig)
+        .innerJoin(appUsers, sql`(${modelConfig.createdBy}).user_id = ${appUsers.id}`)
+        .where(sql`${appUsers.createdAt} = (SELECT MIN(_created_at) FROM app_users)`)
+        .limit(1);
+      const o = ownerRows[0];
+      if (!o) return defaults;
+      return {
+        apiBaseUrl: o.apiBaseUrl || defaults.apiBaseUrl,
+        apiKey: o.apiKey || '',
+        modelName: o.modelName || defaults.modelName,
+        emailLanguage: o.emailLanguage || defaults.emailLanguage,
+        senderSignature: o.senderSignature || defaults.senderSignature,
+      };
+    } catch (err: unknown) {
+      this.logger?.warn?.(`播种读取所有者配置失败，用默认值: ${err instanceof Error ? err.message : String(err)}`);
+      return defaults;
+    }
   }
 
   async getConfig(userId: string): Promise<ModelConfig> {
