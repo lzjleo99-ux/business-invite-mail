@@ -13,6 +13,7 @@ import { and, asc, eq, count, isNull, sql } from 'drizzle-orm';
 import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
 import { appUsers, projects } from '@server/database/schema';
+import { getDdlRunner } from '@server/common/utils/ddl-runner';
 import type {
   AuthUser,
   AuthResponse,
@@ -168,6 +169,10 @@ export class AuthService implements OnModuleInit {
       })().then(async () => {
         // 机器人代建的项目归部署所有者：机器人导入的 owner 解析指向
         // super_admin，历史数据可能落在别人名下（WM0923 事件）。幂等搬正。
+        //
+        // 必须走**属主连接**：projects 有平台 RLS，请求角色（用户自己）的
+        // WITH CHECK 会拒绝把 owner_id 改成别人——静默 0 行。属主连接
+        // 绕过 RLS（与 DDL 同理）。
         const ownerRow = await this.db
           .select({ id: appUsers.id })
           .from(appUsers)
@@ -175,15 +180,19 @@ export class AuthService implements OnModuleInit {
           .limit(1);
         const ownerId = ownerRow[0]?.id;
         if (!ownerId) return;
-        await this.db
-          .update(projects)
-          .set({ ownerId })
-          .where(
-            and(
-              eq(projects.description, 'Auto-created by auto-import'),
-              sql`${projects.ownerId} IS DISTINCT FROM ${ownerId}`,
-            ),
+        const runner = await getDdlRunner(
+          { $client: null, session: null },
+          '机器人代建项目归属迁移',
+        );
+        try {
+          await runner.run(
+            `UPDATE projects SET owner_id = '${ownerId}'
+             WHERE description = 'Auto-created by auto-import'
+               AND owner_id IS DISTINCT FROM '${ownerId}'::uuid`,
           );
+        } finally {
+          await runner.dispose();
+        }
       }).catch((err: unknown) => {
         this.roleFixPromise = undefined;
         throw err;
