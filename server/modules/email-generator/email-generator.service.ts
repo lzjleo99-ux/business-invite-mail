@@ -25,6 +25,9 @@ import {
   senderConfig,
 } from '@server/database/schema';
 import { ensureOwnSenderRow } from '@server/modules/sender-config/sender-config.service';
+import { SenderProfilesService } from '@server/modules/sender-profiles/sender-profiles.service';
+import { runIdempotentMigration } from '@server/common/utils/ddl-runner';
+import { emailAttachmentsTable } from '@server/database/schema';
 import type {
   Company,
   CompanyStatus,
@@ -85,6 +88,7 @@ export class EmailGeneratorService {
     private readonly materialBlobs: MaterialBlobService,
     private readonly mailService: MailService,
     private readonly emailHistory: EmailHistoryService,
+    private readonly senderProfiles: SenderProfilesService,
   ) {}
 
   /**
@@ -403,6 +407,8 @@ export class EmailGeneratorService {
     accountId?: string,
     /** 当前用户：决定用谁的发件人签名 */
     userId?: string,
+    /** 指定发信人档案（多身份）；空 = 用户默认档案 */
+    profileId?: string | null,
   ): Promise<{
     raw: string;
     to: string;
@@ -430,9 +436,176 @@ export class EmailGeneratorService {
       ? `${fromName} <${fromEmail}>`
       : `${fromName} <${fromName.toLowerCase().replace(/\s+/g, '.')}@example.com>`;
 
-    const raw = generateEmlWithImages(to, subject, body, fromLine, inlineImages);
+    // 多发信人档案：选中的身份（或用户默认）提供富签名（HTML）+ 身份图片（CID 内嵌）。
+    // 签名在发送时拼装——改签名立刻对所有后续发送生效，无需重新生成邮件。
+    let signatureHtml = '';
+    let signatureText = '';
+    if (userId) {
+      try {
+        const profile = await this.senderProfiles.resolveForSend(userId, profileId);
+        if (profile?.signatureHtml?.trim()) {
+          signatureHtml = profile.signatureHtml;
+          signatureText = String(signatureHtml)
+            .replace(/<br\s*\/?>/gi, '\n')
+            .replace(/<\/p>/gi, '\n')
+            .replace(/<[^>]+>/g, '')
+            .replace(/&nbsp;/g, ' ')
+            .replace(/&amp;/g, '&')
+            .replace(/&lt;/g, '<')
+            .replace(/&gt;/g, '>')
+            .replace(/\n{3,}/g, '\n\n')
+            .trim();
+          // 签名里的档案图片 → 内嵌（URL 改写成 cid:）
+          for (const imageId of this.senderProfiles.extractImageIds(signatureHtml)) {
+            const img = await this.senderProfiles.getImageBytes(null, imageId);
+            if (!img || !/^image\//.test(img.mime)) continue;
+            const contentId = `sig-${imageId}@bid`;
+            inlineImages.push({
+              materialId: `sig:${imageId}`,
+              contentId,
+              fileName: img.filename,
+              contentType: img.mime,
+              data: img.bytes,
+            });
+            signatureHtml = signatureHtml.replaceAll(
+              `/api/sender-profiles/images/${imageId}`,
+              `cid:${contentId}`,
+            );
+          }
+        }
+      } catch (err: unknown) {
+        this.logger.warn(
+          `发信人档案解析失败（按无签名继续）: ${err instanceof Error ? err.message : String(err)}`,
+        );
+      }
+    }
+
+    // 每公司附件（compose 里上传的）随邮件发出
+    const attachments = await this.listCompanyAttachments(company.id);
+
+    const raw = generateEmlWithImages(to, subject, body, fromLine, inlineImages, {
+      signatureHtml,
+      signatureText,
+      attachments,
+    });
     // envelope.from 用 SMTP 发件地址（服务器必须以该地址登录），回退到配置里的登录账号
     return { raw, to, from: fromEmail || smtp?.username?.trim() || '', subject, accountId: acct?.id };
+  }
+
+  /** 上传每公司邮件附件（compose 里选文件） */
+  async addCompanyAttachment(
+    companyId: string,
+    userId: string,
+    filename: string,
+    mime: string,
+    bytes: Buffer,
+  ): Promise<{ id: string; filename: string; mime: string; size: number }> {
+    await this.assertCompanyAccess(companyId, userId);
+    await this.ensureAttachmentsTable();
+    const inserted = await this.db
+      .insert(emailAttachmentsTable)
+      .values({
+        companyId,
+        ownerId: userId,
+        filename: filename.slice(0, 255),
+        mime: (mime || 'application/octet-stream').slice(0, 100),
+        bytes,
+      })
+      .returning({ id: emailAttachmentsTable.id });
+    return { id: inserted[0].id, filename, mime, size: bytes.length };
+  }
+
+  /** 附件元数据列表（含归属校验） */
+  async listCompanyAttachmentMeta(
+    companyId: string,
+    userId: string,
+  ): Promise<Array<{ id: string; filename: string; mime: string; size: number }>> {
+    await this.assertCompanyAccess(companyId, userId);
+    await this.ensureAttachmentsTable();
+    const rows = await this.db
+      .select({
+        id: emailAttachmentsTable.id,
+        filename: emailAttachmentsTable.filename,
+        mime: emailAttachmentsTable.mime,
+        size: sql<number>`octet_length(${emailAttachmentsTable.bytes})`,
+      })
+      .from(emailAttachmentsTable)
+      .where(eq(emailAttachmentsTable.companyId, companyId))
+      .orderBy(asc(emailAttachmentsTable.createdAt));
+    return rows.map((r) => ({ ...r, size: Number(r.size) }));
+  }
+
+  async deleteCompanyAttachment(attachmentId: string, userId: string): Promise<void> {
+    await this.ensureAttachmentsTable();
+    // 归属校验：附件的公司必须属于调用者的项目
+    const rows = await this.db
+      .select({ id: emailAttachmentsTable.id })
+      .from(emailAttachmentsTable)
+      .innerJoin(restaurants, eq(restaurants.id, emailAttachmentsTable.companyId))
+      .innerJoin(projects, eq(projects.id, restaurants.projectId))
+      .where(
+        and(
+          eq(emailAttachmentsTable.id, attachmentId),
+          eq(projects.ownerId, userId),
+        ),
+      )
+      .limit(1);
+    if (rows.length === 0) throw new BadRequestException('附件不存在或无权访问');
+    await this.db
+      .delete(emailAttachmentsTable)
+      .where(eq(emailAttachmentsTable.id, attachmentId));
+  }
+
+  private attachmentsTablePromise?: Promise<void>;
+
+  /** 每公司附件表（自建，运行时身份建表即拥有） */
+  private ensureAttachmentsTable(): Promise<void> {
+    if (!this.attachmentsTablePromise) {
+      this.attachmentsTablePromise = runIdempotentMigration(
+        this.db,
+        'email_attachments 建表迁移',
+        async (run) => {
+          await run(`CREATE TABLE IF NOT EXISTS email_attachments (
+            company_id  uuid REFERENCES restaurants(id) ON DELETE CASCADE,
+            owner_id    text NOT NULL,
+            filename    varchar(255) NOT NULL,
+            mime        varchar(100) NOT NULL DEFAULT 'application/octet-stream',
+            bytes       bytea NOT NULL,
+            _created_at timestamptz(3) NOT NULL DEFAULT CURRENT_TIMESTAMP
+          )`);
+          await run(`CREATE INDEX IF NOT EXISTS idx_email_attachments_company
+            ON email_attachments (company_id, _created_at)`);
+        },
+      )
+        .then(() => undefined)
+        .catch((err: unknown) => {
+          this.attachmentsTablePromise = undefined;
+          throw err;
+        });
+    }
+    return this.attachmentsTablePromise;
+  }
+
+  private async listCompanyAttachments(
+    companyId: string,
+  ): Promise<Array<{ filename: string; mime: string; bytes: Buffer }>> {
+    try {
+      const rows = await this.db
+        .select({
+          filename: emailAttachmentsTable.filename,
+          mime: emailAttachmentsTable.mime,
+          bytes: emailAttachmentsTable.bytes,
+        })
+        .from(emailAttachmentsTable)
+        .where(eq(emailAttachmentsTable.companyId, companyId))
+        .orderBy(asc(emailAttachmentsTable.createdAt));
+      return rows;
+    } catch (err: unknown) {
+      this.logger.warn(
+        `读取邮件附件失败（按无附件继续）: ${err instanceof Error ? err.message : String(err)}`,
+      );
+      return [];
+    }
   }
 
   /**
@@ -444,6 +617,7 @@ export class EmailGeneratorService {
     lang: 'local' | 'en' = 'local',
     accountId?: string,
     userId?: string,
+    profileId?: string | null,
   ): Promise<{
     to: string; subject: string }> {
     if (userId) await this.assertCompanyAccess(companyId, userId);
@@ -464,6 +638,7 @@ export class EmailGeneratorService {
       lang,
       accountId,
       userId,
+      profileId,
     );
     try {
       const { messageId } = await this.mailService.sendRaw(
@@ -510,7 +685,7 @@ export class EmailGeneratorService {
     lang: 'local' | 'en' = 'local',
     langOverrides: Record<string, 'local' | 'en'> = {},
     /** 只发这些公司；为空 = 整个项目 */
-    params: { companyIds?: string[]; accountId?: string } = {},
+    params: { companyIds?: string[]; accountId?: string; profileId?: string | null } = {},
   ): Promise<BatchSendSummary> {
     /** 该公司实际发哪一版：优先用用户在该行的预览选择（保证所见即所发），否则用批量默认值 */
     const langFor = (id: string): 'local' | 'en' => langOverrides[id] ?? lang;
@@ -578,6 +753,8 @@ export class EmailGeneratorService {
             company,
             langFor(company.id),
             params.accountId,
+            user.userId,
+            params.profileId,
           );
           const { messageId } = await this.mailService.sendRaw(
             raw,
@@ -606,6 +783,9 @@ export class EmailGeneratorService {
             const { to, from, subject } = await this.buildCampaignRaw(
               company,
               langFor(company.id),
+              params.accountId,
+              user.userId,
+              params.profileId,
             );
             await this.emailHistory.recordOutbound({
               companyId: company.id,

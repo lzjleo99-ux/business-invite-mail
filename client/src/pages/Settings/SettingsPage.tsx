@@ -39,6 +39,7 @@ import * as modelConfigApi from '@/api/model-config';
 import * as senderConfigApi from '@/api/sender-config';
 import * as adminApi from '@/api/admin';
 import * as projectsApi from '@/api/projects';
+import SenderProfilesTab from './SenderProfilesTab';
 import * as emailGeneratorApi from '@/api/email-generator';
 import { Label } from '@/components/ui/label';
 import { useAuth } from '@/contexts/AuthContext';
@@ -767,24 +768,6 @@ const SettingsPage = () => {
                     )}
                   />
 
-                  <FormField
-                    control={modelForm.control}
-                    name="senderSignature"
-                    render={({ field }) => (
-                      <FormItem>
-                        <FormLabel>{t('发件人署名')}</FormLabel>
-                        <FormControl>
-                          <Textarea
-                            rows={3}
-                            placeholder={t('会出现在邮件结尾')}
-                            {...field}
-                          />
-                        </FormControl>
-                        <FormMessage />
-                      </FormItem>
-                    )}
-                  />
-
                   {testResult && (
                     <div
                       className={`rounded-md p-3 text-sm border ${
@@ -824,83 +807,7 @@ const SettingsPage = () => {
         {activeTab === 'sender' && (
           <Card>
             <CardContent className="p-5">
-              <Form {...senderForm}>
-                <form
-                  onSubmit={senderForm.handleSubmit(onSenderSubmit)}
-                  className="space-y-5"
-                >
-                  <div className="grid grid-cols-1 gap-5 md:grid-cols-2">
-                    <FormField
-                      control={senderForm.control}
-                      name="senderName"
-                      render={({ field }) => (
-                        <FormItem>
-                          <FormLabel>{t('发件人姓名')}</FormLabel>
-                          <FormControl>
-                            <Input placeholder="Zijian Lang" {...field} />
-                          </FormControl>
-                          <FormMessage />
-                        </FormItem>
-                      )}
-                    />
-
-                    <FormField
-                      control={senderForm.control}
-                      name="senderTitle"
-                      render={({ field }) => (
-                        <FormItem>
-                          <FormLabel>{t('职位 / 头衔')}</FormLabel>
-                          <FormControl>
-                            <Input
-                              placeholder="Global Sourcing Specialist"
-                              {...field}
-                            />
-                          </FormControl>
-                          <FormMessage />
-                        </FormItem>
-                      )}
-                    />
-                  </div>
-
-                  <FormField
-                    control={senderForm.control}
-                    name="personalStory"
-                    render={({ field }) => (
-                      <FormItem>
-                        <FormLabel>{t('个人经历 / 背景故事')}</FormLabel>
-                        <FormControl>
-                          <Textarea
-                            rows={6}
-                            placeholder={t(
-                              '用于邮件中增加个人色彩，写得越真诚效果越好。建议写清楚国家/城市/学校/行业经历等。',
-                            )}
-                            {...field}
-                          />
-                        </FormControl>
-                        <FormMessage />
-                      </FormItem>
-                    )}
-                  />
-
-                  <div className="rounded-md bg-blue-50 p-3 text-sm text-blue-700 border border-blue-200">
-                    {t(
-                      '个人背景会根据对方公司所在国家自适应融入邮件。例如对方是英国公司时，会自然提到英国留学经历；其他国家则不会强行插入。',
-                    )}
-                  </div>
-
-                  <div className="flex flex-wrap items-center gap-3 pt-2">
-                    <Button
-                      type="submit"
-                      variant="default"
-                      disabled={senderUpdateMutation.isPending}
-                    >
-                      {senderUpdateMutation.isPending
-                        ? t('保存中...')
-                        : t('保存设置')}
-                    </Button>
-                  </div>
-                </form>
-              </Form>
+              <SenderProfilesTab />
             </CardContent>
           </Card>
         )}

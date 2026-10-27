@@ -170,6 +170,27 @@ export interface CreateProjectRequest {
   description?: string;
 }
 
+// 发信人档案（多身份）：发送时选择用哪个身份签发
+export interface SenderProfile {
+  id: string;
+  profileName: string;
+  senderName: string;
+  senderTitle: string | null;
+  companyName: string | null;
+  signatureHtml: string;
+  isDefault: boolean;
+  createdAt: string;
+}
+
+export interface SenderProfileInput {
+  profileName: string;
+  senderName: string;
+  senderTitle?: string | null;
+  companyName?: string | null;
+  signatureHtml?: string | null;
+  isDefault?: boolean;
+}
+
 export interface UpdateProjectRequest {
   name?: string;
   description?: string;

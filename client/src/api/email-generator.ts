@@ -146,9 +146,11 @@ export async function sendEmail(
   companyId: string,
   lang: 'local' | 'en' = 'local',
   accountId?: string,
+  profileId?: string,
 ): Promise<{ to: string; subject: string }> {
   const q = new URLSearchParams({ lang });
   if (accountId) q.set('accountId', accountId);
+  if (profileId) q.set('profileId', profileId);
   const response = await axiosForBackend.post(
     `/api/email-generator/send/${companyId}?${q.toString()}`,
   );
@@ -164,10 +166,12 @@ export async function batchSendEmails(
   companyIds?: string[],
   /** 用哪个发信账号；不传 = 默认账号 */
   accountId?: string,
+  /** 用哪个发信人档案（签名身份）；不传 = 用户默认档案 */
+  profileId?: string,
 ): Promise<BatchSendSummary> {
   const response = await axiosForBackend.post(
     '/api/email-generator/batch-send',
-    { projectId, lang, langOverrides, companyIds },
+    { projectId, lang, langOverrides, companyIds, accountId, profileId },
     { timeout: 600_000 },
   );
   return response.data;

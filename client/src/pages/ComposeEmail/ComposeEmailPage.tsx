@@ -21,6 +21,12 @@ import {
 
 import * as restaurantsApi from '@client/src/api/restaurants';
 import * as emailGeneratorApi from '@client/src/api/email-generator';
+import {
+  listAttachments as listCompanyAttachments,
+  uploadAttachment,
+  deleteAttachment,
+  type EmailAttachment,
+} from '@client/src/api/sender-profiles';
 import * as emailThreadsApi from '@client/src/api/email-threads';
 import type {
   Company,
@@ -264,6 +270,11 @@ const ComposeEmailPage: React.FC = () => {
   // SMTP 直发：先把当前可见文本落库（保存失败就别发），再走发送接口
   const [sendConfirmOpen, setSendConfirmOpen] = useState(false);
   const [sending, setSending] = useState(false);
+  const [attBusy, setAttBusy] = useState(false);
+  const { data: attachments, refetch: refetchAttachments } = useQuery({
+    queryKey: ['email-attachments', companyId],
+    queryFn: () => listCompanyAttachments(companyId),
+  });
   const handleSend = async () => {
     if (sending) return;
     setSending(true);
@@ -528,6 +539,65 @@ const ComposeEmailPage: React.FC = () => {
                     placeholder={t('邮件正文...')}
                     className="min-h-[400px] resize-y"
                   />
+                </div>
+
+                {/* 附件：随本封邮件发出（发送时自动附上） */}
+                <div className="space-y-2">
+                  <div className="flex items-center justify-between">
+                    <label className="text-sm font-medium text-slate-700">{t('附件')}</label>
+                    <label className="cursor-pointer rounded-md border border-slate-300 px-2 py-1 text-xs text-slate-600 hover:bg-slate-50">
+                      <input
+                        type="file"
+                        className="hidden"
+                        onChange={(e) => {
+                          const f = e.target.files?.[0];
+                          if (!f) return;
+                          setAttBusy(true);
+                          uploadAttachment(companyId, f)
+                            .then(() => {
+                              toast.success(t('附件已上传'));
+                              return refetchAttachments();
+                            })
+                            .catch((err: unknown) =>
+                              toast.error(t('上传失败') + ': ' + (err instanceof Error ? err.message : '')),
+                            )
+                            .finally(() => {
+                              setAttBusy(false);
+                              e.target.value = '';
+                            });
+                        }}
+                      />
+                      {t('上传附件')}
+                    </label>
+                  </div>
+                  {(attachments?.length ?? 0) > 0 ? (
+                    <div className="space-y-1">
+                      {attachments!.map((a) => (
+                        <div
+                          key={a.id}
+                          className="flex items-center justify-between rounded border border-slate-200 px-2 py-1 text-xs"
+                        >
+                          <span className="truncate text-slate-700">
+                            {a.filename} <span className="text-slate-400">({(a.size / 1024).toFixed(0)} KB)</span>
+                          </span>
+                          <button
+                            type="button"
+                            className="text-red-500 hover:text-red-600"
+                            onClick={() => {
+                              deleteAttachment(a.id)
+                                .then(() => refetchAttachments())
+                                .catch(() => toast.error(t('删除失败')));
+                            }}
+                          >
+                            <Trash2 size={13} />
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <p className="text-xs text-slate-400">{t('暂无附件——上传的文件会随这封邮件一起发出。')}</p>
+                  )}
+                  {attBusy && <Loader2 className="animate-spin text-slate-400" size={14} />}
                 </div>
 
                 {/* Action buttons */}

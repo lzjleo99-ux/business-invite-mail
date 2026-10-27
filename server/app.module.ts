@@ -12,6 +12,7 @@ import { ModelConfigModule } from './modules/model-config/model-config.module';
 import { WebsiteAnalyzerModule } from './modules/website-analyzer/website-analyzer.module';
 import { EmailGeneratorModule } from './modules/email-generator/email-generator.module';
 import { SenderConfigModule } from './modules/sender-config/sender-config.module';
+import { SenderProfilesModule } from './modules/sender-profiles/sender-profiles.module';
 import { AutoImportModule } from './modules/auto-import/auto-import.module';
 import { EmailThreadsModule } from './modules/email-threads/email-threads.module';
 import { AuthModule } from './modules/auth/auth.module';
@@ -27,6 +28,7 @@ import { AdminModule } from './modules/admin/admin.module';
     WebsiteAnalyzerModule,
     EmailGeneratorModule,
     SenderConfigModule,
+    SenderProfilesModule,
     AutoImportModule,
     EmailThreadsModule,
     AuthModule,

@@ -60,14 +60,35 @@ export interface EmlInlineImage {
  * 其紧随的下一行作为图注（figcaption）；纯文本 alternative 里只去掉标记行。
  * images 为空时退回纯文本版本（向后兼容，不带图的老邮件路径不变）。
  */
+/** 发送可选附加物：富签名 + 附件（2026-10-27 多发信人档案） */
+export interface EmlAttachment {
+  filename: string;
+  mime: string;
+  bytes: Buffer;
+}
+
+export interface EmlSendOptions {
+  /** 富签名 HTML（用户在发信人档案里编辑的，可含 <img src="cid:...">） */
+  signatureHtml?: string;
+  /** 签名的纯文本版（拼在 text/plain 部分） */
+  signatureText?: string;
+  /** 随邮件附上的文件（multipart/mixed 包装） */
+  attachments?: EmlAttachment[];
+}
+
 export function generateEmlWithImages(
   to: string,
   subject: string,
   body: string,
   from: string | undefined,
   images: EmlInlineImage[],
+  opts?: EmlSendOptions,
 ): string {
-  if (images.length === 0) {
+  const signatureHtml = opts?.signatureHtml?.trim();
+  const signatureText = opts?.signatureText?.trim();
+  const attachments = opts?.attachments ?? [];
+  // 无图无签名无附件 → 老的纯文本路径
+  if (images.length === 0 && !signatureHtml && !signatureText && attachments.length === 0) {
     return generateEml(to, subject, body, from);
   }
 
@@ -77,8 +98,13 @@ export function generateEmlWithImages(
   const relatedBoundary = `----=_bid_related_${Date.now().toString(36)}`;
   const altBoundary = `----=_bid_alt_${Date.now().toString(36)}`;
 
-  const plainText = stripImageMarkerLines(body);
-  const html = buildHtmlBody(body, byMaterial);
+  const plainText =
+    stripImageMarkerLines(body) + (signatureText ? `\n\n${signatureText}` : '');
+  const html =
+    buildHtmlBody(body, byMaterial)
+    + (signatureHtml
+      ? `<div style="margin-top:20px;padding-top:12px;border-top:1px solid #e2e8f0">${signatureHtml}</div>`
+      : '');
 
   const lines: string[] = [];
   if (from) lines.push(`From: ${from}`);
@@ -116,6 +142,31 @@ export function generateEmlWithImages(
     lines.push('');
   });
   lines.push(`--${relatedBoundary}--`);
+
+  // 有附件时：整个 related 结构作为 multipart/mixed 的第一部分
+  if (attachments.length > 0) {
+    const mixedBoundary = `----=_bid_mixed_${Date.now().toString(36)}`;
+    const wrapped: string[] = [];
+    wrapped.push('Content-Type: multipart/mixed; boundary="' + mixedBoundary + '"');
+    wrapped.push('');
+    wrapped.push('This is a multi-part message in MIME format.');
+    wrapped.push(`--${mixedBoundary}`);
+    // related 部分整体内嵌（其内部行需要缩进无关紧要，MIME 只认边界）
+    wrapped.push(...lines);
+    for (const att of attachments) {
+      const safeName = sanitizeAsciiFileName(att.filename, 0) || 'attachment';
+      const encodedName = encodeRfc2047(att.filename);
+      wrapped.push(`--${mixedBoundary}`);
+      wrapped.push(`Content-Type: ${att.mime}; name="${safeName}"`);
+      wrapped.push('Content-Transfer-Encoding: base64');
+      wrapped.push(`Content-Disposition: attachment; filename="${safeName}"; filename*=UTF-8''${encodeURIComponent(att.filename)}`);
+      wrapped.push('');
+      wrapped.push(chunkBase64(att.bytes.toString('base64')));
+      wrapped.push('');
+    }
+    wrapped.push(`--${mixedBoundary}--`);
+    return wrapped.join('\r\n');
+  }
 
   return lines.join('\r\n');
 }

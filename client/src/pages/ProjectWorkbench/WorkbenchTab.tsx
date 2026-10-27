@@ -36,6 +36,8 @@ import { getCompanyContacts } from '@client/src/api/website-analyzer';
 import { canonicalizeCountry, countryFlag } from '@shared/countries';
 import * as emailGeneratorApi from '@client/src/api/email-generator';
 import * as adminApi from '@client/src/api/admin';
+import * as senderProfilesApi from '@client/src/api/sender-profiles';
+import type { SenderProfile } from '@client/src/api/sender-profiles';
 import { getCompanies } from '@client/src/api/restaurants';
 import EmailBodyView from './EmailBodyView';
 import { hasImageMarkers } from '@client/src/utils/email-body';
@@ -703,11 +705,17 @@ const WorkbenchTab: React.FC<WorkbenchTabProps> = ({
   // 发信账号（多邮箱后缀）：'' = 用默认账号
   const [sendAccountId, setSendAccountId] = useState('');
   const [sendAccounts, setSendAccounts] = useState<adminApi.SmtpAccount[]>([]);
+  const [sendProfiles, setSendProfiles] = useState<SenderProfile[]>([]);
+  const [sendProfileId, setSendProfileId] = useState('');
   useEffect(() => {
     void adminApi
       .listSmtpAccounts()
       .then(setSendAccounts)
       .catch(() => setSendAccounts([]));
+    void senderProfilesApi
+      .listProfiles()
+      .then(setSendProfiles)
+      .catch(() => setSendProfiles([]));
   }, []);
   const handleSendAll = useCallback(async () => {
     setSendAllRunning(true);
@@ -718,6 +726,7 @@ const WorkbenchTab: React.FC<WorkbenchTabProps> = ({
         emailDisplayLang,
         selectedIds.length > 0 ? selectedIds : undefined,
         sendAccountId || undefined,
+        sendProfileId || undefined,
       );
       void qc.invalidateQueries({ queryKey: ['companies'] });
       void qc.invalidateQueries({ queryKey: ['company-stats'] });
@@ -2230,6 +2239,24 @@ const WorkbenchTab: React.FC<WorkbenchTabProps> = ({
                     English
                     {sendLang === 'en' ? <Check size={14} className="ml-auto" /> : null}
                   </DropdownMenuItem>
+                  <DropdownMenuSeparator />
+                  <DropdownMenuLabel>{t('选择发信人（签名身份）')}</DropdownMenuLabel>
+                  <DropdownMenuCheckboxItem
+                    checked={sendProfileId === ''}
+                    onCheckedChange={() => setSendProfileId('')}
+                  >
+                    {t('默认发信人档案')}
+                  </DropdownMenuCheckboxItem>
+                  {sendProfiles.map((p) => (
+                    <DropdownMenuCheckboxItem
+                      key={p.id}
+                      checked={sendProfileId === p.id}
+                      onCheckedChange={() => setSendProfileId(p.id)}
+                    >
+                      {p.profileName}
+                      {p.isDefault ? ` ${t('（默认）')}` : ''}
+                    </DropdownMenuCheckboxItem>
+                  ))}
                   <DropdownMenuSeparator />
                   <DropdownMenuLabel>{t('发信账号（邮箱后缀）')}</DropdownMenuLabel>
                   {sendAccounts.length === 0 ? (

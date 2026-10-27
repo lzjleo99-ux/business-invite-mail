@@ -14,6 +14,7 @@ import {
 } from 'lucide-react';
 
 import * as emailGeneratorApi from '@client/src/api/email-generator';
+import * as senderProfilesApi from '@client/src/api/sender-profiles';
 import { stripImageMarkers } from '@client/src/utils/email-body';
 import { Button } from '@client/src/components/ui/button';
 import {
@@ -58,6 +59,11 @@ const SendEmailDropdown: React.FC<SendEmailDropdownProps> = ({
 }) => {
   const { t } = useI18n();
   const [open, setOpen] = useState(false);
+  const { data: profiles = [] } = useQuery({
+    queryKey: ['sender-profiles'],
+    queryFn: senderProfilesApi.listProfiles,
+  });
+  const [profileId, setProfileId] = useState('');
   const [confirmSendOpen, setConfirmSendOpen] = useState(false);
   const [sending, setSending] = useState(false);
 
@@ -102,7 +108,7 @@ const SendEmailDropdown: React.FC<SendEmailDropdownProps> = ({
     if (!email || sending) return;
     setSending(true);
     emailGeneratorApi
-      .sendEmail(record.id)
+      .sendEmail(record.id, 'local', undefined, profileId || undefined)
       .then((result) => {
         toast.success(t('邮件已发送至 {email}', { email: result.to }));
         setConfirmSendOpen(false);
@@ -277,6 +283,27 @@ const SendEmailDropdown: React.FC<SendEmailDropdownProps> = ({
           <p className="text-sm text-slate-600">
             {t('将通过系统 SMTP 把这封邮件发送给 {email}，确认发送？', { email })}
           </p>
+          {/* 发信人身份：本次发送用哪个档案的签名（不选 = 默认档案） */}
+          {profiles.length > 0 && (
+            <div className="space-y-1">
+              <label className="text-xs font-medium text-slate-600">
+                {t('选择发信人（签名身份）')}
+              </label>
+              <select
+                value={profileId}
+                onChange={(e) => setProfileId(e.target.value)}
+                className="w-full rounded-md border border-slate-200 px-2 py-1.5 text-sm"
+              >
+                <option value="">{t('默认发信人档案')}</option>
+                {profiles.map((p) => (
+                  <option key={p.id} value={p.id}>
+                    {p.profileName}
+                    {p.isDefault ? ` ${t('（默认）')}` : ''}
+                  </option>
+                ))}
+              </select>
+            </div>
+          )}
           <DialogFooter>
             <Button variant="outline" size="sm" onClick={() => setConfirmSendOpen(false)} disabled={sending}>
               {t('取消')}

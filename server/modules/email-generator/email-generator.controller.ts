@@ -1,10 +1,12 @@
 import type { UserRole } from '@shared/api.interface';
 import {
+  UploadedFile,
   Controller,
   Post,
   Get,
   Patch,
   Param,
+  Delete,
   Body,
   Query,
   BadRequestException,
@@ -90,6 +92,11 @@ class BatchSendDto {
   @IsString()
   accountId?: string;
 
+  /** 用哪个发信人档案（多身份）；不传走用户默认档案 */
+  @IsOptional()
+  @IsString()
+  profileId?: string;
+
   @IsString()
   projectId!: string;
   /** 默认发送语言版本：local=收件人本地语言，en=英文 */
@@ -125,7 +132,13 @@ class ComposeSaveDto {
   language!: string;
 }
 
-@UseGuards(JwtAuthGuard)
+interface FileUpload {
+  originalname: string;
+  mimetype: string;
+  size: number;
+  buffer: Buffer;
+}
+
 @Controller('api/email-generator')
 export class EmailGeneratorController {
   constructor(
@@ -211,6 +224,7 @@ export class EmailGeneratorController {
     @Param('companyId') companyId: string,
     @Query('lang') lang: string | undefined,
     @Query('accountId') accountId: string | undefined,
+    @Query('profileId') profileId: string | undefined,
     @CurrentUser() user: JwtPayload,
   ): Promise<{ to: string; subject: string }> {
     if (!companyId) {
@@ -221,7 +235,46 @@ export class EmailGeneratorController {
       lang === 'en' ? 'en' : 'local',
       accountId,
       user.userId,
+      profileId,
     );
+  }
+
+  // ---- 每公司邮件附件（compose 里上传，发信时随邮件带出）----
+
+  @UseGuards(JwtAuthGuard)
+  @Post('attachments/:companyId')
+  async uploadAttachment(
+    @CurrentUser() user: JwtPayload,
+    @Param('companyId') companyId: string,
+    @UploadedFile() file: FileUpload,
+  ): Promise<{ id: string; filename: string; mime: string; size: number }> {
+    if (!companyId) throw new BadRequestException('companyId 不能为空');
+    if (!file) throw new BadRequestException('缺少文件');
+    if (file.size > 10 * 1024 * 1024) throw new BadRequestException('附件不能超过 10MB');
+    const created = await this.emailGeneratorService.addCompanyAttachment(
+      companyId, user.userId, file.originalname, file.mimetype, file.buffer,
+    );
+    return created;
+  }
+
+  @UseGuards(JwtAuthGuard)
+  @Get('attachments/:companyId')
+  async listAttachments(
+    @CurrentUser() user: JwtPayload,
+    @Param('companyId') companyId: string,
+  ): Promise<{ items: Array<{ id: string; filename: string; mime: string; size: number }> }> {
+    if (!companyId) throw new BadRequestException('companyId 不能为空');
+    return { items: await this.emailGeneratorService.listCompanyAttachmentMeta(companyId, user.userId) };
+  }
+
+  @UseGuards(JwtAuthGuard)
+  @Delete('attachments/:attachmentId')
+  async deleteAttachment(
+    @CurrentUser() user: JwtPayload,
+    @Param('attachmentId') attachmentId: string,
+  ): Promise<{ ok: boolean }> {
+    await this.emailGeneratorService.deleteCompanyAttachment(attachmentId, user.userId);
+    return { ok: true };
   }
 
   /**
@@ -244,7 +297,7 @@ export class EmailGeneratorController {
       },
       dto.lang ?? 'local',
       dto.langOverrides,
-      { companyIds: dto.companyIds, accountId: dto.accountId },
+      { companyIds: dto.companyIds, accountId: dto.accountId, profileId: dto.profileId },
     );
   }
 

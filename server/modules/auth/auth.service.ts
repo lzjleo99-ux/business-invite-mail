@@ -215,6 +215,12 @@ export class AuthService implements OnModuleInit {
                AND owner_id IS DISTINCT FROM '${ownerId}'::uuid RETURNING id`,
           );
           transferred = Array.isArray(moved) ? (moved as unknown[]).length : 0;
+          // 孤儿邮箱认领：owner_id 还没绑定的 SMTP 账号（owner 列加进来之前的
+          // 存量数据）归部署所有者——否则发信邮箱下拉对所有人都显示"未配置"。
+          await runner.run(
+            `UPDATE smtp_accounts SET owner_id = '${ownerId}'
+             WHERE owner_id IS NULL`,
+          );
           // 团队成员的 AI 配置回填：从部署所有者的行复制（仅限从未配置过的行，
           // api_key 为空），让新成员拿到能用的 Key/签名做起点。GitHub fork 模式。
           const bf = await runner.run(

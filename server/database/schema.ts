@@ -518,6 +518,42 @@ export const bytea = customType<{ data: Buffer; driverData: Buffer }>({
   },
 });
 
+// 发信人档案（多身份）：每用户多行，发送时选择身份
+export const senderProfilesTable = pgTable("sender_profiles", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  ownerId: text("owner_id").notNull(),
+  profileName: varchar("profile_name", { length: 255 }).notNull(),
+  senderName: varchar("sender_name", { length: 255 }).notNull(),
+  senderTitle: varchar("sender_title", { length: 255 }),
+  companyName: varchar("company_name", { length: 255 }),
+  signatureHtml: text("signature_html").notNull().default(""),
+  isDefault: boolean("is_default").notNull().default(false),
+  createdAt: customTimestamptz("_created_at", { precision: 3 }).notNull().default(sql`CURRENT_TIMESTAMP`),
+  updatedAt: customTimestamptz("_updated_at", { precision: 3 }).notNull().default(sql`CURRENT_TIMESTAMP`),
+});
+
+// 签名图片：bytea，公开 URL（uuid 不可枚举），发信时转 CID 内嵌
+export const senderProfileImagesTable = pgTable("sender_profile_images", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  ownerId: text("owner_id").notNull(),
+  filename: varchar("filename", { length: 255 }).notNull().default("image"),
+  mime: varchar("mime", { length: 100 }).notNull().default("image/png"),
+  bytes: bytea("bytes").notNull(),
+  createdAt: customTimestamptz("_created_at", { precision: 3 }).notNull().default(sql`CURRENT_TIMESTAMP`),
+});
+
+// 每公司邮件附件：随单发邮件带上的文件（PDF/图册等）
+export const emailAttachmentsTable = pgTable("email_attachments", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  companyId: uuid("company_id").references(() => restaurants.id, { onDelete: "cascade" }),
+  ownerId: text("owner_id").notNull(),
+  filename: varchar("filename", { length: 255 }).notNull(),
+  mime: varchar("mime", { length: 100 }).notNull().default("application/octet-stream"),
+  bytes: bytea("bytes").notNull(),
+  createdAt: customTimestamptz("_created_at", { precision: 3 }).notNull().default(sql`CURRENT_TIMESTAMP`),
+});
+
+
 // 素材文件字节。自建部署没有平台对象存储（FileService.upload 依赖
 // /b/{appId}/get_published_v2 拿默认 bucket，自建环境该接口返回 SPA HTML），
 // 文件字节落库；容器重建也不丢（跟业务表同库持久）。

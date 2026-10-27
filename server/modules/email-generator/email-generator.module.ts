@@ -7,9 +7,10 @@ import { ProjectsModule } from '../projects/projects.module';
 import { EmailHistoryService } from './email-history.service';
 import { EmailInboxService } from './email-inbox.service';
 import { WeComNotifyService } from './wecom-notify.service';
+import { SenderProfilesModule } from '@server/modules/sender-profiles/sender-profiles.module';
 
 @Module({
-  imports: [ProjectsModule, SharedMailModule],
+  imports: [ProjectsModule, SharedMailModule, SenderProfilesModule],
   controllers: [EmailGeneratorController],
   providers: [
     EmailGeneratorService,
