@@ -20,6 +20,14 @@ export const enMessages: Record<string, string> = {
   '第 {page} / {totalPages} 页': 'Page {page} of {totalPages}',
 
   // ---- antd table locale ----
+  '图片操作：单击选中图片后按 Delete 删除；误删可 Ctrl+Z 撤销；拖动图片可排版。': 'Image: click to select then press Delete to remove; Ctrl+Z to undo; drag to reposition.',
+  '插入项目图片…': 'Insert project image…',
+  '此项目暂无图片素材——可在 Project info 上传并填写描述': 'No image materials in this project - upload them in Project info and add descriptions',
+  '要在邮件里放产品图片？在下方「素材文件」上传图片，并为每张图填写「邮件用图描述」——AI 生成邮件时会按描述把图片放到对应位置。': 'Want product images in your emails? Upload them under \'Materials\' below and fill in each image\'s note - the AI places them by description.',
+  '上传产品图片后，请在图片下方填写「邮件用图描述」（这张图是什么、适合放邮件哪里）——AI 写邮件时按描述插图。': 'After uploading product images, fill in each image\'s note (what it shows, where it fits) - the AI places them by description.',
+  '抄送地址，多个用逗号分隔': 'CC addresses, comma-separated',
+  '密送地址，多个用逗号分隔（收件人看不到）': 'BCC addresses, comma-separated (hidden from recipients)',
+  'CC/BCC 已保存——发送时自动带上': 'CC/BCC saved - included automatically when sending',
   '邮件用图描述': 'Email image note',
   '——描述这张图是什么、适合放在邮件哪里，生成时按描述插入（不必等 AI 分析）': '- describe what this image shows and where it fits; the generator places it by your description (no AI analysis needed)',
   '图片描述已保存——生成邮件时会按描述放在合适位置': 'Image description saved - emails will place it accordingly',

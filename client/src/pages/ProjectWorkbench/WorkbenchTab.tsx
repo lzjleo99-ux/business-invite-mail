@@ -37,6 +37,7 @@ import { canonicalizeCountry, countryFlag } from '@shared/countries';
 import * as emailGeneratorApi from '@client/src/api/email-generator';
 import * as adminApi from '@client/src/api/admin';
 import * as senderProfilesApi from '@client/src/api/sender-profiles';
+import * as projectsApi from '@client/src/api/projects';
 import type { SenderProfile } from '@client/src/api/sender-profiles';
 import { getCompanies } from '@client/src/api/restaurants';
 import EmailBodyView from './EmailBodyView';
@@ -704,6 +705,21 @@ const WorkbenchTab: React.FC<WorkbenchTabProps> = ({
   const [sendConfirmOpen, setSendConfirmOpen] = useState(false);
   // 发信账号（多邮箱后缀）：'' = 用默认账号
   const [sendAccountId, setSendAccountId] = useState('');
+  const bodyEditRef = useRef<HTMLTextAreaElement>(null);
+  const { data: projectImages = [] } = useQuery({
+    queryKey: ['project-image-materials', projectId],
+    queryFn: async () => {
+      const p = await projectsApi.getProject(projectId);
+      return (p.materials || [])
+        .filter((m) => m.fileType === 'image')
+        .map((m) => ({
+          materialId: m.id,
+          fileName: m.fileName,
+          description: (m.imageDescription || '').replace(/^(manual|vision|fallback):/, ''),
+        }));
+    },
+    staleTime: 60_000,
+  });
   const [sendAccounts, setSendAccounts] = useState<adminApi.SmtpAccount[]>([]);
   const [sendProfiles, setSendProfiles] = useState<SenderProfile[]>([]);
   const [sendProfileId, setSendProfileId] = useState('');
@@ -1656,7 +1672,57 @@ const WorkbenchTab: React.FC<WorkbenchTabProps> = ({
                <p className="text-xs font-medium text-slate-500">{t('邮件正文')}</p>
                {isEditing ? (
                  <>
+                 {/* 插入项目图片：按人工描述选图 → 插入 [[IMG]] 标记 + 图注行，发送时转内嵌图 */}
+                 <div className="flex items-center gap-2">
+                   <select
+                     className="h-8 rounded-md border border-slate-200 bg-white px-2 text-xs"
+                     value=""
+                     onChange={(e) => {
+                       const materialId = e.target.value;
+                       if (!materialId || !editingEmail) return;
+                       const img = projectImages.find((x) => x.materialId === materialId);
+                       const caption = img?.description || img?.fileName || '';
+                       const marker = `[[IMG:${materialId}]]\n${caption}\n`;
+                       const el = bodyEditRef.current;
+                       if (el && typeof el.selectionStart === 'number') {
+                         const pos = el.selectionStart;
+                         const nextBody = emailBody.slice(0, pos) + '\n' + marker + emailBody.slice(pos);
+                         if (editingEmailLanguage === 'local') {
+                           setEditingEmail({ ...editingEmail, bodyLocal: nextBody });
+                         } else {
+                           setEditingEmail({ ...editingEmail, body: nextBody });
+                         }
+                         requestAnimationFrame(() => {
+                           el.focus();
+                           el.selectionStart = el.selectionEnd = pos + marker.length + 1;
+                         });
+                       } else {
+                         const nextBody = `${emailBody}\n${marker}`;
+                         if (editingEmailLanguage === 'local') {
+                           setEditingEmail({ ...editingEmail, bodyLocal: nextBody });
+                         } else {
+                           setEditingEmail({ ...editingEmail, body: nextBody });
+                         }
+                       }
+                       e.target.value = '';
+                     }}
+                   >
+                     <option value="">{t('插入项目图片…')}</option>
+                     {projectImages.map((img) => (
+                       <option key={img.materialId} value={img.materialId}>
+                         {img.fileName}
+                         {img.description ? ` — ${img.description.slice(0, 40)}` : ''}
+                       </option>
+                     ))}
+                   </select>
+                   {projectImages.length === 0 && (
+                     <span className="text-xs text-slate-400">
+                       {t('此项目暂无图片素材——可在 Project info 上传并填写描述')}
+                     </span>
+                   )}
+                 </div>
                  <Textarea
+                   ref={bodyEditRef}
                    value={emailBody}
                    onChange={(e) => {
                      if (!editingEmail) return;

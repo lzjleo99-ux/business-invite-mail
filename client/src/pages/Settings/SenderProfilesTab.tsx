@@ -34,6 +34,33 @@ const SenderProfilesTab: React.FC = () => {
   const [isDefault, setIsDefault] = useState(false);
   const sigRef = useRef<HTMLDivElement>(null);
   const imgInputRef = useRef<HTMLInputElement>(null);
+  const savedRangeRef = useRef<Range | null>(null);
+
+  /** 工具栏按钮按下时不抢焦点（否则 Windows 下选区丢失、插入位置错乱） */
+  const keepSelection = (fn: () => void): void => {
+    const el = sigRef.current;
+    el?.focus();
+    const sel = window.getSelection();
+    if (savedRangeRef.current && sel) {
+      sel.removeAllRanges();
+      sel.addRange(savedRangeRef.current);
+    }
+    fn();
+    savedRangeRef.current = null;
+  };
+
+  /** 光标处插入 HTML（无选区时追加到末尾） */
+  const insertAtCursor = (html: string): void => {
+    const el = sigRef.current;
+    el?.focus();
+    const sel = window.getSelection();
+    if (savedRangeRef.current && sel) {
+      sel.removeAllRanges();
+      sel.addRange(savedRangeRef.current);
+    }
+    document.execCommand('insertHTML', false, html);
+    savedRangeRef.current = null;
+  };
 
   /** 同步 contentEditable 内容（编辑会话初始化时用一次） */
   useEffect(() => {
@@ -115,11 +142,7 @@ const SenderProfilesTab: React.FC = () => {
   const insertImage = async (file: File): Promise<void> => {
     try {
       const { url } = await uploadProfileImage(file);
-      sigRef.current?.focus();
-      // contentEditable 里的 <img> 天然可拖动排版；保存时随 innerHTML 一起存
-      document.execCommand(
-        'insertHTML',
-        false,
+      insertAtCursor(
         `<img src="${url}" alt="signature" style="max-width:320px;height:auto;margin:4px 0" draggable="true" />`,
       );
       toast.success(t('图片已插入签名'));
@@ -193,28 +216,32 @@ const SenderProfilesTab: React.FC = () => {
           <div className="flex flex-wrap items-center gap-1 rounded-t-md border border-b-0 border-slate-200 bg-slate-50 px-2 py-1">
             <Button
               variant="ghost" size="sm" className="h-7 px-2"
-              onClick={() => { sigRef.current?.focus(); document.execCommand('bold'); }}
+              onMouseDown={(e) => e.preventDefault()}
+              onClick={() => keepSelection(() => document.execCommand('bold'))}
               title={t('加粗')}
             >
               <Bold size={14} />
             </Button>
             <Button
               variant="ghost" size="sm" className="h-7 px-2"
-              onClick={() => { sigRef.current?.focus(); document.execCommand('italic'); }}
+              onMouseDown={(e) => e.preventDefault()}
+              onClick={() => keepSelection(() => document.execCommand('italic'))}
               title={t('斜体')}
             >
               <Italic size={14} />
             </Button>
             <Button
               variant="ghost" size="sm" className="h-7 px-2 text-sm font-semibold"
-              onClick={() => { sigRef.current?.focus(); document.execCommand('underline'); }}
+              onMouseDown={(e) => e.preventDefault()}
+              onClick={() => keepSelection(() => document.execCommand('underline'))}
               title={t('下划线')}
             >
               U
             </Button>
             <select
               className="h-7 rounded border border-slate-200 bg-white px-1 text-xs"
-              onChange={(e) => { sigRef.current?.focus(); document.execCommand('fontName', false, e.target.value); e.target.selectedIndex = 0; }}
+              onMouseDown={(e) => e.preventDefault()}
+              onChange={(e) => keepSelection(() => document.execCommand('fontName', false, e.target.value))}
               defaultValue=""
             >
               <option value="">{t('字体')}</option>
@@ -228,7 +255,8 @@ const SenderProfilesTab: React.FC = () => {
             </select>
             <select
               className="h-7 rounded border border-slate-200 bg-white px-1 text-xs"
-              onChange={(e) => { sigRef.current?.focus(); document.execCommand('fontSize', false, e.target.value); e.target.selectedIndex = 0; }}
+              onMouseDown={(e) => e.preventDefault()}
+              onChange={(e) => keepSelection(() => document.execCommand('fontSize', false, e.target.value))}
               defaultValue=""
             >
               <option value="">{t('字号')}</option>
@@ -263,8 +291,19 @@ const SenderProfilesTab: React.FC = () => {
             ref={sigRef}
             contentEditable
             suppressContentEditableWarning
+            onMouseUp={() => {
+              const sel = window.getSelection();
+              if (sel && sel.rangeCount > 0) savedRangeRef.current = sel.getRangeAt(0);
+            }}
+            onKeyUp={() => {
+              const sel = window.getSelection();
+              if (sel && sel.rangeCount > 0) savedRangeRef.current = sel.getRangeAt(0);
+            }}
             className="min-h-[120px] rounded-b-md border border-slate-200 bg-white p-3 text-sm leading-relaxed focus:outline-none focus:ring-1 focus:ring-blue-400"
           />
+          <p className="text-xs text-slate-400">
+            {t('图片操作：单击选中图片后按 Delete 删除；误删可 Ctrl+Z 撤销；拖动图片可排版。')}
+          </p>
           <p className="text-xs text-slate-400">
             {t('签名在发送时自动附加到每封邮件末尾；图片可以直接拖动排版。修改后立刻对后续发送生效。')}
           </p>

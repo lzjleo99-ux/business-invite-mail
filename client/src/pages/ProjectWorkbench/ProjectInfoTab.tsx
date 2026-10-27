@@ -121,6 +121,10 @@ const ProjectInfoTab: React.FC<ProjectInfoTabProps> = ({
               placeholder={t('https://your-company.com（AI 写邮件时会引用这里的内容）')}
             />
           </div>
+          {/* 引导：往邮件里放产品图 → 下方素材区上传并写描述 */}
+          <div className="rounded-md bg-blue-50 border border-blue-100 px-3 py-2 text-xs text-blue-800">
+            {t('要在邮件里放产品图片？在下方「素材文件」上传图片，并为每张图填写「邮件用图描述」——AI 生成邮件时会按描述把图片放到对应位置。')}
+          </div>
           <div className="space-y-1">
             <label className="text-sm font-medium text-slate-700">
               {t('项目简介')}
@@ -151,7 +155,12 @@ const ProjectInfoTab: React.FC<ProjectInfoTabProps> = ({
 
       {/* Materials */}
       <div className="rounded-lg border border-slate-200 bg-white p-5 shadow-sm space-y-4">
-        <h3 className="text-lg font-semibold text-slate-800">{t('素材文件')}</h3>
+        <div>
+          <h3 className="text-lg font-semibold text-slate-800">{t('素材文件')}</h3>
+          <p className="mt-0.5 text-xs text-slate-500">
+            {t('上传产品图片后，请在图片下方填写「邮件用图描述」（这张图是什么、适合放邮件哪里）——AI 写邮件时按描述插图。')}
+          </p>
+        </div>
 
         {/* Upload area */}
         <input
