@@ -24,6 +24,7 @@ import type {
   DuplicateGroup,
 } from '@shared/api.interface';
 import { useI18n } from '@client/src/i18n';
+import { errMessage } from '@client/src/utils/err-message';
 
 import WorkbenchTab from './WorkbenchTab';
 import ProjectInfoTab from './ProjectInfoTab';
@@ -480,7 +481,7 @@ const ProjectWorkbenchInner: React.FC = () => {
       void qc.invalidateQueries({ queryKey: ['company-stats', id] });
     } catch (err: unknown) {
       logger.error('重新生成失败', err);
-      toast.error(t('重新生成失败，请稍后重试'));
+      toast.error(errMessage(err, t('重新生成失败')));
     } finally {
       setGeneratingId(null);
     }

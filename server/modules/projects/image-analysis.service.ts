@@ -188,7 +188,7 @@ export class ImageAnalysisService {
         result.push({
           materialId: img.id,
           fileName: img.fileName,
-          description: description.replace(/^(vision|fallback):/, '').slice(0, 400),
+          description: description.replace(/^(vision|fallback|manual):/, '').slice(0, 400),
           source,
         });
       } else {

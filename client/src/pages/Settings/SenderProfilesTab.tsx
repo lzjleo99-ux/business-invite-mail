@@ -14,6 +14,7 @@ import {
   type SenderProfile,
 } from '@client/src/api/sender-profiles';
 import { useI18n } from '@client/src/i18n';
+import { errMessage } from '@client/src/utils/err-message';
 
 /**
  * 发信人档案管理（多身份）：每个档案 = 姓名/职位/公司 + 富签名（可插图、可加粗斜体）。
@@ -31,8 +32,16 @@ const SenderProfilesTab: React.FC = () => {
   const [companyName, setCompanyName] = useState('');
   const [signatureHtml, setSignatureHtml] = useState('');
   const [isDefault, setIsDefault] = useState(false);
-  const sigRef = useRef<HTMLTextAreaElement>(null);
+  const sigRef = useRef<HTMLDivElement>(null);
   const imgInputRef = useRef<HTMLInputElement>(null);
+
+  /** 同步 contentEditable 内容（编辑会话初始化时用一次） */
+  useEffect(() => {
+    if (editing && sigRef.current) {
+      sigRef.current.innerHTML = signatureHtml;
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [editing]);
 
   const reload = async (): Promise<void> => {
     setLoading(true);
@@ -84,6 +93,8 @@ const SenderProfilesTab: React.FC = () => {
         signatureHtml,
         isDefault,
       };
+      const htmlOut = sigRef.current?.innerHTML ?? signatureHtml;
+      payload.signatureHtml = htmlOut;
       if (editing === 'new') {
         await createProfile(payload);
       } else if (editing) {
@@ -94,32 +105,26 @@ const SenderProfilesTab: React.FC = () => {
       setEditing(null);
       await reload();
     } catch (err: unknown) {
-      toast.error(t('保存失败') + ': ' + (err instanceof Error ? err.message : String(err)));
+      toast.error(errMessage(err, t('保存失败')));
     } finally {
       setSaving(false);
     }
   };
 
-  const wrapSelection = (tag: string): void => {
-    const el = sigRef.current;
-    if (!el) return;
-    const start = el.selectionStart;
-    const end = el.selectionEnd;
-    const sel = signatureHtml.slice(start, end) || t('文字');
-    const next = `${signatureHtml.slice(0, start)}<${tag}>${sel}</${tag}>${signatureHtml.slice(end)}`;
-    setSignatureHtml(next);
-  };
 
   const insertImage = async (file: File): Promise<void> => {
     try {
       const { url } = await uploadProfileImage(file);
-      const el = sigRef.current;
-      const pos = el ? el.selectionStart : signatureHtml.length;
-      const img = `<img src="${url}" alt="signature" style="max-width:320px;height:auto" />`;
-      setSignatureHtml(`${signatureHtml.slice(0, pos)}${img}${signatureHtml.slice(pos)}`);
+      sigRef.current?.focus();
+      // contentEditable 里的 <img> 天然可拖动排版；保存时随 innerHTML 一起存
+      document.execCommand(
+        'insertHTML',
+        false,
+        `<img src="${url}" alt="signature" style="max-width:320px;height:auto;margin:4px 0" draggable="true" />`,
+      );
       toast.success(t('图片已插入签名'));
     } catch (err: unknown) {
-      toast.error(t('上传失败') + ': ' + (err instanceof Error ? err.message : String(err)));
+      toast.error(errMessage(err, t('上传失败')));
     }
   };
 
@@ -183,24 +188,64 @@ const SenderProfilesTab: React.FC = () => {
         </div>
 
         <div className="space-y-1">
-          <div className="flex items-center justify-between">
-            <label className="text-sm font-medium text-slate-700">{t('邮件签名（支持格式和图片）')}</label>
-            <div className="flex items-center gap-1">
-              <Button variant="outline" size="sm" onClick={() => wrapSelection('b')} title={t('加粗')}>
-                <Bold size={14} />
-              </Button>
-              <Button variant="outline" size="sm" onClick={() => wrapSelection('i')} title={t('斜体')}>
-                <Italic size={14} />
-              </Button>
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => imgInputRef.current?.click()}
-                title={t('插入图片')}
-              >
-                <ImageIcon size={14} />
-              </Button>
-            </div>
+          <label className="text-sm font-medium text-slate-700">{t('邮件签名（所见即所得编辑）')}</label>
+          {/* 工具栏：加粗/斜体/下划线 + 字体 + 字号 + 插图（可拖动排版） */}
+          <div className="flex flex-wrap items-center gap-1 rounded-t-md border border-b-0 border-slate-200 bg-slate-50 px-2 py-1">
+            <Button
+              variant="ghost" size="sm" className="h-7 px-2"
+              onClick={() => { sigRef.current?.focus(); document.execCommand('bold'); }}
+              title={t('加粗')}
+            >
+              <Bold size={14} />
+            </Button>
+            <Button
+              variant="ghost" size="sm" className="h-7 px-2"
+              onClick={() => { sigRef.current?.focus(); document.execCommand('italic'); }}
+              title={t('斜体')}
+            >
+              <Italic size={14} />
+            </Button>
+            <Button
+              variant="ghost" size="sm" className="h-7 px-2 text-sm font-semibold"
+              onClick={() => { sigRef.current?.focus(); document.execCommand('underline'); }}
+              title={t('下划线')}
+            >
+              U
+            </Button>
+            <select
+              className="h-7 rounded border border-slate-200 bg-white px-1 text-xs"
+              onChange={(e) => { sigRef.current?.focus(); document.execCommand('fontName', false, e.target.value); e.target.selectedIndex = 0; }}
+              defaultValue=""
+            >
+              <option value="">{t('字体')}</option>
+              <option value="Arial">Arial</option>
+              <option value="Georgia">Georgia</option>
+              <option value="Times New Roman">Times New Roman</option>
+              <option value="Helvetica">Helvetica</option>
+              <option value="Verdana">Verdana</option>
+              <option value="SimSun">{t('宋体')}</option>
+              <option value="Microsoft YaHei">{t('微软雅黑')}</option>
+            </select>
+            <select
+              className="h-7 rounded border border-slate-200 bg-white px-1 text-xs"
+              onChange={(e) => { sigRef.current?.focus(); document.execCommand('fontSize', false, e.target.value); e.target.selectedIndex = 0; }}
+              defaultValue=""
+            >
+              <option value="">{t('字号')}</option>
+              <option value="1">10px</option>
+              <option value="2">13px</option>
+              <option value="3">16px</option>
+              <option value="4">18px</option>
+              <option value="5">24px</option>
+              <option value="6">32px</option>
+            </select>
+            <Button
+              variant="ghost" size="sm" className="h-7 px-2"
+              onClick={() => imgInputRef.current?.click()}
+              title={t('插入图片（可在编辑区内拖动排版）')}
+            >
+              <ImageIcon size={14} />
+            </Button>
           </div>
           <input
             ref={imgInputRef}
@@ -213,16 +258,15 @@ const SenderProfilesTab: React.FC = () => {
               e.target.value = '';
             }}
           />
-          <Textarea
+          {/* 所见即所得编辑区：图片可直接拖动排版；保存时读 innerHTML */}
+          <div
             ref={sigRef}
-            value={signatureHtml}
-            onChange={(e) => setSignatureHtml(e.target.value)}
-            rows={7}
-            className="font-mono text-xs"
-            placeholder={t('签名会加在邮件末尾。支持 HTML：加粗、斜体、链接、图片。')}
+            contentEditable
+            suppressContentEditableWarning
+            className="min-h-[120px] rounded-b-md border border-slate-200 bg-white p-3 text-sm leading-relaxed focus:outline-none focus:ring-1 focus:ring-blue-400"
           />
           <p className="text-xs text-slate-400">
-            {t('签名在发送时自动附加到每封邮件末尾；修改后立刻对后续发送生效，无需重新生成邮件。')}
+            {t('签名在发送时自动附加到每封邮件末尾；图片可以直接拖动排版。修改后立刻对后续发送生效。')}
           </p>
         </div>
 

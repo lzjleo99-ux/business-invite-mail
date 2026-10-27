@@ -12,6 +12,8 @@ import {
   BadRequestException,
 } from '@nestjs/common';
 import type { Response } from 'express';
+import { FileInterceptor } from '@nestjs/platform-express';
+import { UseInterceptors } from '@nestjs/common';
 import { SenderProfilesService } from './sender-profiles.service';
 import { JwtAuthGuard, type JwtPayload } from '@server/modules/auth/jwt-auth.guard';
 import { CurrentUser } from '@server/modules/auth/current-user.decorator';
@@ -70,6 +72,7 @@ export class SenderProfilesController {
 
   /** 签名图片上传（multipart，单文件）→ 返回可插入签名的 URL */
   @UseGuards(JwtAuthGuard)
+  @UseInterceptors(FileInterceptor('file'))
   @Post('images')
   async uploadImage(
     @CurrentUser() user: JwtPayload,

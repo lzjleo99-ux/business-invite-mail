@@ -69,6 +69,7 @@ import {
 import { Calendar } from '@client/src/components/ui/calendar';
 import { showConfirm } from '@lark-apaas/client-toolkit';
 import { useI18n } from '@client/src/i18n';
+import { errMessage } from '@client/src/utils/err-message';
 import {
   bestChatPhone,
   buildViberUrl,
@@ -295,8 +296,7 @@ const ComposeEmailPage: React.FC = () => {
       setSendConfirmOpen(false);
     } catch (err: unknown) {
       logger.error('直接发送失败', err);
-      const msg = err instanceof Error ? err.message : '';
-      toast.error(msg.includes('发信失败') || msg.includes('SMTP') ? msg : t('发送失败，请稍后重试'));
+      toast.error(errMessage(err, t('发送失败')));
     } finally {
       setSending(false);
     }

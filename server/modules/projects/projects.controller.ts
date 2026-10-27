@@ -182,6 +182,23 @@ export class ProjectsController {
     return created;
   }
 
+  /** 人工描述图片素材：写进描述表（manual: 前缀），生成邮件时优先生效、不再跑 AI 分析 */
+  @Patch(':id/materials/:materialId/description')
+  async setMaterialDescription(
+    @Param('id') id: string,
+    @Param('materialId') materialId: string,
+    @CurrentUser() user: JwtPayload,
+    @Body() body: { description: string },
+  ): Promise<{ ok: boolean }> {
+    if (!body || typeof body.description !== 'string') {
+      throw new BadRequestException('缺少 description');
+    }
+    await this.projectsService.setMaterialDescription(
+      id, materialId, user.userId, body.description,
+    );
+    return { ok: true };
+  }
+
   @Delete(':id/materials/:materialId')
   async removeMaterial(
     @Param('id') id: string,

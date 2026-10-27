@@ -479,6 +479,31 @@ export class ProjectsService {
     };
   }
 
+  /** 人工描述图片素材（manual: 前缀优先于 AI 描述；删除素材时随级联删除） */
+  async setMaterialDescription(
+    projectId: string,
+    materialId: string,
+    userId: string,
+    description: string,
+  ): Promise<void> {
+    // 归属校验：素材必须属于调用者的项目
+    const owned = await this.db
+      .select({ id: projectMaterials.id })
+      .from(projectMaterials)
+      .innerJoin(projects, eq(projects.id, projectMaterials.projectId))
+      .where(and(eq(projectMaterials.id, materialId), eq(projects.id, projectId), eq(projects.ownerId, userId)))
+      .limit(1);
+    if (owned.length === 0) throw new NotFoundException('素材不存在或无权访问');
+    const desc = `manual:${description.trim().slice(0, 400)}`;
+    await this.db
+      .insert(materialImageDescriptions)
+      .values({ materialId, description: desc })
+      .onConflictDoUpdate({
+        target: materialImageDescriptions.materialId,
+        set: { description: desc, updatedAt: new Date() },
+      });
+  }
+
   async removeMaterial(
     projectId: string,
     materialId: string,

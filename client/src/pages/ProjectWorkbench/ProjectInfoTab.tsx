@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { toast } from 'sonner';
 import {
   Upload,
@@ -6,15 +6,18 @@ import {
   Trash2,
   Loader2,
   FileText,
+  Image as ImageIcon,
   Copy,
 } from 'lucide-react';
 import { resolveAppUrl } from '@lark-apaas/client-toolkit/utils/resolveAppUrl';
+import { axiosForBackend } from '@lark-apaas/client-toolkit/utils/getAxiosForBackend';
 
 import { Button } from '@client/src/components/ui/button';
 import { Input } from '@client/src/components/ui/input';
 import { Textarea } from '@client/src/components/ui/textarea';
 import type { Project } from '@shared/api.interface';
 import { useI18n } from '@client/src/i18n';
+import { errMessage } from '@client/src/utils/err-message';
 
 const formatFileSize = (bytes: number | null): string => {
   if (!bytes) return '-';
@@ -194,8 +197,9 @@ const ProjectInfoTab: React.FC<ProjectInfoTabProps> = ({
             {project.materials.map((mat) => (
               <div
                 key={mat.id}
-                className="flex items-center justify-between rounded-md border border-slate-200 bg-white p-3"
+                className="rounded-md border border-slate-200 bg-white p-3"
               >
+                <div className="flex items-center justify-between">
                 <div className="flex items-center gap-3 min-w-0">
                   <div className="flex-shrink-0 w-9 h-9 rounded bg-slate-100 flex items-center justify-center">
                     <FileText size={18} className="text-slate-500" />
@@ -212,6 +216,13 @@ const ProjectInfoTab: React.FC<ProjectInfoTabProps> = ({
                     </p>
                   </div>
                 </div>
+                {mat.fileType === 'image' && (
+                  <ImageDescriptionEditor
+                    projectId={project?.id || ''}
+                    materialId={mat.id}
+                    fileName={mat.fileName}
+                  />
+                )}
                 <div className="flex items-center gap-2">
                   <Button variant="ghost" size="sm" onClick={() => onPreviewMaterial(mat.id)}>
                     {t('预览')}
@@ -225,6 +236,7 @@ const ProjectInfoTab: React.FC<ProjectInfoTabProps> = ({
                     <Trash2 size={14} />
                     {t('删除')}
                   </Button>
+                </div>
                 </div>
               </div>
             ))}
@@ -240,3 +252,65 @@ const ProjectInfoTab: React.FC<ProjectInfoTabProps> = ({
 };
 
 export default ProjectInfoTab;
+
+
+/** 图片素材的人工描述：写清这张图是什么、适合放邮件哪一段；生成时按描述放图（不走 AI 分析） */
+const ImageDescriptionEditor: React.FC<{
+  projectId: string;
+  materialId: string;
+  fileName: string;
+}> = ({ projectId, materialId, fileName }) => {
+  const { t } = useI18n();
+  const [value, setValue] = useState('');
+  const [saved, setSaved] = useState(false);
+  const [busy, setBusy] = useState(false);
+
+  const save = async (): Promise<void> => {
+    if (!value.trim()) return;
+    setBusy(true);
+    try {
+      await axiosForBackend.patch(
+        `/api/projects/${projectId}/materials/${materialId}/description`,
+        { description: value.trim() },
+      );
+      setSaved(true);
+      toast.success(t('图片描述已保存——生成邮件时会按描述放在合适位置'));
+      setTimeout(() => setSaved(false), 2500);
+    } catch (err: unknown) {
+      toast.error(errMessage(err, t('保存失败')));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div className="mt-2 space-y-1 border-t border-slate-100 pt-2">
+      <label className="flex items-center gap-1 text-xs font-medium text-slate-600">
+        <ImageIcon size={12} />
+        {t('邮件用图描述')}
+        <span className="font-normal text-slate-400">
+          {t('——描述这张图是什么、适合放在邮件哪里，生成时按描述插入（不必等 AI 分析）')}
+        </span>
+      </label>
+      <div className="flex gap-2">
+        <Input
+          value={value}
+          onChange={(e) => setValue(e.target.value)}
+          placeholder={t(`例如：车间俯拍图，适合放在"自动化清粪系统"段落后`)}
+          className="h-8 text-xs"
+        />
+        <Button
+          size="sm"
+          className="h-8 shrink-0"
+          disabled={busy || !value.trim()}
+          onClick={() => void save()}
+        >
+          {busy ? <Loader2 size={13} className="animate-spin" /> : <Save size={13} />}
+          {t('保存')}
+        </Button>
+      </div>
+      {saved && <p className="text-xs text-green-600">{t('已保存 ✓')}</p>}
+      <span className="hidden">{fileName}</span>
+    </div>
+  );
+};

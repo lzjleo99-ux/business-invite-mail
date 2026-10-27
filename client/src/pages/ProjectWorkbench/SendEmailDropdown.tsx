@@ -34,6 +34,7 @@ import {
 } from '@client/src/components/ui/dropdown-menu';
 import type { Company } from '@shared/api.interface';
 import { useI18n } from '@client/src/i18n';
+import { errMessage } from '@client/src/utils/err-message';
 import {
   bestChatPhone,
   bestViberPhone,
@@ -115,8 +116,7 @@ const SendEmailDropdown: React.FC<SendEmailDropdownProps> = ({
       })
       .catch((err: unknown) => {
         logger.error('直接发送失败', err);
-        const msg = err instanceof Error ? err.message : '';
-        toast.error(msg.includes('发信失败') || msg.includes('SMTP') ? msg : t('发送失败，请稍后重试'));
+        toast.error(errMessage(err, t('发送失败')));
       })
       .finally(() => setSending(false));
   };

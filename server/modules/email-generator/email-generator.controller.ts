@@ -1,6 +1,7 @@
 import type { UserRole } from '@shared/api.interface';
 import {
   UploadedFile,
+  UseInterceptors,
   Controller,
   Post,
   Get,
@@ -14,6 +15,7 @@ import {
   Res,
   UseGuards,
 } from '@nestjs/common';
+import { FileInterceptor } from '@nestjs/platform-express';
 import { IsArray, IsIn, IsObject, IsOptional, IsString } from 'class-validator';
 import { Type } from 'class-transformer';
 import type { Response } from 'express';
@@ -140,6 +142,7 @@ interface FileUpload {
 }
 
 @Controller('api/email-generator')
+@UseGuards(JwtAuthGuard)
 export class EmailGeneratorController {
   constructor(
     private readonly emailGeneratorService: EmailGeneratorService,
@@ -242,6 +245,7 @@ export class EmailGeneratorController {
   // ---- 每公司邮件附件（compose 里上传，发信时随邮件带出）----
 
   @UseGuards(JwtAuthGuard)
+  @UseInterceptors(FileInterceptor('file'))
   @Post('attachments/:companyId')
   async uploadAttachment(
     @CurrentUser() user: JwtPayload,
