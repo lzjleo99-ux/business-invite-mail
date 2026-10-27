@@ -44,6 +44,28 @@ export function stripImageMarkerLines(body: string): string {
     .trim();
 }
 
+/** 富文本正文哨兵：正文以它开头 = 后面是 HTML（用户在编辑器里排版过） */
+export const HTML_BODY_PREFIX = '<!--html-->';
+
+export function isHtmlBody(body: string | null | undefined): boolean {
+  return typeof body === 'string' && body.trimStart().startsWith(HTML_BODY_PREFIX);
+}
+
+/** HTML 正文 → 纯文本（text/plain 部分用） */
+export function htmlBodyToText(html: string): string {
+  return html
+    .replace(/<br\s*\/?>/gi, '\n')
+    .replace(/<\/p>/gi, '\n')
+    .replace(/<[^>]+>/g, '')
+    .replace(/&nbsp;/g, ' ')
+    .replace(/&amp;/g, '&')
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&quot;/g, '"')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
+}
+
 /** 需要内嵌进 EML 的一张图片。 */
 export interface EmlInlineImage {
   /** 对应正文标记里的 materialId */
@@ -110,7 +132,9 @@ export function generateEmlWithImages(
   const altBoundary = `----=_bid_alt_${Date.now().toString(36)}`;
 
   const plainText =
-    stripImageMarkerLines(body) + (signatureText ? `\n\n${signatureText}` : '');
+    (isHtmlBody(body)
+      ? htmlBodyToText(body.trimStart().slice(HTML_BODY_PREFIX.length))
+      : stripImageMarkerLines(body)) + (signatureText ? `\n\n${signatureText}` : '');
   const html =
     buildHtmlBody(body, byMaterial)
     + (signatureHtml
@@ -186,6 +210,11 @@ export function generateEmlWithImages(
 
 /** 正文 → HTML：段落 <p>、标记 → <figure><img src="cid:">、紧随行 → <figcaption>。 */
 function buildHtmlBody(body: string, byMaterial: Map<string, EmlInlineImage>): string {
+  // 富文本正文（用户在编辑器排版过）：原样使用，只把 [[IMG:...]] 标记换成内嵌图
+  if (isHtmlBody(body)) {
+    const raw = body.trimStart().slice(HTML_BODY_PREFIX.length);
+    return `<div style="font-family:Arial,Helvetica,sans-serif;font-size:14px;line-height:1.6;color:#1e293b">${replaceImgMarkersInHtml(raw, byMaterial)}</div>`;
+  }
   const out: string[] = [];
   const esc = (s: string): string => s
     .replace(/&/g, '&amp;')
@@ -222,6 +251,29 @@ function buildHtmlBody(body: string, byMaterial: Map<string, EmlInlineImage>): s
     out.push(`<p style="margin:0 0 12px;white-space:pre-wrap">${esc(line)}</p>`);
   }
   return `<div style="font-family:Arial,Helvetica,sans-serif;font-size:14px;line-height:1.6;color:#1e293b">${out.join('\n')}</div>`;
+}
+
+/** 富文本正文里的 [[IMG:id]] 段落 → 内嵌图片 figure */
+function replaceImgMarkersInHtml(
+  html: string,
+  byMaterial: Map<string, EmlInlineImage>,
+): string {
+  let out = html;
+  for (const [materialId, img] of byMaterial.entries()) {
+    const marker = `[[IMG:${materialId}]]`;
+    if (!out.includes(marker)) continue;
+    const figure =
+      `<figure style="margin:16px 0;text-align:center">`
+      + `<img src="cid:${img.contentId}" alt="${sanitizeAsciiFileName(img.fileName, 0)}" style="max-width:560px;width:100%;height:auto;border:1px solid #e2e8f0;border-radius:8px" />`
+      + `</figure>`;
+    // 标记可能单独成段（<p>[[IMG:x]]</p>）或夹在文本里
+    out = out.replace(
+      new RegExp(`<p[^>]*>\\s*${marker.replace(/[\[\]]/g, '\\$&')}\\s*</p>`, 'gi'),
+      figure,
+    );
+    out = out.replace(marker, figure);
+  }
+  return out;
 }
 
 /** 文件名参数只允许 ASCII：非 ASCII 文件名退回 image<N>.<ext>。 */

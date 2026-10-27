@@ -21,6 +21,8 @@ import {
 
 import * as restaurantsApi from '@client/src/api/restaurants';
 import * as emailGeneratorApi from '@client/src/api/email-generator';
+import RichEmailEditor, { textToEditorHtml } from '@client/src/components/RichEmailEditor';
+import EmailChipInput from '@client/src/components/EmailChipInput';
 import {
   listAttachments as listCompanyAttachments,
   uploadAttachment,
@@ -71,6 +73,7 @@ import {
 import { Calendar } from '@client/src/components/ui/calendar';
 import { showConfirm } from '@lark-apaas/client-toolkit';
 import { useI18n } from '@client/src/i18n';
+import { uploadSizeError } from '@client/src/utils/upload-guard';
 import { errMessage } from '@client/src/utils/err-message';
 import {
   bestChatPhone,
@@ -245,7 +248,10 @@ const ComposeEmailPage: React.FC = () => {
     }
     saveMutation.mutate({
       subject,
-      body,
+      body:
+        body && body.trimStart().startsWith('<!--html-->')
+          ? body
+          : `<!--html-->${textToEditorHtml(body || '')}`,
       subjectLocal,
       bodyLocal,
       language: languageCode,
@@ -280,13 +286,11 @@ const ComposeEmailPage: React.FC = () => {
   });
   const [cc, setCc] = useState('');
   const [bcc, setBcc] = useState('');
-  const [ccOpen, setCcOpen] = useState(false);
   useEffect(() => {
     void getSendOptions(companyId)
       .then((o) => {
         setCc(o.cc || '');
         setBcc(o.bcc || '');
-        if (o.bcc) setCcOpen(true);
       })
       .catch(() => undefined);
   }, [companyId]);
@@ -304,11 +308,18 @@ const ComposeEmailPage: React.FC = () => {
       const nextBody = displayLang === 'en' ? activeBody : body;
       const nextSubjectLocal = displayLang === 'local' ? activeSubject : subjectLocal;
       const nextBodyLocal = displayLang === 'local' ? activeBody : bodyLocal;
+      // 富文本正文统一加 `<!--html-->` 哨兵（服务端据此按 HTML 发送）
+      // 纯文本要先转成段落 HTML——否则 HTML 渲染会把换行折叠成一行
+      const withPrefix = (v: string): string => {
+        if (!v) return v;
+        if (v.trimStart().startsWith('<!--html-->')) return v;
+        return `<!--html-->${textToEditorHtml(v)}`;
+      };
       await saveMutation.mutateAsync({
         subject: nextSubject,
-        body: nextBody,
+        body: withPrefix(nextBody),
         subjectLocal: nextSubjectLocal,
-        bodyLocal: nextBodyLocal,
+        bodyLocal: withPrefix(nextBodyLocal),
         language: languageCode,
       });
       const result = await emailGeneratorApi.sendEmail(companyId);
@@ -550,47 +561,36 @@ const ComposeEmailPage: React.FC = () => {
                   />
                 </div>
 
-                {/* CC/BCC：随本封邮件发出（每公司保存） */}
-                <div className="space-y-1">
-                  <div className="flex items-center gap-2">
-                    <label className="w-10 shrink-0 text-xs font-medium text-slate-500">CC</label>
-                    <Input
-                      value={cc}
-                      onChange={(e) => setCc(e.target.value)}
-                      onBlur={() => persistSendOptions(cc, bcc)}
-                      placeholder={t('抄送地址，多个用逗号分隔')}
-                      className="h-8 text-sm"
-                    />
-                    <button
-                      type="button"
-                      className="text-xs text-blue-600 hover:underline"
-                      onClick={() => setCcOpen(!ccOpen)}
-                    >
-                      Bcc
-                    </button>
-                  </div>
-                  {(ccOpen || bcc) && (
-                    <div className="flex items-center gap-2">
-                      <label className="w-10 shrink-0 text-xs font-medium text-slate-500">Bcc</label>
-                      <Input
-                        value={bcc}
-                        onChange={(e) => setBcc(e.target.value)}
-                        onBlur={() => persistSendOptions(cc, bcc)}
-                        placeholder={t('密送地址，多个用逗号分隔（收件人看不到）')}
-                        className="h-8 text-sm"
-                      />
-                    </div>
-                  )}
+                {/* CC/BCC：输入一个邮箱回车即成标签（每公司保存） */}
+                <div className="grid grid-cols-1 gap-2 md:grid-cols-2">
+                  <EmailChipInput
+                    label="CC"
+                    value={cc}
+                    onChange={(v) => {
+                      setCc(v);
+                      persistSendOptions(v, bcc);
+                    }}
+                    placeholder={t('抄送地址，回车确认')}
+                  />
+                  <EmailChipInput
+                    label="BCC"
+                    value={bcc}
+                    onChange={(v) => {
+                      setBcc(v);
+                      persistSendOptions(cc, v);
+                    }}
+                    placeholder={t('密送地址，回车确认')}
+                  />
                 </div>
 
                 {/* Body */}
                 <div className="space-y-2">
                   <label className="text-sm font-medium text-slate-700">{t('正文')}</label>
-                  <Textarea
+                  <RichEmailEditor
                     value={activeBody}
-                    onChange={(e) => handleBodyChange(e.target.value)}
+                    onChange={(html) => handleBodyChange(html)}
                     placeholder={t('邮件正文...')}
-                    className="min-h-[400px] resize-y"
+                    minHeight={400}
                   />
                 </div>
 
@@ -605,6 +605,12 @@ const ComposeEmailPage: React.FC = () => {
                         onChange={(e) => {
                           const f = e.target.files?.[0];
                           if (!f) return;
+                          const sizeErr = uploadSizeError(f);
+                          if (sizeErr) {
+                            toast.error(sizeErr);
+                            e.target.value = '';
+                            return;
+                          }
                           setAttBusy(true);
                           uploadAttachment(companyId, f)
                             .then(() => {

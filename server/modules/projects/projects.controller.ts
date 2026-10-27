@@ -157,6 +157,12 @@ export class ProjectsController {
     if (!file) {
       throw new BadRequestException('缺少文件');
     }
+    // 统一 5MB 上限（所有上传入口一致）：超大文件解析会把容器 OOM 拖垮
+    if (file.size > ProjectsController.MAX_UPLOAD_BYTES) {
+      throw new BadRequestException(
+        `文件超过 5MB 限制（当前 ${(file.size / 1024 / 1024).toFixed(1)}MB），请压缩后上传`,
+      );
+    }
 
     const fileName: string = file.originalname;
     const fileType: string = this.detectFileType(file.mimetype, fileName);
@@ -240,8 +246,10 @@ export class ProjectsController {
     if (buffer.length === 0) {
       throw new BadRequestException('文件内容为空');
     }
-    if (buffer.length > 30 * 1024 * 1024) {
-      throw new BadRequestException('文件大小超过 30MB 限制');
+    if (buffer.length > ProjectsController.MAX_UPLOAD_BYTES) {
+      throw new BadRequestException(
+        `文件超过 5MB 限制（当前 ${(buffer.length / 1024 / 1024).toFixed(1)}MB），请压缩后上传`,
+      );
     }
 
     const fileName: string = dto.fileName || 'upload';
@@ -673,6 +681,8 @@ sys.exit(1)
    * tesseract OCR）会直接把进程 OOM 掉——表现为上传时网关 503 / 容器重启。
    * 超过阈值的文件只入库二进制（blob 完整保留），不做文本解析。
    */
+  /** 所有上传入口统一上限 5MB */
+  public static readonly MAX_UPLOAD_BYTES = 5 * 1024 * 1024;
   private static readonly MAX_PARSE_BYTES = 6 * 1024 * 1024; // 6MB
   private static readonly MAX_OCR_BYTES = 3 * 1024 * 1024; // 3MB
 

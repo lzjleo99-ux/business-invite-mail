@@ -1,4 +1,5 @@
 import React, { useEffect } from 'react';
+import { isHtmlBody, stripHtmlPrefix } from '@client/src/components/RichEmailEditor';
 import { useQuery } from '@tanstack/react-query';
 
 import { getMaterialObjectUrl } from '@client/src/api/projects';
@@ -16,6 +17,19 @@ interface EmailBodyViewProps {
  * 其余按原样文本渲染。无标记时与纯文本渲染完全一致。
  */
 const EmailBodyView: React.FC<EmailBodyViewProps> = ({ body, projectId }) => {
+  // 富文本正文（<!--html--> 哨兵）：按 HTML 渲染（去掉 script/style）
+  if (isHtmlBody(body)) {
+    const html = stripHtmlPrefix(body)
+      .replace(/<script\b[^>]*>[\s\S]*?<\/script>/gi, '')
+      .replace(/<style\b[^>]*>[\s\S]*?<\/style>/gi, '');
+    return (
+      <div
+        className="text-sm text-slate-700 email-body-html"
+        dangerouslySetInnerHTML={{ __html: html }}
+      />
+    );
+  }
+
   const segments = parseEmailBody(body);
 
   if (!segments.some((s) => s.type === 'image')) {

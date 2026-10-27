@@ -24,7 +24,9 @@ import type {
   DuplicateGroup,
 } from '@shared/api.interface';
 import { useI18n } from '@client/src/i18n';
+import { uploadSizeError } from '@client/src/utils/upload-guard';
 import { errMessage } from '@client/src/utils/err-message';
+import { textToEditorHtml } from '@client/src/components/RichEmailEditor';
 
 import WorkbenchTab from './WorkbenchTab';
 import ProjectInfoTab from './ProjectInfoTab';
@@ -427,11 +429,18 @@ const ProjectWorkbenchInner: React.FC = () => {
       // Send both language variants: the expanded editor can switch between
       // the English and local copy, and the API only persisted `subject`/
       // `body` before, silently dropping the localized edits.
+      // 正文可能是纯文本（AI 生成）或富文本（用户在编辑器排版过）：
+      // 富文本统一加 `<!--html-->` 哨兵，服务端据此按 HTML 发送
+      const withPrefix = (v: string): string => {
+        if (!v) return v;
+        if (v.trimStart().startsWith('<!--html-->')) return v;
+        return `<!--html-->${textToEditorHtml(v)}`;
+      };
       await restaurantsApi.updateEmail(record.id, {
         subject: editingEmail.subject,
-        body: editingEmail.body,
+        body: withPrefix(editingEmail.body),
         subjectLocal: editingEmail.subjectLocal,
-        bodyLocal: editingEmail.bodyLocal,
+        bodyLocal: withPrefix(editingEmail.bodyLocal),
       });
       toast.success(t('邮件内容已保存'));
       setEditingEmail(null);
@@ -540,11 +549,10 @@ const ProjectWorkbenchInner: React.FC = () => {
 
   // --- Material upload ---
   const handleUploadMaterial = async (file: File) => {
-    // 体积预检：超过 25MB 直接说清楚，别让用户对着"上传失败"猜
-    if (file.size > 25 * 1024 * 1024) {
-      toast.error(t('文件超过 25MB（当前 {size}MB），请压缩后再上传', {
-        size: (file.size / 1024 / 1024).toFixed(1),
-      }));
+    // 体积预检：超过 5MB 直接拦下并说清楚（服务端也会再挡一次）
+    const sizeErr = uploadSizeError(file);
+    if (sizeErr) {
+      toast.error(sizeErr);
       return;
     }
     setIsUploadingMaterial(true);

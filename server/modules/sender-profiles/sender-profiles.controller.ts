@@ -79,7 +79,11 @@ export class SenderProfilesController {
     @UploadedFile() file: FileUpload,
   ): Promise<{ id: string; url: string }> {
     if (!file) throw new BadRequestException('缺少文件');
-    if (file.size > 1024 * 1024) throw new BadRequestException('图片不能超过 1MB');
+    if (file.size > 5 * 1024 * 1024) {
+      throw new BadRequestException(
+        `图片超过 5MB 限制（当前 ${(file.size / 1024 / 1024).toFixed(1)}MB），请压缩后上传`,
+      );
+    }
     return this.profiles.saveImage(user.userId, file.originalname, file.mimetype, file.buffer);
   }
 

@@ -110,6 +110,10 @@ export class EmailHistoryService {
           `);
                     // 抄送地址（2026-10-26 加）：项目归属判定要含 cc。自建表可 ALTER。
           await run(`ALTER TABLE email_histories ADD COLUMN IF NOT EXISTS cc_addr varchar(320)`);
+          // 历史瘦身：入站邮件的内联图（base64）是空间黑洞，且前端不渲染 body_html
+          await run(`UPDATE email_histories
+            SET body_html = left(regexp_replace(body_html, '<img[^>]*>', '', 'gi'), 8000)
+            WHERE body_html IS NOT NULL AND body_html LIKE '%<img%'`);
           // 退信属主（2026-10-26 加）：退信的收发件人匹配不到项目邮箱，
           // 用"谁轮询的邮箱收到的"来归属——否则所有人的退信互相可见。
           await run(`ALTER TABLE email_histories ADD COLUMN IF NOT EXISTS poll_owner uuid`);
@@ -236,7 +240,9 @@ try {
       pollOwner: input.pollOwnerId ?? null,
       subject: input.subject.slice(0, 500),
       bodyText: input.bodyText.slice(0, 20000),
-      bodyHtml: input.bodyHtml ? input.bodyHtml.slice(0, 50000) : null,
+      // 历史不存图片：入站 HTML 里的 <img>（base64 内联图）是空间黑洞
+      // （一封能占 5 万字符），而且前端根本不渲染 bodyHtml——剥掉图片/样式后存储。
+      bodyHtml: input.bodyHtml ? EmailHistoryService.stripHeavyHtml(input.bodyHtml) : null,
       messageId: input.messageId ?? null,
       inReplyTo: input.inReplyTo ?? null,
       receivedAt: input.receivedAt,
@@ -325,6 +331,16 @@ try {
   }
 
   /** 极简 HTML → 纯文本：保留换行，去掉标签/样式/脚本，够用来给人看和解析 */
+  /** 去掉图片/样式/脚本并限长（历史记录只留轻量 HTML，节省空间） */
+  private static stripHeavyHtml(html: string): string {
+    return html
+      .replace(/<img\b[^>]*>/gi, '')
+      .replace(/<style\b[^>]*>[\s\S]*?<\/style>/gi, '')
+      .replace(/<script\b[^>]*>[\s\S]*?<\/script>/gi, '')
+      .replace(/<link\b[^>]*>/gi, '')
+      .slice(0, 8000);
+  }
+
   private static htmlToText(html: string): string {
     return html
       .replace(/<(script|style|head)[^>]*>[\s\S]*?<\/\1>/gi, '')

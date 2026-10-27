@@ -279,7 +279,11 @@ export class EmailGeneratorController {
   ): Promise<{ id: string; filename: string; mime: string; size: number }> {
     if (!companyId) throw new BadRequestException('companyId 不能为空');
     if (!file) throw new BadRequestException('缺少文件');
-    if (file.size > 10 * 1024 * 1024) throw new BadRequestException('附件不能超过 10MB');
+    if (file.size > 5 * 1024 * 1024) {
+      throw new BadRequestException(
+        `附件超过 5MB 限制（当前 ${(file.size / 1024 / 1024).toFixed(1)}MB），请压缩后上传`,
+      );
+    }
     const created = await this.emailGeneratorService.addCompanyAttachment(
       companyId, user.userId, file.originalname, file.mimetype, file.buffer,
     );

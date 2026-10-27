@@ -38,6 +38,9 @@ import * as emailGeneratorApi from '@client/src/api/email-generator';
 import * as adminApi from '@client/src/api/admin';
 import * as senderProfilesApi from '@client/src/api/sender-profiles';
 import * as projectsApi from '@client/src/api/projects';
+import RichEmailEditor from '@client/src/components/RichEmailEditor';
+import EmailChipInput from '@client/src/components/EmailChipInput';
+import { getSendOptions, saveSendOptions } from '@client/src/api/sender-profiles';
 import type { SenderProfile } from '@client/src/api/sender-profiles';
 import { getCompanies } from '@client/src/api/restaurants';
 import EmailBodyView from './EmailBodyView';
@@ -706,6 +709,9 @@ const WorkbenchTab: React.FC<WorkbenchTabProps> = ({
   // 发信账号（多邮箱后缀）：'' = 用默认账号
   const [sendAccountId, setSendAccountId] = useState('');
   const bodyEditRef = useRef<HTMLTextAreaElement>(null);
+  const [insertRequest, setInsertRequest] = useState<{ html: string; nonce: number } | null>(null);
+  const [editCc, setEditCc] = useState('');
+  const [editBcc, setEditBcc] = useState('');
   const { data: projectImages = [] } = useQuery({
     queryKey: ['project-image-materials', projectId],
     queryFn: async () => {
@@ -1682,28 +1688,10 @@ const WorkbenchTab: React.FC<WorkbenchTabProps> = ({
                        if (!materialId || !editingEmail) return;
                        const img = projectImages.find((x) => x.materialId === materialId);
                        const caption = img?.description || img?.fileName || '';
-                       const marker = `[[IMG:${materialId}]]\n${caption}\n`;
-                       const el = bodyEditRef.current;
-                       if (el && typeof el.selectionStart === 'number') {
-                         const pos = el.selectionStart;
-                         const nextBody = emailBody.slice(0, pos) + '\n' + marker + emailBody.slice(pos);
-                         if (editingEmailLanguage === 'local') {
-                           setEditingEmail({ ...editingEmail, bodyLocal: nextBody });
-                         } else {
-                           setEditingEmail({ ...editingEmail, body: nextBody });
-                         }
-                         requestAnimationFrame(() => {
-                           el.focus();
-                           el.selectionStart = el.selectionEnd = pos + marker.length + 1;
-                         });
-                       } else {
-                         const nextBody = `${emailBody}\n${marker}`;
-                         if (editingEmailLanguage === 'local') {
-                           setEditingEmail({ ...editingEmail, bodyLocal: nextBody });
-                         } else {
-                           setEditingEmail({ ...editingEmail, body: nextBody });
-                         }
-                       }
+                       // 标记 + 图注，插入富文本编辑器光标处
+                       const markerHtml =
+                         `<p>[[IMG:${materialId}]]</p><p style="font-size:12px;color:#64748b">${caption}</p>`;
+                       setInsertRequest((prev) => ({ html: markerHtml, nonce: (prev?.nonce ?? 0) + 1 }));
                        e.target.value = '';
                      }}
                    >
@@ -1721,19 +1709,18 @@ const WorkbenchTab: React.FC<WorkbenchTabProps> = ({
                      </span>
                    )}
                  </div>
-                 <Textarea
-                   ref={bodyEditRef}
+                 <RichEmailEditor
                    value={emailBody}
-                   onChange={(e) => {
+                   insertRequest={insertRequest}
+                   onChange={(html) => {
                      if (!editingEmail) return;
                      if (editingEmailLanguage === 'local') {
-                       setEditingEmail({ ...editingEmail, bodyLocal: e.target.value });
+                       setEditingEmail({ ...editingEmail, bodyLocal: html });
                      } else {
-                       setEditingEmail({ ...editingEmail, body: e.target.value });
+                       setEditingEmail({ ...editingEmail, body: html });
                      }
                    }}
                    placeholder={t('请输入邮件正文')}
-                   rows={12}
                  />
                  {hasImageMarkers(emailBody) && (
                    <p className="text-xs text-slate-400">
@@ -1764,7 +1751,11 @@ const WorkbenchTab: React.FC<WorkbenchTabProps> = ({
                    <Button
                      variant="default"
                      size="sm"
-                     onClick={() => onSaveEmail(record)}
+                     onClick={() => {
+                       // 抄送/密送随邮件一起保存（每公司独立）
+                       void saveSendOptions(record.id, { cc: editCc, bcc: editBcc }).catch(() => undefined);
+                       onSaveEmail(record);
+                     }}
                      disabled={savingEmailId === record.id}
                    >
                      {savingEmailId === record.id && (

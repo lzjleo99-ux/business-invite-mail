@@ -14,6 +14,7 @@ import {
   type SenderProfile,
 } from '@client/src/api/sender-profiles';
 import { useI18n } from '@client/src/i18n';
+import { uploadSizeError } from '@client/src/utils/upload-guard';
 import { errMessage } from '@client/src/utils/err-message';
 
 /**
@@ -140,6 +141,11 @@ const SenderProfilesTab: React.FC = () => {
 
 
   const insertImage = async (file: File): Promise<void> => {
+    const sizeErr = uploadSizeError(file);
+    if (sizeErr) {
+      toast.error(sizeErr);
+      return;
+    }
     try {
       const { url } = await uploadProfileImage(file);
       insertAtCursor(

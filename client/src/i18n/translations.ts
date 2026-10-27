@@ -20,6 +20,9 @@ export const enMessages: Record<string, string> = {
   '第 {page} / {totalPages} 页': 'Page {page} of {totalPages}',
 
   // ---- antd table locale ----
+  '抄送地址，回车确认': 'CC address, press Enter to confirm',
+  '密送地址，回车确认': 'BCC address, press Enter to confirm',
+  '{email} 不是有效邮箱地址': '{email} is not a valid email address',
   '文件超过 25MB（当前 {size}MB），请压缩后再上传': 'File exceeds 25MB (currently {size}MB) - please compress it and try again',
   '上传失败': 'Upload failed',
   '图片操作：单击选中图片后按 Delete 删除；误删可 Ctrl+Z 撤销；拖动图片可排版。': 'Image: click to select then press Delete to remove; Ctrl+Z to undo; drag to reposition.',
