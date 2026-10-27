@@ -68,3 +68,21 @@ export async function uploadAttachment(
 export async function deleteAttachment(id: string): Promise<void> {
   await axiosForBackend.delete(`/api/email-generator/attachments/${id}`);
 }
+
+// ---- compose 页的 CC/BCC（每公司发送选项） ----
+
+export async function getSendOptions(
+  companyId: string,
+): Promise<{ cc: string; bcc: string }> {
+  const response = await axiosForBackend.get(
+    `/api/email-generator/send-options/${companyId}`,
+  );
+  return response.data;
+}
+
+export async function saveSendOptions(
+  companyId: string,
+  data: { cc: string; bcc: string },
+): Promise<void> {
+  await axiosForBackend.post(`/api/email-generator/send-options/${companyId}`, data);
+}

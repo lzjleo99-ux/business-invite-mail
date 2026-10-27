@@ -27,7 +27,7 @@ import {
 import { ensureOwnSenderRow } from '@server/modules/sender-config/sender-config.service';
 import { SenderProfilesService } from '@server/modules/sender-profiles/sender-profiles.service';
 import { runIdempotentMigration } from '@server/common/utils/ddl-runner';
-import { emailAttachmentsTable } from '@server/database/schema';
+import { emailAttachmentsTable, companySendOptionsTable } from '@server/database/schema';
 import type {
   Company,
   CompanyStatus,
@@ -412,6 +412,8 @@ export class EmailGeneratorService {
   ): Promise<{
     raw: string;
     to: string;
+    cc: string[];
+    bcc: string[];
     from: string;
     subject: string;
     accountId?: string;
@@ -483,13 +485,42 @@ export class EmailGeneratorService {
     // 每公司附件（compose 里上传的）随邮件发出
     const attachments = await this.listCompanyAttachments(company.id);
 
+    // CC/BCC（compose 页设置的每公司发送选项）
+    let cc: string[] = [];
+    let bcc: string[] = [];
+    if (userId) {
+      try {
+        const optRows = await this.db
+          .select({ cc: companySendOptionsTable.ccAddr, bcc: companySendOptionsTable.bccAddr })
+          .from(companySendOptionsTable)
+          .where(eq(companySendOptionsTable.companyId, company.id))
+          .limit(1);
+        cc = (optRows[0]?.cc || '').split(',').map((x) => x.trim()).filter(Boolean);
+        bcc = (optRows[0]?.bcc || '').split(',').map((x) => x.trim()).filter(Boolean);
+      } catch (err: unknown) {
+        this.logger.warn(
+          `读取 CC/BCC 失败（按无抄送继续）: ${err instanceof Error ? err.message : String(err)}`,
+        );
+      }
+    }
+
     const raw = generateEmlWithImages(to, subject, body, fromLine, inlineImages, {
       signatureHtml,
       signatureText,
       attachments,
+      cc,
+      bcc,
     });
     // envelope.from 用 SMTP 发件地址（服务器必须以该地址登录），回退到配置里的登录账号
-    return { raw, to, from: fromEmail || smtp?.username?.trim() || '', subject, accountId: acct?.id };
+    return {
+      raw,
+      to,
+      cc,
+      bcc,
+      from: fromEmail || smtp?.username?.trim() || '',
+      subject,
+      accountId: acct?.id,
+    };
   }
 
   /** 上传每公司邮件附件（compose 里选文件） */
@@ -554,6 +585,71 @@ export class EmailGeneratorService {
     await this.db
       .delete(emailAttachmentsTable)
       .where(eq(emailAttachmentsTable.id, attachmentId));
+  }
+
+  /** compose 页读写 CC/BCC */
+  async getCompanySendOptions(
+    companyId: string,
+    userId: string,
+  ): Promise<{ cc: string; bcc: string }> {
+    await this.assertCompanyAccess(companyId, userId);
+    await this.ensureSendOptionsTable();
+    const rows = await this.db
+      .select({ cc: companySendOptionsTable.ccAddr, bcc: companySendOptionsTable.bccAddr })
+      .from(companySendOptionsTable)
+      .where(eq(companySendOptionsTable.companyId, companyId))
+      .limit(1);
+    return { cc: rows[0]?.cc ?? '', bcc: rows[0]?.bcc ?? '' };
+  }
+
+  async saveCompanySendOptions(
+    companyId: string,
+    userId: string,
+    data: { cc: string; bcc: string },
+  ): Promise<void> {
+    await this.assertCompanyAccess(companyId, userId);
+    await this.ensureSendOptionsTable();
+    await this.db
+      .insert(companySendOptionsTable)
+      .values({
+        companyId,
+        ccAddr: data.cc.slice(0, 500),
+        bccAddr: data.bcc.slice(0, 500),
+        updatedAt: new Date(),
+      })
+      .onConflictDoUpdate({
+        target: companySendOptionsTable.companyId,
+        set: {
+          ccAddr: data.cc.slice(0, 500),
+          bccAddr: data.bcc.slice(0, 500),
+          updatedAt: new Date(),
+        },
+      });
+  }
+
+  private sendOptionsTablePromise?: Promise<void>;
+
+  private ensureSendOptionsTable(): Promise<void> {
+    if (!this.sendOptionsTablePromise) {
+      this.sendOptionsTablePromise = runIdempotentMigration(
+        this.db,
+        'company_send_options 建表迁移',
+        async (run) => {
+          await run(`CREATE TABLE IF NOT EXISTS company_send_options (
+            company_id uuid PRIMARY KEY REFERENCES restaurants(id) ON DELETE CASCADE,
+            cc_addr    varchar(500),
+            bcc_addr   varchar(500),
+            _updated_at timestamptz(3) NOT NULL DEFAULT CURRENT_TIMESTAMP
+          )`);
+        },
+      )
+        .then(() => undefined)
+        .catch((err: unknown) => {
+          this.sendOptionsTablePromise = undefined;
+          throw err;
+        });
+    }
+    return this.sendOptionsTablePromise;
   }
 
   private attachmentsTablePromise?: Promise<void>;
@@ -633,17 +729,12 @@ export class EmailGeneratorService {
       throw new BadRequestException('该公司没有邮箱地址，无法发送');
     }
 
-    const { raw, to: recipient, subject, from, accountId: acctId } = await this.buildCampaignRaw(
-      company,
-      lang,
-      accountId,
-      userId,
-      profileId,
-    );
+    const { raw, to: recipient, cc: ccList, bcc: bccList, subject, from, accountId: acctId } =
+      await this.buildCampaignRaw(company, lang, accountId, userId, profileId);
     try {
       const { messageId } = await this.mailService.sendRaw(
         raw,
-        { from, to: [recipient] },
+        { from, to: [recipient, ...ccList, ...bccList] },
         acctId,
         userId,
       );
@@ -749,16 +840,17 @@ export class EmailGeneratorService {
         const company = eligible[cursor];
         cursor += 1;
         try {
-          const { raw, to, from, subject, accountId: acctId } = await this.buildCampaignRaw(
-            company,
-            langFor(company.id),
-            params.accountId,
-            user.userId,
-            params.profileId,
-          );
+          const { raw, to, cc: ccList, bcc: bccList, from, subject, accountId: acctId } =
+            await this.buildCampaignRaw(
+              company,
+              langFor(company.id),
+              params.accountId,
+              user.userId,
+              params.profileId,
+            );
           const { messageId } = await this.mailService.sendRaw(
             raw,
-            { from, to: [to] },
+            { from, to: [to, ...ccList, ...bccList] },
             acctId,
             senderUserId,
           );

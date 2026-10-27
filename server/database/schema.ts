@@ -519,6 +519,16 @@ export const bytea = customType<{ data: Buffer; driverData: Buffer }>({
 });
 
 // 发信人档案（多身份）：每用户多行，发送时选择身份
+// 每公司发送选项：CC/BCC（compose 页设置，发送时随邮件带出）
+export const companySendOptionsTable = pgTable("company_send_options", {
+  companyId: uuid("company_id")
+    .primaryKey()
+    .references(() => restaurants.id, { onDelete: "cascade" }),
+  ccAddr: varchar("cc_addr", { length: 500 }),
+  bccAddr: varchar("bcc_addr", { length: 500 }),
+  updatedAt: customTimestamptz("_updated_at", { precision: 3 }).notNull().default(sql`CURRENT_TIMESTAMP`),
+});
+
 export const senderProfilesTable = pgTable("sender_profiles", {
   id: uuid("id").primaryKey().defaultRandom(),
   ownerId: text("owner_id").notNull(),

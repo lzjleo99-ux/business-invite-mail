@@ -25,6 +25,8 @@ import {
   listAttachments as listCompanyAttachments,
   uploadAttachment,
   deleteAttachment,
+  getSendOptions,
+  saveSendOptions,
   type EmailAttachment,
 } from '@client/src/api/sender-profiles';
 import * as emailThreadsApi from '@client/src/api/email-threads';
@@ -276,6 +278,24 @@ const ComposeEmailPage: React.FC = () => {
     queryKey: ['email-attachments', companyId],
     queryFn: () => listCompanyAttachments(companyId),
   });
+  const [cc, setCc] = useState('');
+  const [bcc, setBcc] = useState('');
+  const [ccOpen, setCcOpen] = useState(false);
+  useEffect(() => {
+    void getSendOptions(companyId)
+      .then((o) => {
+        setCc(o.cc || '');
+        setBcc(o.bcc || '');
+        if (o.bcc) setCcOpen(true);
+      })
+      .catch(() => undefined);
+  }, [companyId]);
+
+  const persistSendOptions = (nextCc: string, nextBcc: string): void => {
+    void saveSendOptions(companyId, { cc: nextCc, bcc: nextBcc })
+      .then(() => toast.success(t('CC/BCC 已保存——发送时自动带上')))
+      .catch((err: unknown) => toast.error(errMessage(err, t('保存失败'))));
+  };
   const handleSend = async () => {
     if (sending) return;
     setSending(true);
@@ -528,6 +548,39 @@ const ComposeEmailPage: React.FC = () => {
                     onChange={(e) => handleSubjectChange(e.target.value)}
                     placeholder={t('邮件主题')}
                   />
+                </div>
+
+                {/* CC/BCC：随本封邮件发出（每公司保存） */}
+                <div className="space-y-1">
+                  <div className="flex items-center gap-2">
+                    <label className="w-10 shrink-0 text-xs font-medium text-slate-500">CC</label>
+                    <Input
+                      value={cc}
+                      onChange={(e) => setCc(e.target.value)}
+                      onBlur={() => persistSendOptions(cc, bcc)}
+                      placeholder={t('抄送地址，多个用逗号分隔')}
+                      className="h-8 text-sm"
+                    />
+                    <button
+                      type="button"
+                      className="text-xs text-blue-600 hover:underline"
+                      onClick={() => setCcOpen(!ccOpen)}
+                    >
+                      Bcc
+                    </button>
+                  </div>
+                  {(ccOpen || bcc) && (
+                    <div className="flex items-center gap-2">
+                      <label className="w-10 shrink-0 text-xs font-medium text-slate-500">Bcc</label>
+                      <Input
+                        value={bcc}
+                        onChange={(e) => setBcc(e.target.value)}
+                        onBlur={() => persistSendOptions(cc, bcc)}
+                        placeholder={t('密送地址，多个用逗号分隔（收件人看不到）')}
+                        className="h-8 text-sm"
+                      />
+                    </div>
+                  )}
                 </div>
 
                 {/* Body */}

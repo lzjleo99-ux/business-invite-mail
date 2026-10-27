@@ -57,7 +57,7 @@ class UpdateModelConfigDto implements UpdateModelConfigRequest {
   @IsOptional()
   @IsString()
   @IsIn(['auto', 'serbian', 'english', 'chinese'])
-  emailLanguage?: 'auto' | 'serbian' | 'english' | 'chinese';
+  emailLanguage?: 'auto' | 'country' | 'serbian' | 'english' | 'chinese';
 
   @IsOptional()
   @IsString()

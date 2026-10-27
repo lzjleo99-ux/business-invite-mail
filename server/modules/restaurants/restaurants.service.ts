@@ -137,11 +137,24 @@ function normalizeWebsite(value: string | null): string | null {
   url = url.replace(/^www\./, '');
   // Take everything before first /, ?, or : (port)
   const slashIdx = url.search(/[\/?#:]/);
+  let host = url;
+  let path = '';
   if (slashIdx !== -1) {
-    url = url.slice(0, slashIdx);
+    host = url.slice(0, slashIdx);
+    const after = url.slice(slashIdx); // 含 / 或 ? 或 :
+    if (after.startsWith('/')) path = after;
   }
-  return url || null;
+  if (!host) return null;
+  // 社交/平台主页：同一域名下不同路径是不同公司（West Africa 事件：两个
+  // instagram 主页被当成同域重复）。这类 host 保留首段路径参与匹配。
+  const socialHosts = /^(instagram\.com|facebook\.com|linkedin\.com|twitter\.com|x\.com|tiktok\.com|youtube\.com|vk\.com)$/;
+  if (socialHosts.test(host)) {
+    const seg = path.split('?')[0].split('/')[1]; // 第一个路径段
+    return seg ? `${host}/${seg}` : host;
+  }
+  return host;
 }
+
 
 @Injectable()
 export class RestaurantsService {

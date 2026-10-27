@@ -244,7 +244,7 @@ export class SenderProfilesService {
         bytes,
       })
       .returning({ id: senderProfileImagesTable.id });
-    return { id: inserted[0].id, url: `/api/sender-profiles/images/${inserted[0].id}` };
+    return { id: inserted[0].id, url: `/openapi/sender-profiles/images/${inserted[0].id}` };
   }
 
   private async clearDefault(userId: string): Promise<void> {

@@ -221,6 +221,7 @@ const ProjectInfoTab: React.FC<ProjectInfoTabProps> = ({
                     projectId={project?.id || ''}
                     materialId={mat.id}
                     fileName={mat.fileName}
+                    initial={(mat.imageDescription || '').replace(/^manual:/, '')}
                   />
                 )}
                 <div className="flex items-center gap-2">
@@ -259,9 +260,10 @@ const ImageDescriptionEditor: React.FC<{
   projectId: string;
   materialId: string;
   fileName: string;
-}> = ({ projectId, materialId, fileName }) => {
+  initial?: string;
+}> = ({ projectId, materialId, fileName, initial = '' }) => {
   const { t } = useI18n();
-  const [value, setValue] = useState('');
+  const [value, setValue] = useState(initial);
   const [saved, setSaved] = useState(false);
   const [busy, setBusy] = useState(false);
 

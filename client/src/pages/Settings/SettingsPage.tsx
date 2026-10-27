@@ -259,7 +259,7 @@ const SettingsPage = () => {
     apiKey: z.string().optional(),
     modelName: z.string().min(1, t('模型名称不能为空')),
     temperature: z.number().min(0).max(2).nullable(),
-    emailLanguage: z.enum(['auto', 'serbian', 'english', 'chinese']),
+    emailLanguage: z.enum(['auto', 'country', 'serbian', 'english', 'chinese']),
     senderSignature: z.string(),
   });
   type ModelFormValues = z.infer<typeof modelFormSchema>;

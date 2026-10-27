@@ -12,6 +12,7 @@ export function generateEml(
   subject: string,
   body: string,
   from?: string,
+  opts?: EmlSendOptions,
 ): string {
   const encodedSubject = encodeRfc2047(subject);
 
@@ -21,6 +22,8 @@ export function generateEml(
     lines.push(`From: ${from}`);
   }
   lines.push(`To: ${to}`);
+  if (opts?.cc && opts.cc.length > 0) lines.push(`Cc: ${opts.cc.join(', ')}`);
+  if (opts?.bcc && opts.bcc.length > 0) lines.push(`Bcc: ${opts.bcc.join(', ')}`);
   lines.push(`Subject: ${encodedSubject}`);
   lines.push('MIME-Version: 1.0');
   lines.push('Content-Type: text/plain; charset=UTF-8');
@@ -74,6 +77,9 @@ export interface EmlSendOptions {
   signatureText?: string;
   /** 随邮件附上的文件（multipart/mixed 包装） */
   attachments?: EmlAttachment[];
+  /** 抄送/密送地址（写入 Cc/Bcc 头；信封收件人由调用方补充） */
+  cc?: string[];
+  bcc?: string[];
 }
 
 export function generateEmlWithImages(
@@ -88,8 +94,13 @@ export function generateEmlWithImages(
   const signatureText = opts?.signatureText?.trim();
   const attachments = opts?.attachments ?? [];
   // 无图无签名无附件 → 老的纯文本路径
-  if (images.length === 0 && !signatureHtml && !signatureText && attachments.length === 0) {
-    return generateEml(to, subject, body, from);
+  const hasCcBcc = (opts?.cc?.length ?? 0) > 0 || (opts?.bcc?.length ?? 0) > 0;
+  if (images.length === 0 && !signatureHtml && !signatureText && attachments.length === 0 && !hasCcBcc) {
+    return generateEml(to, subject, body, from, opts);
+  }
+  if (images.length === 0 && !signatureHtml && attachments.length === 0) {
+    // 只有 cc/bcc（无签名无附件无图）→ 生成简单纯文本 + 头部
+    return generateEml(to, subject, body, from, opts);
   }
 
   const byMaterial = new Map(images.map((img) => [img.materialId, img]));
@@ -109,6 +120,8 @@ export function generateEmlWithImages(
   const lines: string[] = [];
   if (from) lines.push(`From: ${from}`);
   lines.push(`To: ${to}`);
+  if (opts?.cc && opts.cc.length > 0) lines.push(`Cc: ${opts.cc.join(', ')}`);
+  if (opts?.bcc && opts.bcc.length > 0) lines.push(`Bcc: ${opts.bcc.join(', ')}`);
   lines.push(`Subject: ${encodedSubject}`);
   lines.push('MIME-Version: 1.0');
   lines.push(`Content-Type: multipart/related; boundary="${relatedBoundary}"; type="multipart/alternative"`);

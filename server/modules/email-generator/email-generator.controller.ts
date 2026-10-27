@@ -242,6 +242,31 @@ export class EmailGeneratorController {
     );
   }
 
+  /** compose 页：读 CC/BCC */
+  @Get('send-options/:companyId')
+  async getSendOptions(
+    @CurrentUser() user: JwtPayload,
+    @Param('companyId') companyId: string,
+  ): Promise<{ cc: string; bcc: string }> {
+    if (!companyId) throw new BadRequestException('companyId 不能为空');
+    return this.emailGeneratorService.getCompanySendOptions(companyId, user.userId);
+  }
+
+  /** compose 页：保存 CC/BCC */
+  @Post('send-options/:companyId')
+  async saveSendOptions(
+    @CurrentUser() user: JwtPayload,
+    @Param('companyId') companyId: string,
+    @Body() body: { cc: string; bcc: string },
+  ): Promise<{ ok: boolean }> {
+    if (!companyId) throw new BadRequestException('companyId 不能为空');
+    await this.emailGeneratorService.saveCompanySendOptions(companyId, user.userId, {
+      cc: body?.cc ?? '',
+      bcc: body?.bcc ?? '',
+    });
+    return { ok: true };
+  }
+
   // ---- 每公司邮件附件（compose 里上传，发信时随邮件带出）----
 
   @UseGuards(JwtAuthGuard)
