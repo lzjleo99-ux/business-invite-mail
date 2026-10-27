@@ -90,7 +90,7 @@ export class ModelConfigService {
           senderSignature: modelConfig.senderSignature,
         })
         .from(modelConfig)
-        .innerJoin(appUsers, sql`(${modelConfig.createdBy}).user_id = ${appUsers.id}`)
+        .innerJoin(appUsers, sql`(${modelConfig.createdBy}).user_id = ${appUsers.id}::text`)
         .where(sql`${appUsers.createdAt} = (SELECT MIN(_created_at) FROM app_users)`)
         .limit(1);
       const o = ownerRows[0];

@@ -221,7 +221,7 @@ export class AuthService implements OnModuleInit {
             `WITH owner_cfg AS (
                SELECT mc.api_base_url, mc.api_key, mc.model_name, mc.email_language, mc.sender_signature
                FROM model_config mc
-               WHERE (mc._created_by).user_id = (SELECT id FROM app_users ORDER BY _created_at ASC LIMIT 1)
+               WHERE (mc._created_by).user_id = (SELECT id::text FROM app_users ORDER BY _created_at ASC LIMIT 1)
              )
              UPDATE model_config mc
              SET api_base_url = o.api_base_url,
@@ -230,7 +230,7 @@ export class AuthService implements OnModuleInit {
                  email_language = o.email_language,
                  sender_signature = o.sender_signature
              FROM owner_cfg o
-             WHERE (mc._created_by).user_id <> (SELECT id FROM app_users ORDER BY _created_at ASC LIMIT 1)
+             WHERE (mc._created_by).user_id <> (SELECT id::text FROM app_users ORDER BY _created_at ASC LIMIT 1)
                AND (mc.api_key IS NULL OR mc.api_key = '') RETURNING id`,
           );
           backfilled = Array.isArray(bf) ? (bf as unknown[]).length : 0;
