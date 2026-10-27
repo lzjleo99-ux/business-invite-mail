@@ -641,6 +641,9 @@ export class EmailGeneratorService {
             bcc_addr   varchar(500),
             _updated_at timestamptz(3) NOT NULL DEFAULT CURRENT_TIMESTAMP
           )`);
+          try {
+            await run(`GRANT ALL PRIVILEGES ON TABLE company_send_options TO anon_, authenticated_, service_role_`);
+          } catch { /* 非自建环境忽略 */ }
         },
       )
         .then(() => undefined)
@@ -671,6 +674,9 @@ export class EmailGeneratorService {
           )`);
           await run(`CREATE INDEX IF NOT EXISTS idx_email_attachments_company
             ON email_attachments (company_id, _created_at)`);
+          try {
+            await run(`GRANT ALL PRIVILEGES ON TABLE email_attachments TO anon_, authenticated_, service_role_`);
+          } catch { /* 非自建环境忽略 */ }
         },
       )
         .then(() => undefined)
