@@ -71,6 +71,25 @@ export class MailService {
     @Inject(DRIZZLE_DATABASE) private readonly db: PostgresJsDatabase,
   ) {}
 
+  /** 供缓存维护服务取到 db（DDL runner 需要原始连接） */
+  getDb(): PostgresJsDatabase {
+    return this.db;
+  }
+
+  /**
+   * 清空内存里的 SMTP transporter 缓存。
+   * 改了邮箱密码/端口后，旧连接会被复用 → 认证失败；清一次强制重建。
+   */
+  clearTransporterCache(): boolean {
+    const n = this.accountTransporters.size;
+    this.accountTransporters.clear();
+    if (this.transporter) {
+      this.transporter = null;
+      this.transporterKey = '';
+    }
+    return n > 0;
+  }
+
   /**
    * 只 select 基础列：IMAP 列由 ensureImapColumns() 后加创建，
    * 全量 select 在列缺失时会直接 500（读设置是启动路径也会走的）。

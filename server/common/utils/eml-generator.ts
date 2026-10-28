@@ -213,7 +213,8 @@ function buildHtmlBody(body: string, byMaterial: Map<string, EmlInlineImage>): s
   // 富文本正文（用户在编辑器排版过）：原样使用，只把 [[IMG:...]] 标记换成内嵌图
   if (isHtmlBody(body)) {
     const raw = body.trimStart().slice(HTML_BODY_PREFIX.length);
-    return `<div style="font-family:Arial,Helvetica,sans-serif;font-size:14px;line-height:1.6;color:#1e293b">${replaceImgMarkersInHtml(raw, byMaterial)}</div>`;
+    const withImages = replaceMaterialImagesInHtml(raw, byMaterial);
+    return `<div style="font-family:Arial,Helvetica,sans-serif;font-size:14px;line-height:1.6;color:#1e293b">${replaceImgMarkersInHtml(withImages, byMaterial)}</div>`;
   }
   const out: string[] = [];
   const esc = (s: string): string => s
@@ -251,6 +252,37 @@ function buildHtmlBody(body: string, byMaterial: Map<string, EmlInlineImage>): s
     out.push(`<p style="margin:0 0 12px;white-space:pre-wrap">${esc(line)}</p>`);
   }
   return `<div style="font-family:Arial,Helvetica,sans-serif;font-size:14px;line-height:1.6;color:#1e293b">${out.join('\n')}</div>`;
+}
+
+/**
+ * 富文本正文里的 <img data-material-id="ID"> → CID 内嵌图。
+ *
+ * 编辑器里插入的是**真实图片元素**（带 data-material-id），用户可以在编辑器里
+ * 直接拖拽调整大小（宽度写进 style）；发送时按 materialId 取字节换成 CID 内嵌图，
+ * 并**保留用户设定的宽度**——所以"正文里的图"和"附件"是两回事。
+ */
+function replaceMaterialImagesInHtml(
+  html: string,
+  byMaterial: Map<string, EmlInlineImage>,
+): string {
+  return html.replace(/<img\b[^>]*>/gi, (full) => {
+    const id = full.match(/data-material-id="([^"]+)"/i)?.[1]?.trim();
+    if (!id) return full; // 普通图片（外链等）保持原样
+    const img = byMaterial.get(id);
+    if (!img) return ''; // 取不到字节 → 去掉这张图（不留坏图）
+    const style = full.match(/style="([^"]*)"/i)?.[1] || '';
+    const widthMatch = style.match(/width:\s*([\d.]+)(px|%)/i);
+    // 用户没设宽度 → 用默认（最大 560px，宽度 100%）；设了就照搬
+    const width = widthMatch
+      ? `width:${widthMatch[1]}${widthMatch[2]};max-width:100%;`
+      : 'max-width:560px;width:100%;';
+    const alt = full.match(/alt="([^"]*)"/i)?.[1] || sanitizeAsciiFileName(img.fileName, 0);
+    return (
+      `<figure style="margin:16px 0;text-align:center">`
+      + `<img src="cid:${img.contentId}" alt="${alt}" style="${width}height:auto;border:1px solid #e2e8f0;border-radius:8px" />`
+      + `</figure>`
+    );
+  });
 }
 
 /** 富文本正文里的 [[IMG:id]] 段落 → 内嵌图片 figure */

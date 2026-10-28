@@ -11,9 +11,12 @@ import {
   FolderPlus,
   Loader2,
   Copy,
+  Sparkles,
 } from 'lucide-react';
 
 import * as projectsApi from '@client/src/api/projects';
+import * as cacheApi from '@client/src/api/cache';
+import { errMessage } from '@client/src/utils/err-message';
 import { Button } from '@client/src/components/ui/button';
 import {
   Card,
@@ -58,6 +61,7 @@ const ProjectListPageInner: React.FC = () => {
   const { t } = useI18n();
 
   const [createOpen, setCreateOpen] = useState(false);
+  const [clearingCache, setClearingCache] = useState(false);
   const [createName, setCreateName] = useState('');
   const [createDesc, setCreateDesc] = useState('');
   const [deletingProject, setDeletingProject] = useState<Project | null>(null);
@@ -147,6 +151,35 @@ const ProjectListPageInner: React.FC = () => {
     }
   };
 
+  /**
+   * 清理缓存：
+   * - 后端：只清理本应用的可再生缓存（孤儿图片描述、过期 AI 描述、过期验证码、
+   *   内存 transporter），不动平台/系统缓存，不删用户数据
+   * - 前端：清掉 react-query 的本地缓存并重新拉取
+   */
+  const handleClearCache = async (): Promise<void> => {
+    setClearingCache(true);
+    try {
+      const res = await cacheApi.clearCache();
+      // 前端本地缓存一并清掉
+      await qc.invalidateQueries();
+      const st = res.stats;
+      toast.success(
+        t('缓存已清理：共 {total} 项（孤儿图片描述 {orphan}、过期AI描述 {ai}、过期验证码 {code}、孤儿附件 {att}）', {
+          total: st.total,
+          orphan: st.orphanImageDescriptions,
+          ai: st.staleAiDescriptions,
+          code: st.expiredResetCodes,
+          att: st.orphanAttachments,
+        }),
+      );
+    } catch (err: unknown) {
+      toast.error(errMessage(err, t('清理缓存失败')));
+    } finally {
+      setClearingCache(false);
+    }
+  };
+
   const handleDeleteClick = (
     e: React.MouseEvent<HTMLButtonElement>,
     project: Project,
@@ -189,10 +222,25 @@ const ProjectListPageInner: React.FC = () => {
             {t('管理你的 BD 拓展项目，上传资料并生成个性化邮件')}
           </p>
         </div>
-        <Button onClick={() => setCreateOpen(true)}>
-          <Plus className="h-4 w-4" />
-          {t('新建项目')}
-        </Button>
+        <div className="flex items-center gap-2">
+          <Button
+            variant="outline"
+            onClick={() => void handleClearCache()}
+            disabled={clearingCache}
+            title={t('只清理本应用的可再生缓存（孤儿图片描述、过期AI描述缓存、过期验证码），不影响系统缓存与用户数据；系统也会每 3 天自动清理一次')}
+          >
+            {clearingCache ? (
+              <Loader2 className="h-4 w-4 animate-spin" />
+            ) : (
+              <Sparkles className="h-4 w-4" />
+            )}
+            {t('清理缓存')}
+          </Button>
+          <Button onClick={() => setCreateOpen(true)}>
+            <Plus className="h-4 w-4" />
+            {t('新建项目')}
+          </Button>
+        </div>
       </div>
 
       {/* Loading skeleton */}

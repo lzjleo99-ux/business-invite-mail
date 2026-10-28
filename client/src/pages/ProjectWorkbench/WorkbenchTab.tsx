@@ -39,7 +39,8 @@ import * as emailGeneratorApi from '@client/src/api/email-generator';
 import * as adminApi from '@client/src/api/admin';
 import * as senderProfilesApi from '@client/src/api/sender-profiles';
 import * as projectsApi from '@client/src/api/projects';
-import RichEmailEditor, { textToEditorHtml } from '@client/src/components/RichEmailEditor';
+import { getMaterialObjectUrl } from '@client/src/api/projects';
+import RichEmailEditor, { buildMaterialImageHtml, textToEditorHtml } from '@client/src/components/RichEmailEditor';
 import EmailBodyPreview from '@client/src/components/EmailBodyPreview';
 import EmailChipInput from '@client/src/components/EmailChipInput';
 import { getSendOptions, saveSendOptions, uploadAttachment } from '@client/src/api/sender-profiles';
@@ -1745,11 +1746,17 @@ const WorkbenchTab: React.FC<WorkbenchTabProps> = ({
                        if (!materialId || !editingEmail) return;
                        const img = projectImages.find((x) => x.materialId === materialId);
                        const caption = img?.description || img?.fileName || '';
-                       // 标记 + 图注，插入富文本编辑器光标处
-                       const markerHtml =
-                         `<p>[[IMG:${materialId}]]</p><p style="font-size:12px;color:#64748b">${caption}</p>`;
-                       setInsertRequest((prev) => ({ html: markerHtml, nonce: (prev?.nonce ?? 0) + 1 }));
                        e.target.value = '';
+                       // 取真实图片 URL 后插入 <img>（可点选拖拽改大小）
+                       void getMaterialObjectUrl(projectId, materialId)
+                         .then((url) => {
+                           setInsertRequest((prev) => ({
+                             html: buildMaterialImageHtml(materialId, url, caption),
+                             nonce: (prev?.nonce ?? 0) + 1,
+                           }));
+                         })
+                         .catch((err: unknown) =>
+                           toast.error(errMessage(err, t('图片载入失败'))));
                      }}
                    >
                      <option value="">{t('插入项目图片…')}</option>
@@ -1779,17 +1786,16 @@ const WorkbenchTab: React.FC<WorkbenchTabProps> = ({
                          }
                          void projectsApi
                            .uploadMaterial(projectId, f)
-                           .then((m) => {
-                             const markerHtml =
-                               `<p>[[IMG:${m.id}]]</p><p style="font-size:12px;color:#64748b">${m.fileName}</p>`;
+                           .then(async (m) => {
+                             const url = await getMaterialObjectUrl(projectId, m.id);
                              setInsertRequest((prev) => ({
-                               html: markerHtml,
+                               html: buildMaterialImageHtml(m.id, url, m.fileName),
                                nonce: (prev?.nonce ?? 0) + 1,
                              }));
                              void qc.invalidateQueries({
                                queryKey: ['project-image-materials', projectId],
                              });
-                             toast.success(t('图片已插入正文'));
+                             toast.success(t('图片已插入正文（点图片可改大小）'));
                            })
                            .catch((err: unknown) => toast.error(errMessage(err, t('上传失败'))));
                        }}

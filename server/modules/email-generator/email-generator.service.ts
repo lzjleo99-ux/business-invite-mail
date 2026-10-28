@@ -361,6 +361,10 @@ export class EmailGeneratorService {
     for (const m of body.matchAll(/\[\[IMG:([^\]\n]+)\]\]/g)) {
       markerIds.add(m[1].trim());
     }
+    // 编辑器插入的真实图片元素：<img data-material-id="ID">（宽度由用户设定）
+    for (const m of body.matchAll(/data-material-id="([^"]+)"/g)) {
+      markerIds.add(m[1].trim());
+    }
     for (const materialId of markerIds) {
       const metaRows = await this.db
         .select({ fileName: projectMaterials.fileName })
@@ -705,10 +709,18 @@ export class EmailGeneratorService {
           // 修补：首版建表漏了 id 列（已存在的表补列，空表可直接加主键）
           await run(`ALTER TABLE email_attachments ADD COLUMN IF NOT EXISTS id uuid`);
           await run(`UPDATE email_attachments SET id = gen_random_uuid() WHERE id IS NULL`);
+          await run(`ALTER TABLE email_attachments ALTER COLUMN id SET DEFAULT gen_random_uuid()`);
+          // 加主键前先看有没有（Postgres 一张表只能有一个主键，重复加会报
+          // 42P10 multiple_primary_keys——之前只捕获 duplicate_object，导致
+          // 每次容器重启迁移都失败 → 附件上传 500）
           await run(`DO $$ BEGIN
-            ALTER TABLE email_attachments ALTER COLUMN id SET DEFAULT gen_random_uuid();
-            ALTER TABLE email_attachments ADD PRIMARY KEY (id);
-          EXCEPTION WHEN duplicate_object THEN NULL; END $$;`);
+            IF NOT EXISTS (
+              SELECT 1 FROM pg_constraint
+              WHERE conrelid = 'email_attachments'::regclass AND contype = 'p'
+            ) THEN
+              ALTER TABLE email_attachments ADD PRIMARY KEY (id);
+            END IF;
+          EXCEPTION WHEN others THEN NULL; END $$;`);
           await run(`CREATE INDEX IF NOT EXISTS idx_email_attachments_company
             ON email_attachments (company_id, _created_at)`);
           try {

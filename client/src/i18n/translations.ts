@@ -20,6 +20,17 @@ export const enMessages: Record<string, string> = {
   '第 {page} / {totalPages} 页': 'Page {page} of {totalPages}',
 
   // ---- antd table locale ----
+  '图片尺寸': 'Image size',
+  '自适应': 'Auto (fit)',
+  '删除图片': 'Delete image',
+  '拖动调整图片大小': 'Drag to resize the image',
+  '已选中图片：可点上方比例按钮，或拖动右侧蓝色手柄调整大小；按 Delete 删除。': 'Image selected - use the size buttons above, or drag the blue handle on its right; press Delete to remove it.',
+  '图片已插入正文（点图片可改大小）': 'Image inserted into the body (click it to resize)',
+  '图片载入失败': 'Failed to load image',
+  '清理缓存': 'Clear cache',
+  '清理缓存失败': 'Cache cleanup failed',
+  '缓存已清理：共 {total} 项（孤儿图片描述 {orphan}、过期AI描述 {ai}、过期验证码 {code}、孤儿附件 {att}）': 'Cache cleaned: {total} items (orphan image notes {orphan}, expired AI notes {ai}, expired reset codes {code}, orphan attachments {att})',
+  '只清理本应用的可再生缓存（孤儿图片描述、过期AI描述缓存、过期验证码），不影响系统缓存与用户数据；系统也会每 3 天自动清理一次': 'Only clears this app\'s regenerable cache (orphan image notes, expired AI notes, expired reset codes). System caches and your data are untouched; the system also cleans automatically every 3 days.',
   '正文预览（图片已嵌入正文，不是附件）': 'Body preview (images are embedded in the body, not attachments)',
   '号码检测完成：{total} 个号码，链接可用 {yes} 个、无效 {no} 个、不确定 {unknown} 个': 'Number check done: {total} numbers - {yes} reachable, {no} invalid, {unknown} unconfirmed',
   '号码检测失败': 'Number check failed',

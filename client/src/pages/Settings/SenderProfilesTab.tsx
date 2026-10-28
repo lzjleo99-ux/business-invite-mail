@@ -34,8 +34,99 @@ const SenderProfilesTab: React.FC = () => {
   const [signatureHtml, setSignatureHtml] = useState('');
   const [isDefault, setIsDefault] = useState(false);
   const sigRef = useRef<HTMLDivElement>(null);
+  const sigWrapRef = useRef<HTMLDivElement>(null);
   const imgInputRef = useRef<HTMLInputElement>(null);
   const savedRangeRef = useRef<Range | null>(null);
+  const dragRef = useRef<{ startX: number; startWidth: number } | null>(null);
+  /** 选中的签名图片（可改大小） */
+  const [sigImage, setSigImage] = useState<{
+    el: HTMLImageElement;
+    box: { top: number; left: number; width: number; height: number };
+  } | null>(null);
+
+  /** 图片相对编辑器容器的位置（放拖拽手柄） */
+  const measureSigImage = (img: HTMLImageElement): void => {
+    const wrap = sigWrapRef.current;
+    if (!wrap) return;
+    const a = img.getBoundingClientRect();
+    const b = wrap.getBoundingClientRect();
+    setSigImage({
+      el: img,
+      box: {
+        top: a.top - b.top + wrap.scrollTop,
+        left: a.left - b.left + wrap.scrollLeft,
+        width: a.width,
+        height: a.height,
+      },
+    });
+  };
+
+  /** 设定签名图片宽度 */
+  const applySigWidth = (width: string | null): void => {
+    const img = sigImage?.el;
+    if (!img) return;
+    if (width === null) {
+      img.style.width = '';
+    } else {
+      img.style.width = width;
+      img.style.maxWidth = '100%';
+      img.style.height = 'auto';
+    }
+    measureSigImage(img);
+  };
+
+  /** 拖拽手柄改宽度 */
+  const startSigDrag = (e: React.MouseEvent<HTMLDivElement>): void => {
+    const img = sigImage?.el;
+    if (!img) return;
+    e.preventDefault();
+    e.stopPropagation();
+    dragRef.current = { startX: e.clientX, startWidth: img.getBoundingClientRect().width };
+    const onMove = (ev: MouseEvent): void => {
+      const st = dragRef.current;
+      if (!st) return;
+      const next = Math.max(60, Math.round(st.startWidth + (ev.clientX - st.startX)));
+      img.style.width = `${next}px`;
+      img.style.maxWidth = '100%';
+      img.style.height = 'auto';
+      measureSigImage(img);
+    };
+    const onUp = (): void => {
+      dragRef.current = null;
+      window.removeEventListener('mousemove', onMove);
+      window.removeEventListener('mouseup', onUp);
+    };
+    window.addEventListener('mousemove', onMove);
+    window.addEventListener('mouseup', onUp);
+  };
+
+  /** 选中图片（点一下） */
+  const handleSigClick = (e: React.MouseEvent<HTMLDivElement>): void => {
+    const target = e.target as HTMLElement;
+    if (target.tagName === 'IMG') {
+      measureSigImage(target as HTMLImageElement);
+      return;
+    }
+    setSigImage(null);
+  };
+
+  /** Delete 删除选中的签名图片 */
+  const handleSigKeyDown = (e: React.KeyboardEvent<HTMLDivElement>): void => {
+    if (!sigImage || (e.key !== 'Delete' && e.key !== 'Backspace')) return;
+    const sel = window.getSelection();
+    if (!sel || sel.rangeCount === 0) return;
+    const node = sel.anchorNode;
+    const inImage =
+      node === sigImage.el
+      || (node ? sigImage.el.contains(node) : false)
+      || (node && sel.anchorOffset < node.childNodes.length
+        ? node.childNodes[sel.anchorOffset] === sigImage.el
+        : false);
+    if (!inImage) return;
+    e.preventDefault();
+    sigImage.el.remove();
+    setSigImage(null);
+  };
 
   /** 工具栏按钮按下时不抢焦点（否则 Windows 下选区丢失、插入位置错乱） */
   const keepSelection = (fn: () => void): void => {
@@ -292,21 +383,75 @@ const SenderProfilesTab: React.FC = () => {
               e.target.value = '';
             }}
           />
-          {/* 所见即所得编辑区：图片可直接拖动排版；保存时读 innerHTML */}
-          <div
-            ref={sigRef}
-            contentEditable
-            suppressContentEditableWarning
-            onMouseUp={() => {
-              const sel = window.getSelection();
-              if (sel && sel.rangeCount > 0) savedRangeRef.current = sel.getRangeAt(0);
-            }}
-            onKeyUp={() => {
-              const sel = window.getSelection();
-              if (sel && sel.rangeCount > 0) savedRangeRef.current = sel.getRangeAt(0);
-            }}
-            className="min-h-[120px] rounded-b-md border border-slate-200 bg-white p-3 text-sm leading-relaxed focus:outline-none focus:ring-1 focus:ring-blue-400"
-          />
+          {/* 所见即所得编辑区：图片可选中改大小；保存时读 innerHTML */}
+          <div ref={sigWrapRef} className="relative">
+            <div
+              ref={sigRef}
+              contentEditable
+              suppressContentEditableWarning
+              onClick={handleSigClick}
+              onKeyDown={handleSigKeyDown}
+              onMouseUp={() => {
+                const sel = window.getSelection();
+                if (sel && sel.rangeCount > 0) savedRangeRef.current = sel.getRangeAt(0);
+              }}
+              onKeyUp={() => {
+                const sel = window.getSelection();
+                if (sel && sel.rangeCount > 0) savedRangeRef.current = sel.getRangeAt(0);
+              }}
+              className="min-h-[120px] rounded-b-md border border-slate-200 bg-white p-3 text-sm leading-relaxed focus:outline-none focus:ring-1 focus:ring-blue-400"
+            />
+            {sigImage && (
+              <div
+                role="presentation"
+                onMouseDown={startSigDrag}
+                title={t('拖动调整图片大小')}
+                className="absolute z-10 h-6 w-3 cursor-ew-resize rounded-sm border border-white bg-blue-500 shadow"
+                style={{
+                  top: `${sigImage.box.top + sigImage.box.height / 2 - 12}px`,
+                  left: `${sigImage.box.left + sigImage.box.width - 5}px`,
+                }}
+              />
+            )}
+          </div>
+          {sigImage && (
+            <div className="flex flex-wrap items-center gap-1 rounded-b-md border border-t-0 border-slate-200 bg-slate-50 px-2 py-1">
+              <span className="text-xs text-slate-500">{t('图片尺寸')}</span>
+              {['25%', '50%', '75%', '100%'].map((w) => (
+                <Button
+                  key={w}
+                  variant="ghost"
+                  size="sm"
+                  className="h-7 px-2 text-xs"
+                  onMouseDown={(e) => e.preventDefault()}
+                  onClick={() => applySigWidth(w)}
+                >
+                  {w}
+                </Button>
+              ))}
+              <Button
+                variant="ghost"
+                size="sm"
+                className="h-7 px-2 text-xs"
+                onMouseDown={(e) => e.preventDefault()}
+                onClick={() => applySigWidth(null)}
+              >
+                {t('自适应')}
+              </Button>
+              <Button
+                variant="ghost"
+                size="sm"
+                className="h-7 px-2 text-red-500 hover:bg-red-50"
+                onMouseDown={(e) => e.preventDefault()}
+                onClick={() => {
+                  sigImage.el.remove();
+                  setSigImage(null);
+                }}
+              >
+                <Trash2 size={13} />
+              </Button>
+            </div>
+          )}
           <p className="text-xs text-slate-400">
             {t('图片操作：单击选中图片后按 Delete 删除；误删可 Ctrl+Z 撤销；拖动图片可排版。')}
           </p>

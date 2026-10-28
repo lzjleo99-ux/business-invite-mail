@@ -24,6 +24,11 @@ const EmailBodyPreview: React.FC<EmailBodyPreviewProps> = ({ html, projectId }) 
     for (const m of String(html || '').matchAll(MARKER_RE)) {
       if (!found.includes(m[1])) found.push(m[1]);
     }
+    // 编辑器插入的真实图片：<img data-material-id="ID">（src 存的是当时的
+    // 对象 URL，刷新后失效 → 预览时换成新的对象 URL）
+    for (const m of String(html || '').matchAll(/data-material-id="([^"]+)"/g)) {
+      if (!found.includes(m[1])) found.push(m[1]);
+    }
     return found;
   }, [html]);
 
@@ -52,6 +57,17 @@ const EmailBodyPreview: React.FC<EmailBodyPreviewProps> = ({ html, projectId }) 
 
   const rendered = useMemo(() => {
     let out = String(html || '');
+    // 真实图片元素：src 换成当前有效的对象 URL
+    out = out.replace(/<img\b([^>]*?)data-material-id="([^"]+)"([^>]*)>/gi,
+      (_m, before: string, id: string, after: string) => {
+        const url = urls[id];
+        if (!url) return `${before}data-material-id="${id}"${after}`;
+        const style = `${before} ${after}`.match(/style="([^"]*)"/i)?.[1] || '';
+        const width = style.match(/width:\s*([\d.]+)(px|%)/i)?.[0] || '';
+        return `<img data-material-id="${id}" src="${url}" alt="" `
+          + `style="${width ? `${width};` : ''}max-width:100%;height:auto;`
+          + 'border:1px solid #e2e8f0;border-radius:8px;margin:8px 0" />';
+      });
     out = out.replace(
       /<p[^>]*>\s*\[\[IMG:([0-9a-f-]{36})\]\]\s*<\/p>/gi,
       (_m, id: string) =>
