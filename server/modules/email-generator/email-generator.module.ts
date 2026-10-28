@@ -8,6 +8,7 @@ import { EmailHistoryService } from './email-history.service';
 import { EmailInboxService } from './email-inbox.service';
 import { WeComNotifyService } from './wecom-notify.service';
 import { SenderProfilesModule } from '@server/modules/sender-profiles/sender-profiles.module';
+import { MessengerService } from './messenger.service';
 
 @Module({
   imports: [ProjectsModule, SharedMailModule, SenderProfilesModule],
@@ -18,6 +19,7 @@ import { SenderProfilesModule } from '@server/modules/sender-profiles/sender-pro
     EmailHistoryService,
     EmailInboxService,
     WeComNotifyService,
+    MessengerService,
   ],
   // AdminModule 的设置保存要热更新收信轮询，必须显式导出，
   // 否则 Nest 启动时解析不了 AdminController 的依赖 → 容器崩溃循环（503）。

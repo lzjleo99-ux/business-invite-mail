@@ -20,6 +20,16 @@ export const enMessages: Record<string, string> = {
   '第 {page} / {totalPages} 页': 'Page {page} of {totalPages}',
 
   // ---- antd table locale ----
+  '号码检测完成：{total} 个号码，链接可用 {yes} 个、无效 {no} 个、不确定 {unknown} 个': 'Number check done: {total} numbers - {yes} reachable, {no} invalid, {unknown} unconfirmed',
+  '号码检测失败': 'Number check failed',
+  '未检测': 'Not checked yet',
+  '号码检测：链接可用': 'Number check: link reachable',
+  '号码检测：号码无效（不是有效号码）': 'Number check: invalid number',
+  '号码检测：不确定——点开链接可自行确认': 'Number check: unconfirmed - open the link to verify yourself',
+  '上传图片到正文': 'Upload image into body',
+  '添加附件': 'Add attachment',
+  '图片已插入正文': 'Image inserted into the email body',
+  '附件已添加': 'Attachment added',
   '抄送地址，回车确认': 'CC address, press Enter to confirm',
   '密送地址，回车确认': 'BCC address, press Enter to confirm',
   '{email} 不是有效邮箱地址': '{email} is not a valid email address',

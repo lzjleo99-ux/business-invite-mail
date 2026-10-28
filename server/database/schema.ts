@@ -520,6 +520,17 @@ export const bytea = customType<{ data: Buffer; driverData: Buffer }>({
 
 // 发信人档案（多身份）：每用户多行，发送时选择身份
 // 每公司发送选项：CC/BCC（compose 页设置，发送时随邮件带出）
+// 号码注册状态（WhatsApp / Viber）：按公司存，供行内按钮显示可用/不可用
+export const messengerRegistrationTable = pgTable("messenger_registration", {
+  companyId: uuid("company_id")
+    .primaryKey()
+    .references(() => restaurants.id, { onDelete: "cascade" }),
+  phone: varchar("phone", { length: 64 }),
+  whatsapp: varchar("whatsapp", { length: 10 }).notNull().default("unknown"),
+  viber: varchar("viber", { length: 10 }).notNull().default("unknown"),
+  checkedAt: customTimestamptz("checked_at", { precision: 3 }).notNull().default(sql`CURRENT_TIMESTAMP`),
+});
+
 export const companySendOptionsTable = pgTable("company_send_options", {
   companyId: uuid("company_id")
     .primaryKey()

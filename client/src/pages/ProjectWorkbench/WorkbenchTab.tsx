@@ -24,6 +24,7 @@ import {
   Star,
   StarOff,
   Phone,
+  Paperclip,
   Send,
   Settings2,
   RotateCcw,
@@ -40,7 +41,7 @@ import * as senderProfilesApi from '@client/src/api/sender-profiles';
 import * as projectsApi from '@client/src/api/projects';
 import RichEmailEditor from '@client/src/components/RichEmailEditor';
 import EmailChipInput from '@client/src/components/EmailChipInput';
-import { getSendOptions, saveSendOptions } from '@client/src/api/sender-profiles';
+import { getSendOptions, saveSendOptions, uploadAttachment } from '@client/src/api/sender-profiles';
 import type { SenderProfile } from '@client/src/api/sender-profiles';
 import { getCompanies } from '@client/src/api/restaurants';
 import EmailBodyView from './EmailBodyView';
@@ -88,6 +89,8 @@ import type {
 } from '@shared/api.interface';
 import { UniversalLink } from '@lark-apaas/client-toolkit/components/UniversalLink';
 import { useI18n } from '@client/src/i18n';
+import { errMessage } from '@client/src/utils/err-message';
+import { uploadSizeError } from '@client/src/utils/upload-guard';
 import {
   bestChatPhone,
   bestWhatsAppPhone,
@@ -710,6 +713,18 @@ const WorkbenchTab: React.FC<WorkbenchTabProps> = ({
   const [sendAccountId, setSendAccountId] = useState('');
   const bodyEditRef = useRef<HTMLTextAreaElement>(null);
   const [insertRequest, setInsertRequest] = useState<{ html: string; nonce: number } | null>(null);
+  // 号码注册检测结果（WhatsApp / Viber）
+  const { data: messengerStatus, refetch: refetchMessengerStatus } = useQuery({
+    queryKey: ['messenger-status', projectId],
+    queryFn: () => emailGeneratorApi.listMessengerStatus(projectId),
+    staleTime: 5 * 60_000,
+  });
+  const messengerMap = useMemo(() => {
+    const m = new Map<string, emailGeneratorApi.MessengerStatus>();
+    for (const st of messengerStatus || []) m.set(st.companyId, st);
+    return m;
+  }, [messengerStatus]);
+  const [checkingMessenger, setCheckingMessenger] = useState(false);
   const [editCc, setEditCc] = useState('');
   const [editBcc, setEditBcc] = useState('');
   const { data: projectImages = [] } = useQuery({
@@ -954,6 +969,13 @@ const WorkbenchTab: React.FC<WorkbenchTabProps> = ({
       subjectLocal: record.emailSubjectLocal || '',
       bodyLocal: record.emailBodyLocal || '',
     });
+    // 载入该公司已存的抄送/密送
+    void getSendOptions(record.id)
+      .then((o) => {
+        setEditCc(o.cc || '');
+        setEditBcc(o.bcc || '');
+      })
+      .catch(() => undefined);
   };
 
   const columns: TableProps<Company>['columns'] = [
@@ -1678,8 +1700,24 @@ const WorkbenchTab: React.FC<WorkbenchTabProps> = ({
                <p className="text-xs font-medium text-slate-500">{t('邮件正文')}</p>
                {isEditing ? (
                  <>
-                 {/* 插入项目图片：按人工描述选图 → 插入 [[IMG]] 标记 + 图注行，发送时转内嵌图 */}
-                 <div className="flex items-center gap-2">
+                 {/* 抄送/密送：输入一个邮箱回车即成标签 */}
+                 <div className="grid grid-cols-1 gap-2 md:grid-cols-2">
+                   <EmailChipInput
+                     label="CC"
+                     value={editCc}
+                     onChange={setEditCc}
+                     placeholder={t('抄送地址，回车确认')}
+                   />
+                   <EmailChipInput
+                     label="BCC"
+                     value={editBcc}
+                     onChange={setEditBcc}
+                     placeholder={t('密送地址，回车确认')}
+                   />
+                 </div>
+
+                 {/* 图片 / 附件：项目图片（按人工描述选）+ 本地上传图片 + 邮件附件 */}
+                 <div className="flex flex-wrap items-center gap-2">
                    <select
                      className="h-8 rounded-md border border-slate-200 bg-white px-2 text-xs"
                      value=""
@@ -1703,6 +1741,68 @@ const WorkbenchTab: React.FC<WorkbenchTabProps> = ({
                        </option>
                      ))}
                    </select>
+                   {/* 本地上传图片：存进项目素材并立即插入正文 */}
+                   <label className="inline-flex cursor-pointer items-center gap-1 rounded-md border border-slate-300 px-2 py-1 text-xs text-slate-600 hover:bg-slate-50">
+                     <Upload size={13} />
+                     {t('上传图片到正文')}
+                     <input
+                       type="file"
+                       accept="image/*"
+                       className="hidden"
+                       onChange={(e) => {
+                         const f = e.target.files?.[0];
+                         e.target.value = '';
+                         if (!f || !editingEmail) return;
+                         const sizeErr = uploadSizeError(f);
+                         if (sizeErr) {
+                           toast.error(sizeErr);
+                           return;
+                         }
+                         void projectsApi
+                           .uploadMaterial(projectId, f)
+                           .then((m) => {
+                             const markerHtml =
+                               `<p>[[IMG:${m.id}]]</p><p style="font-size:12px;color:#64748b">${m.fileName}</p>`;
+                             setInsertRequest((prev) => ({
+                               html: markerHtml,
+                               nonce: (prev?.nonce ?? 0) + 1,
+                             }));
+                             void qc.invalidateQueries({
+                               queryKey: ['project-image-materials', projectId],
+                             });
+                             toast.success(t('图片已插入正文'));
+                           })
+                           .catch((err: unknown) => toast.error(errMessage(err, t('上传失败'))));
+                       }}
+                     />
+                   </label>
+                   {/* 邮件附件：随这封邮件发出 */}
+                   <label className="inline-flex cursor-pointer items-center gap-1 rounded-md border border-slate-300 px-2 py-1 text-xs text-slate-600 hover:bg-slate-50">
+                     <Paperclip size={13} />
+                     {t('添加附件')}
+                     <input
+                       type="file"
+                       className="hidden"
+                       onChange={(e) => {
+                         const f = e.target.files?.[0];
+                         e.target.value = '';
+                         if (!f || !editingEmail) return;
+                         const sizeErr = uploadSizeError(f);
+                         if (sizeErr) {
+                           toast.error(sizeErr);
+                           return;
+                         }
+                         void uploadAttachment(record.id, f)
+                           .then(() => {
+                             void qc.invalidateQueries({
+                               queryKey: ['email-attachments', record.id],
+                             });
+                             toast.success(t('附件已添加'));
+                           })
+                           .catch((err: unknown) => toast.error(errMessage(err, t('上传失败'))));
+                       }}
+                     />
+                   </label>
                    {projectImages.length === 0 && (
                      <span className="text-xs text-slate-400">
                        {t('此项目暂无图片素材——可在 Project info 上传并填写描述')}
@@ -1935,9 +2035,25 @@ const WorkbenchTab: React.FC<WorkbenchTabProps> = ({
                     onClick={() => void openChat('whatsapp', record, waLang)}
                     disabled={!hasWhatsApp}
                      className="bg-green-600 hover:bg-green-700"
+                     title={(() => {
+                       const st = messengerMap.get(record.id);
+                       if (!st) return t('未检测');
+                       if (st.whatsapp === 'yes') return t('号码检测：链接可用');
+                       if (st.whatsapp === 'no') return t('号码检测：号码无效（不是有效号码）');
+                       return t('号码检测：不确定——点开链接可自行确认');
+                     })()}
                    >
                      <Send size={14} />
                      {t('打开 WhatsApp')}
+                     {(() => {
+                       const st = messengerMap.get(record.id);
+                       if (!st) return null;
+                       if (st.whatsapp === 'yes')
+                         return <span className="ml-1 h-1.5 w-1.5 rounded-full bg-emerald-300" />;
+                       if (st.whatsapp === 'no')
+                         return <span className="ml-1 h-1.5 w-1.5 rounded-full bg-red-300" />;
+                       return null;
+                     })()}
                    </Button>
                    <Button
                      variant="default"
@@ -2221,7 +2337,30 @@ const WorkbenchTab: React.FC<WorkbenchTabProps> = ({
             <div className="flex items-stretch">
               <Button
                 variant="outline"
-                onClick={() => batchWhatsAppOp.start()}
+                onClick={() => {
+                  // 生成话术的同时自动检测号码（WhatsApp 链接是否可用），
+                  // 结果回写到行内按钮上——避免把时间浪费在无效号码上
+                  void (async () => {
+                    setCheckingMessenger(true);
+                    try {
+                      const sum = await emailGeneratorApi.checkMessengerBatch(projectId);
+                      toast.success(
+                        t('号码检测完成：{total} 个号码，链接可用 {yes} 个、无效 {no} 个、不确定 {unknown} 个', {
+                          total: sum.total,
+                          yes: sum.whatsappYes,
+                          no: sum.whatsappNo,
+                          unknown: sum.unknown,
+                        }),
+                      );
+                      void refetchMessengerStatus();
+                    } catch (err: unknown) {
+                      toast.error(errMessage(err, t('号码检测失败')));
+                    } finally {
+                      setCheckingMessenger(false);
+                      batchWhatsAppOp.start();
+                    }
+                  })();
+                }}
                 disabled={batchWhatsAppOp.isRunning || items.length === 0 || batchAnalyzeOp.isRunning || batchGenerateOp.isRunning}
                 className="rounded-r-none text-green-600 border-green-200 hover:bg-green-50 hover:text-green-700"
               >

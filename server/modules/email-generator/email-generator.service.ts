@@ -27,7 +27,11 @@ import {
 import { ensureOwnSenderRow } from '@server/modules/sender-config/sender-config.service';
 import { SenderProfilesService } from '@server/modules/sender-profiles/sender-profiles.service';
 import { runIdempotentMigration } from '@server/common/utils/ddl-runner';
-import { emailAttachmentsTable, companySendOptionsTable } from '@server/database/schema';
+import {
+  companyContacts,
+  emailAttachmentsTable,
+  companySendOptionsTable,
+} from '@server/database/schema';
 import type {
   Company,
   CompanyStatus,
@@ -585,6 +589,31 @@ export class EmailGeneratorService {
     await this.db
       .delete(emailAttachmentsTable)
       .where(eq(emailAttachmentsTable.id, attachmentId));
+  }
+
+  /** 取公司可用的手机号（号码检测用；优先主号） */
+  async getCompanyPhoneForCheck(
+    companyId: string,
+    userId: string,
+  ): Promise<string | null> {
+    await this.assertCompanyAccess(companyId, userId);
+    const rows = await this.db
+      .select({ value: companyContacts.value, isPrimary: companyContacts.isPrimary })
+      .from(companyContacts)
+      .where(
+        and(
+          eq(companyContacts.companyId, companyId),
+          eq(companyContacts.type, 'phone'),
+        ),
+      );
+    if (rows.length === 0) {
+      // 兜底：公司表上的电话字段
+      const company = await this.getCompanyById(companyId);
+      const phone = company?.phone?.trim();
+      return phone || null;
+    }
+    const primary = rows.find((r) => r.isPrimary) ?? rows[0];
+    return primary.value || null;
   }
 
   /** compose 页读写 CC/BCC */

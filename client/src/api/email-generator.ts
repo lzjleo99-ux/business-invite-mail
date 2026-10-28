@@ -264,3 +264,41 @@ export async function pollInbox(): Promise<{
   const response = await axiosForBackend.post('/api/email-generator/inbox-poll', {}, { timeout: 180_000 });
   return response.data;
 }
+
+// --- 号码注册检测（WhatsApp / Viber）---
+
+export interface MessengerStatus {
+  companyId: string;
+  phone: string;
+  whatsapp: 'yes' | 'no' | 'unknown';
+  viber: 'yes' | 'no' | 'unknown';
+}
+
+export interface MessengerBatchSummary {
+  total: number;
+  whatsappYes: number;
+  whatsappNo: number;
+  unknown: number;
+}
+
+/** 批量检测项目内所有有号码的公司 */
+export async function checkMessengerBatch(
+  projectId: string,
+): Promise<MessengerBatchSummary> {
+  const response = await axiosForBackend.post(
+    `/api/email-generator/messenger-check-batch/${projectId}`,
+    {},
+    { timeout: 300_000 },
+  );
+  return response.data;
+}
+
+/** 读取已检测结果 */
+export async function listMessengerStatus(
+  projectId: string,
+): Promise<MessengerStatus[]> {
+  const response = await axiosForBackend.get(
+    `/api/email-generator/messenger-check/${projectId}`,
+  );
+  return response.data.items ?? [];
+}

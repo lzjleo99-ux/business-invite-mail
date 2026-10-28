@@ -22,6 +22,7 @@ import type { Response } from 'express';
 import { JwtAuthGuard, type JwtPayload } from '../auth/jwt-auth.guard';
 import { CurrentUser } from '../auth/current-user.decorator';
 import { EmailGeneratorService, type BatchSendSummary } from './email-generator.service';
+import { MessengerService } from './messenger.service';
 import { EmailHistoryService, type EmailHistoryRow, type EmailHistoryDetail } from './email-history.service';
 import { EmailInboxService, type InboxPollResult } from './email-inbox.service';
 import type {
@@ -148,6 +149,7 @@ export class EmailGeneratorController {
     private readonly emailGeneratorService: EmailGeneratorService,
     private readonly emailHistoryService: EmailHistoryService,
     private readonly emailInboxService: EmailInboxService,
+    private readonly messengerService: MessengerService,
   ) {}
 
   @Post('generate/:companyId')
@@ -265,6 +267,47 @@ export class EmailGeneratorController {
       bcc: body?.bcc ?? '',
     });
     return { ok: true };
+  }
+
+  /** 单个公司：检测手机号是否注册 WhatsApp/Viber */
+  @Post('messenger-check/:companyId')
+  async messengerCheck(
+    @CurrentUser() user: JwtPayload,
+    @Param('companyId') companyId: string,
+  ): Promise<{ phone: string; whatsapp: string; viber: string; waUrl: string; viberUrl: string }> {
+    if (!companyId) throw new BadRequestException('companyId 不能为空');
+    const company = await this.emailGeneratorService.getCompanyPhoneForCheck(companyId, user.userId);
+    if (!company) throw new BadRequestException('该公司没有可用的手机号');
+    const result = await this.messengerService.checkAndStore(companyId, company);
+    return result;
+  }
+
+  /** 批量：项目内所有公司逐个检测（生成 IM 话术前先跑一遍） */
+  @Post('messenger-check-batch/:projectId')
+  async messengerCheckBatch(
+    @CurrentUser() user: JwtPayload,
+    @Param('projectId') projectId: string,
+  ): Promise<{ total: number; whatsappYes: number; whatsappNo: number; unknown: number }> {
+    if (!projectId) throw new BadRequestException('projectId 不能为空');
+    return this.messengerService.checkProjectPhones(projectId, user.userId);
+  }
+
+  /** 读取已检测结果 */
+  @Get('messenger-check/:projectId')
+  async messengerCheckList(
+    @CurrentUser() user: JwtPayload,
+    @Param('projectId') projectId: string,
+  ): Promise<{ items: Array<{ companyId: string; whatsapp: string; viber: string; phone: string }> }> {
+    if (!projectId) throw new BadRequestException('projectId 不能为空');
+    const map = await this.messengerService.getStoredForProject(projectId, user.userId);
+    return {
+      items: [...map.entries()].map(([companyId, r]) => ({
+        companyId,
+        whatsapp: r.whatsapp,
+        viber: r.viber,
+        phone: r.phone,
+      })),
+    };
   }
 
   // ---- 每公司邮件附件（compose 里上传，发信时随邮件带出）----
