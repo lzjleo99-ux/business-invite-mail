@@ -287,24 +287,28 @@ export class MessengerService {
     userId: string,
   ): Promise<Map<string, MessengerCheckResult>> {
     await this.ensureTable();
+    // 显式选列：join + select() 全量返回的列名不可靠（多表同名列会被覆盖）
     const rows = await this.db
-      .select()
+      .select({
+        companyId: messengerRegistrationTable.companyId,
+        phone: messengerRegistrationTable.phone,
+        whatsapp: messengerRegistrationTable.whatsapp,
+        viber: messengerRegistrationTable.viber,
+        checkedAt: messengerRegistrationTable.checkedAt,
+      })
       .from(messengerRegistrationTable)
       .innerJoin(restaurants, eq(restaurants.id, messengerRegistrationTable.companyId))
       .innerJoin(projects, eq(projects.id, restaurants.projectId))
       .where(and(eq(projects.id, projectId), eq(projects.ownerId, userId)));
     const out = new Map<string, MessengerCheckResult>();
     for (const r of rows) {
-      const row = r as unknown as {
-        company_id: string; phone: string | null; whatsapp: string; viber: string; checked_at: Date;
-      };
-      out.set(row.company_id, {
-        phone: row.phone || '',
-        whatsapp: row.whatsapp as MessengerStatus,
-        viber: row.viber as MessengerStatus,
-        waUrl: row.phone ? `https://wa.me/${row.phone}` : '',
-        viberUrl: row.phone ? `viber://chat?number=${row.phone}` : '',
-        checkedAt: row.checked_at.toISOString(),
+      out.set(r.companyId, {
+        phone: r.phone || '',
+        whatsapp: r.whatsapp as MessengerStatus,
+        viber: r.viber as MessengerStatus,
+        waUrl: r.phone ? `https://wa.me/${r.phone}` : '',
+        viberUrl: r.phone ? `viber://chat?number=${r.phone}` : '',
+        checkedAt: r.checkedAt.toISOString(),
       });
     }
     return out;
