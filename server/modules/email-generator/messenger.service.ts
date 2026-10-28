@@ -229,7 +229,8 @@ export class MessengerService {
     userId: string,
   ): Promise<{ total: number; whatsappYes: number; whatsappNo: number; unknown: number }> {
     await this.ensureTable();
-    const rows = await this.db
+    // 号码有两个来源：contacts 表（抓取到的多个电话）和公司表的主电话字段
+    const contactRows = await this.db
       .select({
         companyId: companyContacts.companyId,
         value: companyContacts.value,
@@ -244,10 +245,18 @@ export class MessengerService {
           eq(companyContacts.type, 'phone'),
         ),
       );
-    // 每家公司只取一个号码（第一个）
+    const companyRows = await this.db
+      .select({ companyId: restaurants.id, phone: restaurants.phone })
+      .from(restaurants)
+      .innerJoin(projects, eq(projects.id, restaurants.projectId))
+      .where(and(eq(projects.id, projectId), eq(projects.ownerId, userId)));
+    // 每家公司只取一个号码（先 contacts，再主电话）
     const byCompany = new Map<string, string>();
-    for (const r of rows) {
-      if (!byCompany.has(r.companyId)) byCompany.set(r.companyId, r.value);
+    for (const r of contactRows) {
+      if (!byCompany.has(r.companyId) && r.value?.trim()) byCompany.set(r.companyId, r.value.trim());
+    }
+    for (const r of companyRows) {
+      if (!byCompany.has(r.companyId) && r.phone?.trim()) byCompany.set(r.companyId, r.phone.trim());
     }
     const entries = [...byCompany.entries()];
     let whatsappYes = 0;
