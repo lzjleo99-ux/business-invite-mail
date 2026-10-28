@@ -191,6 +191,18 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
         if (currentToken && config.headers) {
           config.headers.Authorization = `Bearer ${currentToken}`;
         }
+        // CSRF 头兜底：平台拦截器读 window.csrfToken，这里再从 cookie 取一次，
+        // 保证 DELETE/PATCH 等请求一定带头（漏头会被网关 403，表现为"删除失败"）
+        if (config.headers) {
+          const winToken = (window as unknown as { csrfToken?: string }).csrfToken;
+          const cookieToken = document.cookie
+            .split(';')
+            .map((c) => c.trim())
+            .find((c) => c.startsWith('suda-csrf-token='))
+            ?.split('=')[1];
+          const csrf = winToken || cookieToken;
+          if (csrf) config.headers['X-Suda-Csrf-Token'] = csrf;
+        }
         return config;
       },
     );

@@ -20,6 +20,7 @@ export const enMessages: Record<string, string> = {
   '第 {page} / {totalPages} 页': 'Page {page} of {totalPages}',
 
   // ---- antd table locale ----
+  '正文预览（图片已嵌入正文，不是附件）': 'Body preview (images are embedded in the body, not attachments)',
   '号码检测完成：{total} 个号码，链接可用 {yes} 个、无效 {no} 个、不确定 {unknown} 个': 'Number check done: {total} numbers - {yes} reachable, {no} invalid, {unknown} unconfirmed',
   '号码检测失败': 'Number check failed',
   '未检测': 'Not checked yet',

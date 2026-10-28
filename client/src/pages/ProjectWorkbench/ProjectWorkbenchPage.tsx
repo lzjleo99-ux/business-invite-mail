@@ -431,10 +431,12 @@ const ProjectWorkbenchInner: React.FC = () => {
       // `body` before, silently dropping the localized edits.
       // 正文可能是纯文本（AI 生成）或富文本（用户在编辑器排版过）：
       // 富文本统一加 `<!--html-->` 哨兵，服务端据此按 HTML 发送
+      // 编辑器产出的已经是 HTML（纯文本在进入编辑器时就转成了段落），
+      // 这里只加哨兵前缀，不能再转义一次——否则正文变成 <p>&lt;p&gt;… 的乱码
       const withPrefix = (v: string): string => {
         if (!v) return v;
         if (v.trimStart().startsWith('<!--html-->')) return v;
-        return `<!--html-->${textToEditorHtml(v)}`;
+        return `<!--html-->${v}`;
       };
       await restaurantsApi.updateEmail(record.id, {
         subject: editingEmail.subject,
@@ -584,7 +586,7 @@ const ProjectWorkbenchInner: React.FC = () => {
       void qc.invalidateQueries({ queryKey: ['project', id] });
     } catch (err: unknown) {
       logger.error('删除素材失败', err);
-      toast.error(t('删除失败，请稍后重试'));
+      toast.error(errMessage(err, t('删除失败')));
     }
   };
 

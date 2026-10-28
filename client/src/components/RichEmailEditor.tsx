@@ -77,10 +77,13 @@ const RichEmailEditor: React.FC<RichEmailEditorProps> = ({
   const loadedRef = useRef<string | null>(null);
 
   // 外部值变化时写入编辑器（仅当内容确实不同，避免光标跳走）
+  // 约定：**value 永远是 HTML**（纯文本由调用方先转成段落 HTML）。
+  // 之前在这里做"不是 HTML 就转义"，导致编辑器回写出来的 HTML 被二次转义，
+  // 页面上就是一串 <p>&lt;p&gt;… 的乱码。
   useEffect(() => {
     const el = ref.current;
     if (!el) return;
-    const html = isHtmlBody(value) ? stripHtmlPrefix(value) : textToEditorHtml(value);
+    const html = isHtmlBody(value) ? stripHtmlPrefix(value) : value;
     if (loadedRef.current === html) return;
     if (el.innerHTML !== html) {
       el.innerHTML = html;

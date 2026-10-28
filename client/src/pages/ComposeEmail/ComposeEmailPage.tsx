@@ -142,9 +142,15 @@ const ComposeEmailPage: React.FC = () => {
     if (composeData) {
       setRecipientEmail(composeData.recipientEmail || '');
       setSubject(composeData.subject || '');
-      setBody(composeData.body || '');
+      // 编辑器只认 HTML：纯文本（AI 生成的）先转成段落 HTML
+      const toHtml = (v: string | undefined | null): string => {
+        if (!v) return '';
+        if (v.trimStart().startsWith('<!--html-->')) return v.trimStart().slice(11);
+        return textToEditorHtml(v);
+      };
+      setBody(toHtml(composeData.body));
       setSubjectLocal(composeData.subjectLocal || '');
-      setBodyLocal(composeData.bodyLocal || '');
+      setBodyLocal(toHtml(composeData.bodyLocal));
       setLanguageCode(composeData.languageCode || 'en');
       // Default to local language if available, else english
       if (composeData.subjectLocal || composeData.bodyLocal) {
@@ -248,10 +254,7 @@ const ComposeEmailPage: React.FC = () => {
     }
     saveMutation.mutate({
       subject,
-      body:
-        body && body.trimStart().startsWith('<!--html-->')
-          ? body
-          : `<!--html-->${textToEditorHtml(body || '')}`,
+      body: body && body.trimStart().startsWith('<!--html-->') ? body : `<!--html-->${body || ''}`,
       subjectLocal,
       bodyLocal,
       language: languageCode,
@@ -310,10 +313,11 @@ const ComposeEmailPage: React.FC = () => {
       const nextBodyLocal = displayLang === 'local' ? activeBody : bodyLocal;
       // 富文本正文统一加 `<!--html-->` 哨兵（服务端据此按 HTML 发送）
       // 纯文本要先转成段落 HTML——否则 HTML 渲染会把换行折叠成一行
+      // state 里已经是 HTML，只加哨兵（不再转义）
       const withPrefix = (v: string): string => {
         if (!v) return v;
         if (v.trimStart().startsWith('<!--html-->')) return v;
-        return `<!--html-->${textToEditorHtml(v)}`;
+        return `<!--html-->${v}`;
       };
       await saveMutation.mutateAsync({
         subject: nextSubject,

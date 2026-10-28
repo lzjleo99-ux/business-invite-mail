@@ -39,7 +39,8 @@ import * as emailGeneratorApi from '@client/src/api/email-generator';
 import * as adminApi from '@client/src/api/admin';
 import * as senderProfilesApi from '@client/src/api/sender-profiles';
 import * as projectsApi from '@client/src/api/projects';
-import RichEmailEditor from '@client/src/components/RichEmailEditor';
+import RichEmailEditor, { textToEditorHtml } from '@client/src/components/RichEmailEditor';
+import EmailBodyPreview from '@client/src/components/EmailBodyPreview';
 import EmailChipInput from '@client/src/components/EmailChipInput';
 import { getSendOptions, saveSendOptions, uploadAttachment } from '@client/src/api/sender-profiles';
 import type { SenderProfile } from '@client/src/api/sender-profiles';
@@ -963,11 +964,17 @@ const WorkbenchTab: React.FC<WorkbenchTabProps> = ({
   };
 
   const startEditEmail = (record: Company) => {
+    // 编辑器只认 HTML：纯文本（AI 生成的）先转成段落 HTML
+    const toHtml = (v: string | undefined | null): string => {
+      if (!v) return '';
+      if (v.trimStart().startsWith('<!--html-->')) return v.trimStart().slice(11);
+      return textToEditorHtml(v);
+    };
     setEditingEmail({
       subject: record.emailSubject || '',
-      body: record.emailBody || '',
+      body: toHtml(record.emailBody),
       subjectLocal: record.emailSubjectLocal || '',
-      bodyLocal: record.emailBodyLocal || '',
+      bodyLocal: toHtml(record.emailBodyLocal),
     });
     // 载入该公司已存的抄送/密送
     void getSendOptions(record.id)
@@ -1822,6 +1829,8 @@ const WorkbenchTab: React.FC<WorkbenchTabProps> = ({
                    }}
                    placeholder={t('请输入邮件正文')}
                  />
+                 {/* 实时预览：标记位置显示真实图片，确认图片是"进正文"而不是附件 */}
+                 <EmailBodyPreview html={emailBody} projectId={projectId} />
                  {hasImageMarkers(emailBody) && (
                    <p className="text-xs text-slate-400">
                      {t('邮件中的图片以 [[IMG:...]] 标记占位（其下一行为图注），编辑时请保留这些行')}
