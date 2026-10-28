@@ -18,12 +18,15 @@ export function isWeComWebview(): boolean {
  * Open an external URL. Inside WeCom the wxlink:// bridge is required;
  * in a normal browser (e.g. GitHub Pages) a standard new tab works.
  */
-export function openExternal(url: string): void {
+export function openExternal(url: string): boolean {
+  if (!url) return false;
   if (isWeComWebview()) {
     location.assign(`wxlink://open?url=${encodeURIComponent(url)}`);
-  } else {
-    window.open(url, '_blank', 'noopener,noreferrer');
+    return true;
   }
+  // 弹窗拦截器可能在返回 null —— 调用方据此给出可复制的链接兜底
+  const win = window.open(url, '_blank', 'noopener,noreferrer');
+  return !!win;
 }
 
 /** WhatsApp click-to-chat link with a prefilled message. */
@@ -61,15 +64,32 @@ export function bestChatPhone(record: Company): string {
     record.normalizedWhatsappPhone ||
     record.normalizedPhone ||
     record.viberPhone ||
-    normalizeSerbianPhone(record.websiteContactPhone || record.phone || '', record.country || '')
+    normalizeSerbianPhone(record.websiteContactPhone || record.phone || '', record.country || '') ||
+    genericPhoneDigits(record.websiteContactPhone || record.phone)
   );
 }
 
-/** Best number for WhatsApp (must be mobile). */
+/** 通用号码兜底：从任意原始号码里取数字（+33 6 12 22 18 74 → 33612221874）。 */
+export function genericPhoneDigits(value: string | null | undefined): string {
+  const digits = String(value || '').replace(/[^\d]/g, '');
+  // 去掉国际前缀 00
+  return digits.startsWith('00') ? digits.slice(2) : digits;
+}
+
+/**
+ * Best number for WhatsApp.
+ * 之前要求 phoneType === 'mobile'，而大量抓取到的号码类型是 'unknown'
+ * （比如法国 +33612221874）→ 取不到号 → 按钮变禁用态，点了没反应。
+ * 现在：**只有明确是座机（landline）才排除**，其余一律可用
+ * （WhatsApp 本身也支持座机号，只是体验略差）。
+ */
 export function bestWhatsAppPhone(record: Company): string {
   return (
     record.normalizedWhatsappPhone ||
-    (record.phoneType === 'mobile' ? record.normalizedPhone : '') ||
+    (record.phoneType !== 'landline' ? record.normalizedPhone : '') ||
+    (!record.normalizedPhone && record.phoneType !== 'landline'
+      ? genericPhoneDigits(record.websiteContactPhone || record.phone)
+      : '') ||
     ''
   );
 }

@@ -915,7 +915,15 @@ const WorkbenchTab: React.FC<WorkbenchTabProps> = ({
       channel === 'whatsapp'
         ? buildWhatsAppUrl(digits, message)
         : buildViberUrl(digits);
-    openExternal(url);
+    const opened = openExternal(url);
+    if (!opened) {
+      // 弹窗被拦截：把链接给用户复制，别让"点了没反应"变成死路
+      void copyTextUtil(url);
+      toast.error(t('浏览器拦截了新窗口，请允许弹窗，或复制链接打开'), {
+        description: url,
+      });
+      return;
+    }
 
     if (message) {
       void copyTextUtil(message).then((ok: boolean) => {
@@ -1232,8 +1240,10 @@ const WorkbenchTab: React.FC<WorkbenchTabProps> = ({
             <Tooltip>
               <TooltipTrigger asChild>
                 {hasWhatsApp ? (
-                  <UniversalLink
-                    to={waUrl}
+                  // 外部网址必须用原生 <a>：UniversalLink（路由 Link）会拦截点击，
+                  // 结果就是"点了没反应"
+                  <a
+                    href={waUrl}
                     target="_blank"
                     rel="noopener noreferrer"
                     onClick={(e) => {
@@ -1247,7 +1257,7 @@ const WorkbenchTab: React.FC<WorkbenchTabProps> = ({
                   >
                     <MessageCircle size={14} />
                     WhatsApp
-                  </UniversalLink>
+                  </a>
                 ) : (
                   <span>
                     <Button
@@ -1267,8 +1277,9 @@ const WorkbenchTab: React.FC<WorkbenchTabProps> = ({
             <Tooltip>
               <TooltipTrigger asChild>
                 {hasViber ? (
-                  <UniversalLink
-                    to={viberUrl}
+                  // 同上：外部网址用原生 <a>
+                  <a
+                    href={viberUrl}
                     target="_blank"
                     rel="noopener noreferrer"
                     onClick={(e) => {
@@ -1282,7 +1293,7 @@ const WorkbenchTab: React.FC<WorkbenchTabProps> = ({
                   >
                     <Phone size={14} />
                     Viber
-                  </UniversalLink>
+                  </a>
                 ) : (
                   <span>
                     <Button
@@ -1623,15 +1634,16 @@ const WorkbenchTab: React.FC<WorkbenchTabProps> = ({
             </div>
             {record.website && (
               <div className="mt-4">
-                <UniversalLink
-                  to={record.website}
+                {/* 公司官网也是外链：同样用原生 <a>，否则点了没反应 */}
+                <a
+                  href={record.website}
                   target="_blank"
                   rel="noopener noreferrer"
                   className="text-sm text-primary hover:underline inline-flex items-center gap-1"
                 >
                   <Globe size={14} />
                   {record.website}
-                </UniversalLink>
+                </a>
               </div>
             )}
             {record.analyzeError && (
