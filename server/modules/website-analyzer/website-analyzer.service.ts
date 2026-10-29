@@ -7,6 +7,7 @@ import {
 } from '@lark-apaas/fullstack-nestjs-core';
 import { eq, and, inArray, sql } from 'drizzle-orm';
 import axios, { type AxiosInstance } from 'axios';
+import { postChatCompletions } from '@server/common/utils/ai-chat';
 import { execFile } from 'child_process';
 import { promisify } from 'util';
 import { randomUUID } from 'crypto';
@@ -575,16 +576,14 @@ Return ONLY a valid JSON object with these fields.`;
       jsonMode: true,
     });
 
-    const response = await axios.post(
+    const response = await postChatCompletions(
       `${config.apiBaseUrl.replace(/\/+$/, '')}/chat/completions`,
       body,
       {
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${config.apiKey}`,
-        },
-        timeout: 60000,
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${config.apiKey}`,
       },
+      { timeout: 60000, label: 'website-analyzer' },
     );
 
     const contentStr = response.data?.choices?.[0]?.message?.content;
@@ -746,16 +745,14 @@ ${content}`;
       jsonMode: true,
     });
 
-    const response = await axios.post(
+    const response = await postChatCompletions(
       `${config.apiBaseUrl.replace(/\/+$/, '')}/chat/completions`,
       body,
       {
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${config.apiKey}`,
-        },
-        timeout: 60000,
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${config.apiKey}`,
       },
+      { timeout: 60000, label: 'website-analyzer' },
     );
 
     const contentStr = response.data?.choices?.[0]?.message?.content;

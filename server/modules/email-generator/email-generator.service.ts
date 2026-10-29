@@ -27,6 +27,7 @@ import {
 import { ensureOwnSenderRow } from '@server/modules/sender-config/sender-config.service';
 import { SenderProfilesService } from '@server/modules/sender-profiles/sender-profiles.service';
 import { runIdempotentMigration } from '@server/common/utils/ddl-runner';
+import { postChatCompletions } from '@server/common/utils/ai-chat';
 import {
   companyContacts,
   emailAttachmentsTable,
@@ -1798,13 +1799,16 @@ Return ONLY a JSON object with these exact keys:
 
     for (let attempt = 0; attempt <= this.MAX_RETRIES; attempt += 1) {
       try {
-        const response = await axios.post(url, body, {
-          headers: {
+        // 统一入口：模型不吃 temperature/max_tokens 等参数时自动适配重试
+        const response = await postChatCompletions(
+          url,
+          body,
+          {
             'Content-Type': 'application/json',
             Authorization: `Bearer ${config.apiKey}`,
           },
-          timeout: this.MODEL_TIMEOUT_MS,
-        });
+          { timeout: this.MODEL_TIMEOUT_MS, label: 'email-generator' },
+        );
         return response;
       } catch (err: unknown) {
         lastError = err;

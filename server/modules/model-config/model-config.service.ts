@@ -2,6 +2,7 @@ import { Injectable, Inject, Logger } from '@nestjs/common';
 import { DRIZZLE_DATABASE, type PostgresJsDatabase } from '@lark-apaas/fullstack-nestjs-core';
 import { eq, asc, sql } from 'drizzle-orm';
 import axios from 'axios';
+import { postChatCompletions } from '@server/common/utils/ai-chat';
 import { modelConfig, appUsers } from '@server/database/schema';
 import type {
   ModelConfig,
@@ -175,29 +176,25 @@ export class ModelConfigService {
         body.temperature = temperature;
       }
 
-      const resp = await axios.post(url, body, {
-        headers: {
+      // 统一入口：新模型（gpt-5/o 系）不吃 max_tokens/temperature 时会自动适配重试
+      const resp = await postChatCompletions(
+        url,
+        body,
+        {
           'Content-Type': 'application/json',
           Authorization: `Bearer ${apiKey}`,
         },
-        timeout: 15000,
-        validateStatus: () => true,
-      });
+        { timeout: 15000, label: 'model-test' },
+      );
 
       const data = resp.data as Record<string, unknown>;
 
-      if (resp.status < 200 || resp.status >= 300) {
+      if (data.error || (!data.choices && !data.id)) {
         const errMsg = (data.error as { message?: string } | undefined)?.message;
         return {
           success: false,
-          message: errMsg
-            ? `HTTP ${resp.status}: ${errMsg}`
-            : `HTTP ${resp.status} ${resp.statusText ?? ''}`.trim(),
+          message: errMsg ? `HTTP ${resp.status}: ${errMsg}` : '连接失败，请检查模型名称是否正确',
         };
-      }
-
-      if (data.error || (!data.choices && !data.id)) {
-        return { success: false, message: '连接失败，请检查模型名称是否正确' };
       }
 
       return { success: true, message: `连接成功（模型：${model}）` };

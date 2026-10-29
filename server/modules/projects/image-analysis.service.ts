@@ -6,6 +6,7 @@ import {
 } from '@lark-apaas/fullstack-nestjs-core';
 import { eq, asc, sql } from 'drizzle-orm';
 import axios from 'axios';
+import { postChatCompletions } from '@server/common/utils/ai-chat';
 import { spawn } from 'child_process';
 import { modelConfig, projectMaterials, materialImageDescriptions } from '@server/database/schema';
 import { runIdempotentMigration } from '@server/common/utils/ddl-runner';
@@ -266,7 +267,7 @@ export class ImageAnalysisService {
 
     const dataUrl = await this.buildImageDataUrl(materialId);
     const url = `${config.apiBaseUrl.replace(/\/+$/, '')}/chat/completions`;
-    const response = await axios.post(
+    const response = await postChatCompletions(
       url,
       buildChatBody({
         model: config.modelName,
@@ -282,12 +283,10 @@ export class ImageAnalysisService {
         temperature: 0.2,
       }),
       {
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${config.apiKey}`,
-        },
-        timeout: 120000,
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${config.apiKey}`,
       },
+      { timeout: 120000, label: 'image-analysis' },
     ).catch((err: unknown) => {
       const status = (err as { response?: { status?: number } })?.response?.status;
       if (status && status >= 400 && status < 500) {
