@@ -642,6 +642,25 @@ export class EmailGeneratorService {
     data: { cc: string; bcc: string },
   ): Promise<void> {
     await this.assertCompanyAccess(companyId, userId);
+    // 服务端也要校验：前端 chip 组件会校验，但直接调 API / 旧客户端可能写入
+    // 非法地址，发信时 SMTP 才报错甚至静默丢弃，排查困难。
+    const EMAIL_RE = /^[^\s@,;<>]+@[^\s@,;<>]+\.[^\s@,;<>]+$/;
+    const validateAddresses = (raw: string, label: string): void => {
+      const list = String(raw || '')
+        .split(/[,;]/)
+        .map((x) => x.trim())
+        .filter(Boolean);
+      if (list.length > 20) {
+        throw new BadRequestException(`${label} 最多支持 20 个地址`);
+      }
+      for (const addr of list) {
+        if (!EMAIL_RE.test(addr)) {
+          throw new BadRequestException(`${label} 地址格式不正确：${addr}`);
+        }
+      }
+    };
+    validateAddresses(data.cc, 'CC');
+    validateAddresses(data.bcc, 'BCC');
     await this.ensureSendOptionsTable();
     await this.db
       .insert(companySendOptionsTable)

@@ -639,7 +639,15 @@ export class MailService {
       this.accountsTablePromise = null;
       try {
         await this.ensureAccountsTable();
-        const retry = await this.db.select().from(smtpAccounts);
+        // 必须与主查询保持同样的归属过滤：否则异常重试时会把**所有用户的**
+        // 邮箱账号（含授权码明文）返回给当前调用者 —— 越权数据泄漏。
+        const retry = ownerId
+          ? await this.db.select().from(smtpAccounts)
+              .where(eq(smtpAccounts.ownerId, ownerId))
+              .orderBy(desc(smtpAccounts.isDefault), asc(smtpAccounts.createdAt))
+          : await this.db.select().from(smtpAccounts)
+              .where(isNull(smtpAccounts.ownerId))
+              .orderBy(desc(smtpAccounts.isDefault), asc(smtpAccounts.createdAt));
         return retry.map((r) => ({
           id: r.id,
           email: r.email,

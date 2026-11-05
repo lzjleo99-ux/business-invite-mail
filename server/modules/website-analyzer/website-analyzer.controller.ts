@@ -46,6 +46,11 @@ export class WebsiteAnalyzerController {
     if (!companyId) {
       throw new BadRequestException('companyId 不能为空');
     }
+    // 该查询按 text 列比较，非法 ID 不会触发数据库类型错误，会静默返回空数组，
+    // 与其它端点「资源不存在」的语义不一致 —— 显式校验。
+    if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(companyId)) {
+      throw new BadRequestException('companyId 格式不正确');
+    }
     return { items: await this.websiteAnalyzerService.listContacts(companyId) };
   }
 
