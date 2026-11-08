@@ -64,8 +64,17 @@ export class ProjectNamingService {
     ) {
       return true;
     }
+    // AI 拒绝语 / 解释性输出（模型没给名字时会说「抱歉，我无法完成」）
+    if (
+      /^(?:抱歉|对不起|很抱歉|无法|不能|我不知道|不确定|作为(?:一个)?AI|I'?m\s*sorry|Sorry|Unable|Cannot|As an AI|N\/A|None)/i.test(
+        n,
+      )
+    ) {
+      return true;
+    }
+    if (/[。！？!?]$/.test(n)) return true;
     // 明显的动作句或 xlsx 文件名
-    if (/(?:搜索|搜一下|查找|推送给|发送给|发送给|并|然后|建立新项目|帮我|请)/.test(n)) return true;
+    if (/(?:搜索|搜一下|查找|推送给|发送给|并|然后|建立新项目|新建项目|帮我|请)/.test(n)) return true;
     if (/\.(?:xlsx|xls|csv|pdf|docx?)$/i.test(n)) return true;
     // 站点自动生成的代码（XX1234）不该当项目名
     if (/^[A-Z]{2}[0-9]{4}$/.test(n.toUpperCase())) return true;
@@ -216,7 +225,7 @@ export class ProjectNamingService {
       .replace(/^["'「」《》\s]+|["'「」《》\s]+$/g, '')
       .replace(/^(?:项目名(?:称)?|名称|Project name|Name)\s*[:：]\s*/i, '')
       .trim();
-    if (!name || name.length > 60 || this.isPlaceholderName(name)) return null;
+    if (!name || name.length > 40 || this.isPlaceholderName(name)) return null;
     return name;
   }
 }
