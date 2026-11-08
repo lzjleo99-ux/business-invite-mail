@@ -91,7 +91,9 @@ export class ProjectsService {
           }
           // 回填：还没有 meta 行的项目逐个建（代码撞唯一索引就换一个重试）
           const need = await run(
-            `SELECT id FROM projects WHERE id NOT IN (SELECT project_id FROM project_meta)`,
+            `SELECT p.id FROM projects p
+             LEFT JOIN project_meta m ON m.project_id = p.id
+             WHERE m.project_id IS NULL OR m.code IS NULL`,
           );
           const rows = (need as { id: string }[] | undefined) ?? [];
           for (const row of rows) {
@@ -99,7 +101,10 @@ export class ProjectsService {
               const code = generateProjectCode();
               try {
                 await run(
-                  `INSERT INTO project_meta (project_id, code) VALUES ('${row.id}', '${code}') ON CONFLICT (project_id) DO NOTHING`,
+                  `INSERT INTO project_meta (project_id, code) VALUES ('${row.id}', '${code}')
+                   ON CONFLICT (project_id) DO UPDATE
+                     SET code = EXCLUDED.code
+                   WHERE project_meta.code IS NULL`,
                 );
                 break;
               } catch {

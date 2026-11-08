@@ -11,9 +11,11 @@ import {
   DRIZZLE_DATABASE,
   type PostgresJsDatabase,
 } from '@lark-apaas/fullstack-nestjs-core';
-import { eq, sql, ilike, max, inArray, and, asc } from 'drizzle-orm';
+import { eq, sql, ilike, max, inArray, and, asc, isNull } from 'drizzle-orm';
 import { modelConfig, projects, projectMeta, restaurants, appUsers } from '@server/database/schema';
 import { RestaurantsService } from '../restaurants/restaurants.service';
+import { generateProjectCode } from '../projects/project-code';
+import { ProjectNamingService } from './project-naming.service';
 import type { UserContext } from '../restaurants/restaurants.service';
 import type {
   ImportSecretConfig,
@@ -153,6 +155,7 @@ export class AutoImportService {
   constructor(
     @Inject(DRIZZLE_DATABASE) private readonly db: PostgresJsDatabase,
     private readonly restaurantsService: RestaurantsService,
+    private readonly naming: ProjectNamingService,
   ) {}
 
   /**
@@ -221,6 +224,7 @@ export class AutoImportService {
     rawLeads: Array<Record<string, unknown>>,
     secretHeader: string | undefined,
     projectCode?: string,
+    options?: { autoName?: boolean; sourceHint?: string },
   ): Promise<AutoImportResponse> {
     // Validate secret
     const stored = await this.readStoredSecret();
@@ -231,8 +235,10 @@ export class AutoImportService {
       throw new UnauthorizedException('Import secret 无效');
     }
 
-    if (!projectName || !projectName.trim()) {
-      throw new BadRequestException('projectName 不能为空');
+    const requestedName = (projectName || '').trim();
+    const autoName = options?.autoName === true;
+    if (!requestedName && !autoName) {
+      throw new BadRequestException('projectName 不能为空（除非使用 autoName 自动命名）');
     }
     if (!rawLeads || !Array.isArray(rawLeads)) {
       throw new BadRequestException('leads 必须是数组');
@@ -244,6 +250,8 @@ export class AutoImportService {
     // 优先按代码定位：代码是站点自动生成的唯一短码，比名字可靠。
     // 查不到就明确报错——绝不静默按名字新建（那会推错项目）。
     let projectId: string | null = null;
+    let resolvedName = requestedName;
+    let resolvedCode: string | null = null;
     const code = (projectCode || '').trim().toUpperCase();
     if (code) {
       const byCode = await this.db
@@ -258,6 +266,7 @@ export class AutoImportService {
         );
       }
       projectId = byCode[0].id;
+      resolvedName = byCode[0].name;
     }
 
     // 没给代码才走按名字找/建（旧行为，兼容已在线上跑的机器人）。
@@ -283,8 +292,36 @@ export class AutoImportService {
           );
         }
       } else {
-        projectId = await this.findOrCreateProject(projectName.trim(), owner.userId);
+        // 名字是「指令残片」（给网站 / 新建项目 / xlsx 文件名…）或机器人显式
+        // 要求自动命名时，用 AI 分析这批线索内容生成项目名。
+        // 正常项目名一律原样保留，不改动既有按名字追加的语义。
+        if (autoName || this.naming.isPlaceholderName(resolvedName)) {
+          const samples = rawLeads.slice(0, 12).map((r) => this.mapRawLead(r));
+          const generated = await this.naming.generateName(
+            samples.map((l) => ({
+              name: l.name ?? null,
+              country: l.country ?? null,
+              website: l.website ?? null,
+            })),
+            options?.sourceHint || resolvedName,
+            owner.userId,
+          );
+          resolvedName = generated.name;
+          this.logger.log(
+            `项目自动命名（${generated.source}）："${requestedName || '(空)'}" -> "${resolvedName}"`,
+          );
+        }
+        const found = await this.findOrCreateProject(resolvedName, owner.userId);
+        projectId = found.id;
+        resolvedCode = found.code;
       }
+    }
+
+    // 不论新建还是命中已有项目，都保证有机器人代码：
+    // 历史 bug——auto-import 只插 projects 表、不建 project_meta，
+    // 而回填代码只在容器启动后跑一次，导致之后新建的项目代码永远为空。
+    if (!resolvedCode) {
+      resolvedCode = await this.ensureProjectCode(projectId);
     }
 
     // Map raw leads to AutoImportLead
@@ -343,6 +380,8 @@ export class AutoImportService {
       projectUrl: `/projects/${projectId}`,
       imported,
       duplicates,
+      projectName: resolvedName,
+      projectCode: resolvedCode,
     };
   }
 
@@ -460,14 +499,17 @@ export class AutoImportService {
    * 按名字找或建项目，**只在给定 owner 名下查找**。
    * 同名但属于别人的项目不会被借用——否则机器人会往同事的项目里写线索。
    */
-  private async findOrCreateProject(name: string, ownerId: string): Promise<string> {
+  private async findOrCreateProject(
+    name: string,
+    ownerId: string,
+  ): Promise<{ id: string; code: string | null }> {
     const rows = await this.db
       .select({ id: projects.id })
       .from(projects)
       .where(and(ilike(projects.name, name), eq(projects.ownerId, ownerId)));
 
     if (rows.length > 0) {
-      return rows[0].id;
+      return { id: rows[0].id, code: await this.ensureProjectCode(rows[0].id) };
     }
 
     const maxOrderResult = await this.db
@@ -486,7 +528,48 @@ export class AutoImportService {
       })
       .returning({ id: projects.id });
 
-    return inserted[0].id;
+    // 建项目就同时生成机器人代码（project_meta），不再依赖启动期回填
+    const code = await this.ensureProjectCode(inserted[0].id);
+    return { id: inserted[0].id, code };
+  }
+
+  /** 确保项目有机器人代码；已有代码原样返回，缺失则生成并写回（幂等） */
+  private async ensureProjectCode(projectId: string): Promise<string | null> {
+    try {
+      const existing = await this.db
+        .select({ code: projectMeta.code })
+        .from(projectMeta)
+        .where(eq(projectMeta.projectId, projectId))
+        .limit(1);
+      if (existing[0]?.code) return existing[0].code;
+
+      for (let attempt = 0; attempt < 5; attempt += 1) {
+        const candidate = generateProjectCode();
+        try {
+          await this.db
+            .insert(projectMeta)
+            .values({ projectId, code: candidate })
+            .onConflictDoUpdate({
+              target: projectMeta.projectId,
+              set: { code: candidate },
+              setWhere: isNull(projectMeta.code),
+            });
+          const row = await this.db
+            .select({ code: projectMeta.code })
+            .from(projectMeta)
+            .where(eq(projectMeta.projectId, projectId))
+            .limit(1);
+          if (row[0]?.code) return row[0].code;
+        } catch {
+          // 代码唯一索引撞了，换一个重试
+        }
+      }
+    } catch (err: unknown) {
+      this.logger.warn(
+        `项目 ${projectId} 代码生成失败（不影响导入）：${err instanceof Error ? err.message : String(err)}`,
+      );
+    }
+    return null;
   }
 
   private mapRawLead(raw: Record<string, unknown>): AutoImportLead {

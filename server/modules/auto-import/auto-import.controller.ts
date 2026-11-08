@@ -9,7 +9,7 @@ import {
   Logger,
   UnauthorizedException,
 } from '@nestjs/common';
-import { IsString, IsArray, MinLength, IsOptional } from 'class-validator';
+import { IsString, IsArray, MinLength, IsOptional, IsBoolean } from 'class-validator';
 import { Type } from 'class-transformer';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { AdminGuard } from '@server/common/guards/admin.guard';
@@ -27,14 +27,25 @@ class UpdateImportSecretDto implements UpdateImportSecretRequest {
 }
 
 class AutoImportBodyDto {
+  /** 可以为空：机器人未指定项目时传 autoName=true，由服务端 AI 命名 */
+  @IsOptional()
   @IsString()
-  @MinLength(1)
-  projectName!: string;
+  projectName?: string;
 
   /** 可选：机器人项目代码（FF1357）。给了就按代码定位项目，名字只作展示兜底。 */
   @IsOptional()
   @IsString()
   projectCode?: string;
+
+  /** 让服务端根据线索内容自动生成项目名 */
+  @IsOptional()
+  @IsBoolean()
+  autoName?: boolean;
+
+  /** 用户原始指令（AI 命名参考，例如「搜索塞尔维亚的100个模具工厂…」） */
+  @IsOptional()
+  @IsString()
+  sourceHint?: string;
 
   @IsArray()
   @Type(() => Object)
@@ -75,8 +86,8 @@ export class AutoImportController {
     @Headers('X-Import-Secret') importSecret: string | undefined,
     @Body() body: AutoImportBodyDto,
   ): Promise<AutoImportResponse> {
-    if (!body.projectName) {
-      throw new BadRequestException('projectName is required');
+    if (!body.autoName && !body.projectName?.trim()) {
+      throw new BadRequestException('projectName is required (or set autoName=true)');
     }
     if (!body.leads || !Array.isArray(body.leads)) {
       throw new BadRequestException('leads must be an array');
@@ -86,10 +97,11 @@ export class AutoImportController {
     }
 
     return this.autoImportService.importLeads(
-      body.projectName,
+      body.projectName ?? '',
       body.leads,
       importSecret,
       body.projectCode,
+      { autoName: body.autoName, sourceHint: body.sourceHint },
     );
   }
 }

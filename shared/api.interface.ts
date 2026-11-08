@@ -363,6 +363,10 @@ export interface AutoImportLead {
 export interface AutoImportRequest {
   projectName: string;
   leads: AutoImportLead[];
+  /** 让服务端用 AI 分析线索内容自动命名（机器人未指定项目名时传 true） */
+  autoName?: boolean;
+  /** 用户原始指令，作为 AI 命名的参考（可选） */
+  sourceHint?: string;
 }
 
 export interface AutoImportResponse {
@@ -370,6 +374,10 @@ export interface AutoImportResponse {
   projectUrl: string;
   imported: number;
   duplicates: number;
+  /** 服务端最终采用的项目名（自动命名后可能与请求里的不同） */
+  projectName: string;
+  /** 该项目的机器人代码；机器人应据此回填自己的项目注册表 */
+  projectCode: string | null;
 }
 
 // Legacy aliases for backward compatibility
