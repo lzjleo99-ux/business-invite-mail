@@ -696,7 +696,7 @@ export const enMessages: Record<string, string> = {
   '设置默认失败': 'Set default failed',
   '发送语言': 'Send language',
   '发信账号（邮箱后缀）': 'Sender account (email domain)',
-  '未配置，将使用设置里的默认账号': 'Not configured — the default account from Settings will be used',
+  '未配置，将使用设置里的默认账号': 'No mailbox under this account - add one in Settings > Sender service (or ask an admin to share one)',
   '默认账号': 'Default account',
   '（默认）': '(default)',
   '国家筛选': 'Country filter',

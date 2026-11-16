@@ -789,6 +789,8 @@ export class EmailGeneratorService {
     accountId?: string,
     userId?: string,
     profileId?: string | null,
+    /** 调用者角色：super_admin 可代用团队发信账号 */
+    callerRole?: string,
   ): Promise<{
     to: string; subject: string }> {
     if (userId) await this.assertCompanyAccess(companyId, userId);
@@ -812,6 +814,7 @@ export class EmailGeneratorService {
         { from, to: [recipient, ...ccList, ...bccList] },
         acctId,
         userId,
+        callerRole,
       );
       await this.emailHistory.recordOutbound({
         companyId: company.id,
@@ -928,6 +931,7 @@ export class EmailGeneratorService {
             { from, to: [to, ...ccList, ...bccList] },
             acctId,
             senderUserId,
+            user.role,
           );
           await this.emailHistory.recordOutbound({
             companyId: company.id,

@@ -599,7 +599,16 @@ export class MailService {
    * 编辑时要能看到并直接改当前值，而不是"留空表示不修改"。
    * 代价：能打开设置页的人都能看到 SMTP 授权码。已向用户说明这一权衡。
    */
-  async listAccounts(ownerId?: string): Promise<
+  /**
+   * 列出发信账号。
+   * - includeAll（super_admin）：全部账号——发信邮箱是团队资源，管理员要能代发；
+   * - 普通用户：自己的 + 全局（owner_id IS NULL，旧部署遗留的共享账号）。
+   * 发送端 resolveSender 同步校验归属，普通用户即便拿到他人账号 id 也会被拒。
+   */
+  async listAccounts(
+    ownerId?: string,
+    opts?: { includeAll?: boolean },
+  ): Promise<
     {
       id: string; email: string; password: string;
       host: string; port: number; secure: boolean; fromName: string | null; isDefault: boolean;
@@ -607,13 +616,15 @@ export class MailService {
       inboxPollEnabled: boolean; inboxPollSeconds: number;
     }[]
   > {
+    const mineOrGlobal = ownerId
+      ? or(eq(smtpAccounts.ownerId, ownerId), isNull(smtpAccounts.ownerId))
+      : isNull(smtpAccounts.ownerId);
     try {
       await this.ensureAccountsTable();
-      const rows = ownerId
-        ? await this.db.select().from(smtpAccounts).where(eq(smtpAccounts.ownerId, ownerId))
+      const rows = opts?.includeAll
+        ? await this.db.select().from(smtpAccounts)
             .orderBy(desc(smtpAccounts.isDefault), asc(smtpAccounts.createdAt))
-        : await this.db.select().from(smtpAccounts)
-            .where(isNull(smtpAccounts.ownerId))
+        : await this.db.select().from(smtpAccounts).where(mineOrGlobal)
             .orderBy(desc(smtpAccounts.isDefault), asc(smtpAccounts.createdAt));
       return rows.map((r) => ({
         id: r.id,
@@ -641,12 +652,10 @@ export class MailService {
         await this.ensureAccountsTable();
         // 必须与主查询保持同样的归属过滤：否则异常重试时会把**所有用户的**
         // 邮箱账号（含授权码明文）返回给当前调用者 —— 越权数据泄漏。
-        const retry = ownerId
+        const retry = opts?.includeAll
           ? await this.db.select().from(smtpAccounts)
-              .where(eq(smtpAccounts.ownerId, ownerId))
               .orderBy(desc(smtpAccounts.isDefault), asc(smtpAccounts.createdAt))
-          : await this.db.select().from(smtpAccounts)
-              .where(isNull(smtpAccounts.ownerId))
+          : await this.db.select().from(smtpAccounts).where(mineOrGlobal)
               .orderBy(desc(smtpAccounts.isDefault), asc(smtpAccounts.createdAt));
         return retry.map((r) => ({
           id: r.id,
@@ -834,7 +843,13 @@ export class MailService {
   }
 
   /** 解析出实际要用的账号：指定 id > 指定域名 > 默认账号 > 旧全局 smtp_config */
-  async resolveSender(accountId?: string, domain?: string, ownerId?: string): Promise<
+  async resolveSender(
+    accountId?: string,
+    domain?: string,
+    ownerId?: string,
+    /** 调用者角色：super_admin 可代用团队内任何账号 */
+    callerRole?: string,
+  ): Promise<
     | { kind: 'account'; id: string; email: string; fromName: string | null; transporter: Transporter }
     | { kind: 'legacy'; email: string; fromName: string | null; transporter: Transporter }
   > {
@@ -847,6 +862,18 @@ export class MailService {
       if (!row) {
         throw new BadRequestException(
           `发信账号不存在（id=${accountId}），可能已被删除。请在设置里重新选择。`,
+        );
+      }
+      // 归属校验：普通用户/管理员不能冒用他人账号发信（全局账号 owner_id 为空，人人可用；
+      // super_admin 是管理员，下拉里能看到全部账号，允许代发）。
+      if (
+        ownerId &&
+        row.ownerId &&
+        row.ownerId !== ownerId &&
+        callerRole !== 'super_admin'
+      ) {
+        throw new BadRequestException(
+          '无权使用该发信账号（不属于当前用户）。请在设置里添加自己的发信邮箱。',
         );
       }
     }
@@ -919,11 +946,13 @@ export class MailService {
     accountId?: string,
     /** 当前用户：决定用谁的 SMTP（每用户独立） */
     userId?: string,
+    /** 调用者角色：super_admin 可代用团队账号 */
+    callerRole?: string,
   ): Promise<{ messageId: string | null }> {
     const sender = accountId
-      ? await this.resolveSender(accountId, undefined, userId)
+      ? await this.resolveSender(accountId, undefined, userId, callerRole)
       : userId
-        ? await this.resolveSender(undefined, undefined, userId)
+        ? await this.resolveSender(undefined, undefined, userId, callerRole)
         : null;
     const transporter = sender ? sender.transporter : await this.getTransporter(userId);
     try {

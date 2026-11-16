@@ -241,6 +241,7 @@ export class EmailGeneratorController {
       accountId,
       user.userId,
       profileId,
+      user.role,
     );
   }
 

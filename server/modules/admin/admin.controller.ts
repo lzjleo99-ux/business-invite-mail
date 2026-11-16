@@ -154,7 +154,13 @@ export class AdminController {
   @UseGuards(JwtAuthGuard)
   @Get('smtp-accounts')
   async listSmtpAccounts(@CurrentUser() user: JwtPayload): Promise<{ items: Awaited<ReturnType<MailService['listAccounts']>> }> {
-    return { items: await this.mailService.listAccounts(user.userId) };
+    // super_admin 看全部账号（发信邮箱是团队资源，管理员代发）；
+    // 普通用户看自己的 + 全局账号。发送端会再做一次归属校验。
+    return {
+      items: await this.mailService.listAccounts(user.userId, {
+        includeAll: user.role === 'super_admin',
+      }),
+    };
   }
 
   // 每用户独立的设置：只需登录，不需要管理员
