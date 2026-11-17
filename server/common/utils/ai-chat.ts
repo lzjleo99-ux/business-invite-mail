@@ -24,7 +24,34 @@ export interface AiChatOptions {
   timeout?: number;
   /** 日志前缀（如 'email-generator'），用于排查 */
   label?: string;
+  /**
+   * 暂时性故障（503/429/网络）重试：每 3 秒一次，最多等 5 分钟。
+   * 余额不足 / 鉴权失败等永久性错误不重试，直接抛出明确原因。
+   */
+  retryTransient?: boolean;
 }
+
+/** 可重试的暂时性故障：服务过载/限流/网络抖动/网关超时 */
+const RETRYABLE_STATUS = new Set([408, 425, 429, 500, 502, 503, 504, 520, 521, 522, 524]);
+const RETRY_INTERVAL_MS = 3_000;
+const RETRY_MAX_WAIT_MS = 5 * 60_000;
+
+/** 永久性错误（余额不足、鉴权失败、无效模型）——立即停止，不浪费 5 分钟 */
+function permanentReason(status: number | undefined, message: string): string | null {
+  const m = message.toLowerCase();
+  if (/insufficient(_| )?(quota|balance|credit)|quota exceeded|out of credit|余额不足|额度不足|无可用额度|token.*(exceeded|used up)|payment required/.test(m)) {
+    return '模型账户余额不足或额度已用完，请充值后再试';
+  }
+  if (status === 402) return '模型账户余额不足（HTTP 402），请充值后再试';
+  if (status === 401 || /invalid api key|incorrect api key|unauthorized|authentication/.test(m)) {
+    return 'API Key 无效或已过期，请在设置里更新';
+  }
+  if (status === 404 && /model|not found/.test(m)) return '模型名称不存在，请检查设置里的模型名';
+  if (status === 403) return '无权访问该模型（HTTP 403），请检查 Key 权限';
+  return null;
+}
+
+const sleep = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms));
 
 /** 从 400 的报错信息里推断怎么调整 body；返回 null = 没法自动修 */
 function adjustBodyForUnsupportedParam(
@@ -84,6 +111,7 @@ export async function postChatCompletions(
 ): Promise<AxiosResponse> {
   let current = { ...body };
   const maxAdjust = 3;
+  const retryStart = Date.now();
   for (let attempt = 0; ; attempt += 1) {
     try {
       return await axios.post(url, current, {
@@ -91,6 +119,42 @@ export async function postChatCompletions(
         timeout: opts.timeout ?? 120_000,
       });
     } catch (err: unknown) {
+      const status = axios.isAxiosError(err) ? err.response?.status : undefined;
+      const rawMsg: string =
+        (axios.isAxiosError(err)
+          ? (err.response?.data as { error?: { message?: string } } | undefined)?.error?.message
+          : undefined)
+        || (err instanceof Error ? err.message : String(err));
+
+      // 永久性错误立即停止：余额不足/鉴权/模型错误，重试没有意义
+      const permanent = permanentReason(status, rawMsg);
+      if (permanent) {
+        aiChatLogger.warn(`[${opts.label ?? 'ai-chat'}] 停止重试：${permanent}`);
+        throw new Error(permanent);
+      }
+
+      // 暂时性故障（用户要求）：每 3 秒重试，最多 5 分钟
+      const transient = axios.isAxiosError(err)
+        && status !== undefined
+        && RETRYABLE_STATUS.has(status);
+      const networkGlitch = axios.isAxiosError(err)
+        && !err.response
+        && (err.code === 'ECONNABORTED' || err.code === 'ETIMEDOUT' || err.code === 'ECONNRESET');
+      if ((transient || networkGlitch) && opts.retryTransient) {
+        const waited = Date.now() - retryStart;
+        if (waited + RETRY_INTERVAL_MS <= RETRY_MAX_WAIT_MS) {
+          aiChatLogger.warn(
+            `[${opts.label ?? 'ai-chat'}] 模型暂时不可用（HTTP ${status ?? err?.code ?? 'network'}），`
+            + `${RETRY_INTERVAL_MS / 1000} 秒后重试（已等 ${Math.round(waited / 1000)}s / 上限 300s）`,
+          );
+          await sleep(RETRY_INTERVAL_MS);
+          continue;
+        }
+        throw new Error(
+          `模型服务持续不可用超过 5 分钟（最后错误：HTTP ${status ?? 'network'}），已停止重试`,
+        );
+      }
+
       const fixable =
         axios.isAxiosError(err)
         && err.response?.status === 400

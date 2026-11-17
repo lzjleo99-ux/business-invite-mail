@@ -583,7 +583,7 @@ Return ONLY a valid JSON object with these fields.`;
         'Content-Type': 'application/json',
         Authorization: `Bearer ${config.apiKey}`,
       },
-      { timeout: 60000, label: 'website-analyzer' },
+      { timeout: 60000, label: 'website-analyzer', retryTransient: true },
     );
 
     const contentStr = response.data?.choices?.[0]?.message?.content;
@@ -752,7 +752,7 @@ ${content}`;
         'Content-Type': 'application/json',
         Authorization: `Bearer ${config.apiKey}`,
       },
-      { timeout: 60000, label: 'website-analyzer' },
+      { timeout: 60000, label: 'website-analyzer', retryTransient: true },
     );
 
     const contentStr = response.data?.choices?.[0]?.message?.content;

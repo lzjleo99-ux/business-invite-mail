@@ -88,9 +88,85 @@ function parseOpenAiUsage(data: unknown): { used?: number; unit?: string; messag
 export class ModelBalanceService {
   private readonly logger = new Logger(ModelBalanceService.name);
 
+  /**
+   * 查询专用令牌服务（如 http://61.49.87.124:3667 前端对应的 API :2657）。
+   * 接口：GET {TOKEN_QUERY_URL}/api/usage/token/，Bearer <apiKey>
+   * 返回：total_granted / total_used / total_available / unlimited_quota /
+   *       expires_at / name —— 网站原样展示，不换算、不编造。
+   */
+  private async queryTokenService(
+    queryUrl: string,
+    apiKey: string,
+    checkedAt: string,
+  ): Promise<ModelBalance | null> {
+    const roots = [queryUrl.replace(/\/+$/, ''), queryUrl.replace(/\/+$/, '').replace(/:3667$/, ':2657')]
+      .filter((v, i, a) => v && a.indexOf(v) === i);
+    for (const root of roots) {
+      try {
+        const resp = await axios.get(
+          `${root}/api/usage/token/`,
+          {
+            headers: { Authorization: `Bearer ${apiKey}`, Accept: 'application/json' },
+            timeout: 8_000,
+            validateStatus: () => true,
+          },
+        );
+        if (resp.status !== 200) continue;
+        const d = resp.data as {
+          code?: boolean; message?: string;
+          data?: {
+            total_granted?: number; total_used?: number; total_available?: number;
+            unlimited_quota?: boolean; expires_at?: number; name?: string;
+            model_limits_enabled?: boolean; model_limits?: unknown;
+          };
+        };
+        if (!d?.code || !d.data) continue;
+        const info = d.data;
+        const exhausted = !info.unlimited_quota
+          && typeof info.total_available === 'number'
+          && info.total_available <= 0;
+        return {
+          ok: true,
+          keyValid: true,
+          provider: 'token-query-service',
+          total: info.total_granted,
+          used: info.total_used,
+          remaining: info.unlimited_quota ? undefined : info.total_available,
+          unit: '额度',
+          message: exhausted
+            ? `${info.name || '该令牌'} 额度已用完（剩余 ${info.total_available}），请充值后再使用`
+            : (d.message || '已读取令牌查询服务的数据'),
+          detail: [
+            info.name ? `令牌：${info.name}` : '',
+            info.unlimited_quota ? '不限额' : '',
+            info.expires_at
+              ? `到期：${new Date(info.expires_at * 1000).toLocaleString('zh-CN')}`
+              : '',
+          ].filter(Boolean).join('；'),
+          checkedAt,
+        };
+      } catch (err: unknown) {
+        this.logger.warn(
+          `令牌查询服务不可用（${root}）：${err instanceof Error ? err.message : String(err)}`,
+        );
+      }
+    }
+    return null;
+  }
+
   /** 由 controller 传入已解析好的配置（apiKey 从表单或用户行取，绝不回显） */
   async check(config: ProbingConfig): Promise<ModelBalance> {
     const checkedAt = new Date().toISOString();
+
+    // 优先用专用的「令牌查询」服务（用户在设置里配 TOKEN_QUERY_URL），
+    // 它返回什么字段就原样展示什么字段——不再靠猜测各家供应商的账单接口。
+    // 默认就是用户在用的令牌查询站；环境变量可覆盖。
+    const queryUrl = process.env.TOKEN_QUERY_URL?.trim() || 'http://61.49.87.124:3667';
+    if (queryUrl && config.apiKey) {
+      const queried = await this.queryTokenService(queryUrl, config.apiKey, checkedAt);
+      if (queried) return queried;
+    }
+
     const base = (config.baseUrl || '').replace(/\/+$/, '');
     if (!base || !config.apiKey) {
       return {

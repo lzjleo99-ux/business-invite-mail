@@ -286,7 +286,7 @@ export class ImageAnalysisService {
         'Content-Type': 'application/json',
         Authorization: `Bearer ${config.apiKey}`,
       },
-      { timeout: 120000, label: 'image-analysis' },
+      { timeout: 120000, label: 'image-analysis', retryTransient: true },
     ).catch((err: unknown) => {
       const status = (err as { response?: { status?: number } })?.response?.status;
       if (status && status >= 400 && status < 500) {

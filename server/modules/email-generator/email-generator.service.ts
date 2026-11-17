@@ -1830,7 +1830,7 @@ Return ONLY a JSON object with these exact keys:
             'Content-Type': 'application/json',
             Authorization: `Bearer ${config.apiKey}`,
           },
-          { timeout: this.MODEL_TIMEOUT_MS, label: 'email-generator' },
+          { timeout: this.MODEL_TIMEOUT_MS, label: 'email-generator', retryTransient: true },
         );
         return response;
       } catch (err: unknown) {
