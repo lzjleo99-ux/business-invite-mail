@@ -380,6 +380,23 @@ export interface AutoImportResponse {
   projectCode: string | null;
 }
 
+/** 模型余额/额度检查结果（设置页「检查余额」按钮） */
+export interface ModelBalanceResponse {
+  ok: boolean;
+  /** API Key 是否有效 */
+  keyValid: boolean;
+  /** 识别到的供应商/接口类型 */
+  provider: string;
+  remaining?: number;
+  total?: number;
+  used?: number;
+  unit?: string;
+  /** 用户可读结论 */
+  message: string;
+  detail?: string;
+  checkedAt: string;
+}
+
 // Legacy aliases for backward compatibility
 export type RestaurantStatus = CompanyStatus;
 export type Restaurant = Company;

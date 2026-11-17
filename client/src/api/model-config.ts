@@ -6,6 +6,7 @@ import type {
   TestConnectionRequest,
   ImportSecretConfig,
   UpdateImportSecretRequest,
+  ModelBalanceResponse,
 } from '@shared/api.interface';
 
 export async function getModelConfig(): Promise<ModelConfig> {
@@ -22,6 +23,13 @@ export async function testConnection(
   data: TestConnectionRequest,
 ): Promise<TestConnectionResponse> {
   const response = await axiosForBackend.post('/api/model-config/test', data);
+  return response.data;
+}
+
+export async function checkBalance(
+  data: TestConnectionRequest,
+): Promise<ModelBalanceResponse> {
+  const response = await axiosForBackend.post('/api/model-config/balance', data);
   return response.data;
 }
 

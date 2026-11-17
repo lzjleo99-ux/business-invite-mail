@@ -249,6 +249,8 @@ const SettingsPage = () => {
   };
 
   const [testing, setTesting] = useState(false);
+  const [checkingBalance, setCheckingBalance] = useState(false);
+  const [balanceResult, setBalanceResult] = useState<import('@shared/api.interface').ModelBalanceResponse | null>(null);
   const [testResult, setTestResult] = useState<{
     success: boolean;
     message: string;
@@ -350,6 +352,33 @@ const SettingsPage = () => {
       });
     },
   });
+
+  const handleCheckBalance = async () => {
+    setCheckingBalance(true);
+    setBalanceResult(null);
+    try {
+      const v = modelForm.getValues();
+      const result = await modelConfigApi.checkBalance({
+        apiBaseUrl: v.apiBaseUrl,
+        apiKey: v.apiKey || undefined,
+        modelName: v.modelName,
+      });
+      setBalanceResult(result);
+      if (result.keyValid && result.remaining !== undefined) {
+        toast.success(t('额度查询成功'));
+      } else if (!result.keyValid) {
+        toast.error(t('API Key 不可用'), { description: result.message });
+      } else {
+        toast.info(result.message);
+      }
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : t('未知错误');
+      setBalanceResult({ ok: false, keyValid: false, provider: 'unknown', message: msg, checkedAt: new Date().toISOString() });
+      toast.error(t('额度查询失败'), { description: msg });
+    } finally {
+      setCheckingBalance(false);
+    }
+  };
 
   const handleTestConnection = async () => {
     setTesting(true);
@@ -781,6 +810,41 @@ const SettingsPage = () => {
                     </div>
                   )}
 
+                  {balanceResult && (
+                    <div
+                      className={`rounded-md p-3 text-sm border ${
+                        balanceResult.keyValid
+                          ? 'bg-blue-50 text-blue-700 border-blue-200'
+                          : 'bg-red-50 text-red-700 border-red-200'
+                      }`}
+                    >
+                      <p className="font-medium">
+                        {t('额度检查')} · {balanceResult.keyValid ? t('密钥有效') : t('密钥无效')}
+                      </p>
+                      {(balanceResult.remaining !== undefined
+                        || balanceResult.total !== undefined
+                        || balanceResult.used !== undefined) && (
+                        <p className="mt-1">
+                          {t('剩余')}: {balanceResult.remaining ?? '-'}
+                          {balanceResult.unit ? ` ${balanceResult.unit}` : ''}
+                          {balanceResult.total !== undefined
+                            ? ` / ${t('总额')} ${balanceResult.total}`
+                            : ''}
+                          {balanceResult.used !== undefined
+                            ? ` / ${t('已用')} ${balanceResult.used}`
+                            : ''}
+                        </p>
+                      )}
+                      <p className="mt-1 text-xs">{balanceResult.message}</p>
+                      {balanceResult.detail && (
+                        <p className="mt-1 text-xs opacity-70">{balanceResult.detail}</p>
+                      )}
+                      <p className="mt-1 text-xs opacity-60">
+                        {t('检查时间')}: {new Date(balanceResult.checkedAt).toLocaleString()}
+                      </p>
+                    </div>
+                  )}
+
                   <div className="flex flex-wrap items-center gap-3 pt-2">
                     <Button
                       type="submit"
@@ -796,6 +860,14 @@ const SettingsPage = () => {
                       disabled={testing}
                     >
                       {testing ? t('测试中...') : t('测试连接')}
+                    </Button>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      onClick={() => void handleCheckBalance()}
+                      disabled={checkingBalance}
+                    >
+                      {checkingBalance ? t('检查中...') : t('检查余额 / Token')}
                     </Button>
                   </div>
                 </form>

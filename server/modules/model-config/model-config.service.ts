@@ -113,6 +113,22 @@ export class ModelConfigService {
     return this.toResponse(await this.getUserRow(userId));
   }
 
+  /**
+   * 仅服务端内部使用（余额探测）：表单值优先，否则读该用户保存的密钥。
+   * apiKey 绝不出现在任何对外响应里。
+   */
+  async getCredentialsForProbe(
+    userId: string,
+    dto: { apiBaseUrl?: string; apiKey?: string; modelName?: string },
+  ): Promise<{ baseUrl: string; apiKey: string; modelName: string }> {
+    const row = await this.getUserRow(userId);
+    return {
+      baseUrl: dto.apiBaseUrl?.trim() || row.apiBaseUrl,
+      apiKey: dto.apiKey?.trim() || row.apiKey || '',
+      modelName: dto.modelName?.trim() || row.modelName,
+    };
+  }
+
   async updateConfig(userId: string, data: UpdateModelConfigRequest): Promise<ModelConfig> {
     const existing = await this.getUserRow(userId);
 

@@ -586,14 +586,27 @@ const WorkbenchTab: React.FC<WorkbenchTabProps> = ({
     },
     concurrency: 2,
     stageLabel: t('生成中...'),
-    onComplete: ({ success, failed }: { success: number; failed: number }) => {
+    onComplete: ({
+      success, failed, failures,
+    }: {
+      success: number;
+      failed: number;
+      failures: Array<{ id: string; message: string }>;
+    }) => {
       void qc.invalidateQueries({ queryKey: ['companies'] });
       void qc.invalidateQueries({ queryKey: ['company-stats'] });
       const skipped = skippedNoEmailRef.current;
       const suffix = skipped > 0 ? t('；已跳过无邮箱 {n} 家', { n: skipped }) : '';
       if (failed > 0) {
+        // 去重后展示具体失败原因，不能只报「失败 N 条」让人猜
+        const reasons = [...new Set(failures.map((f) => f.message || t('未知错误')))];
+        const top = reasons.slice(0, 3).join('；');
+        const more = reasons.length > 3 ? t('；另有 {n} 种原因', { n: reasons.length - 3 }) : '';
         toast.warning(
-          t('批量生成完成：成功 {s} 条，失败 {f} 条', { s: success, f: failed }) + suffix,
+          t('批量生成完成：成功 {s} 条，失败 {f} 条', { s: success, f: failed })
+            + suffix
+            + t('。失败原因：{reason}', { reason: top + more }),
+          { duration: 12000 },
         );
       } else {
         toast.success(t('批量生成完成：共 {s} 条全部成功', { s: success }) + suffix);
@@ -1660,6 +1673,18 @@ const WorkbenchTab: React.FC<WorkbenchTabProps> = ({
             )}
           </TabsContent>
            <TabsContent value="email" className="pt-4 space-y-4">
+             {/* 生成失败原因（从 generateError 读——之前只写库不显示，用户只看到「失败 N 条」） */}
+             {record.generateError && (
+               <div className="rounded-md border border-red-200 bg-red-50 p-3">
+                 <p className="text-xs font-medium text-red-700 flex items-center gap-1">
+                   <AlertTriangle size={14} />
+                   {t('邮件生成失败原因')}
+                 </p>
+                 <p className="mt-1 text-sm text-red-600 whitespace-pre-wrap">
+                   {record.generateError}
+                 </p>
+               </div>
+             )}
              {/* Language Toggle */}
              <div className="flex items-center gap-2">
                <span className="text-xs text-slate-500">{t('语言：')}</span>

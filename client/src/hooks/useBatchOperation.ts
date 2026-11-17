@@ -9,7 +9,8 @@ export interface UseBatchOperationOptions<T> {
   operation: (item: T) => Promise<void>;
   concurrency?: number;
   stageLabel: string;
-  onComplete?: (results: { success: number; failed: number }) => void;
+  /** failures: 本轮每条失败的详细原因（去重前的顺序，便于汇总展示） */
+  onComplete?: (results: { success: number; failed: number; failures: Array<{ id: string; message: string }> }) => void;
 }
 
 export interface UseBatchOperationResult<T> {
@@ -20,6 +21,8 @@ export interface UseBatchOperationResult<T> {
   failed: number;
   currentStage: string;
   perItemStatus: Record<string, BatchItemStatus>;
+  /** 本轮失败详情（onComplete 也会带一份） */
+  failures: Array<{ id: string; message: string }>;
   /** start(overrideItems?) — 不传则跑当前列表，传则跑调用方给的完整列表（不受分页限制） */
   start: (overrideItems?: T[]) => void;
   reset: () => void;
@@ -34,6 +37,8 @@ export function useBatchOperation<T>(
   const [perItemStatus, setPerItemStatus] = useState<Record<string, BatchItemStatus>>({});
   const [processed, setProcessed] = useState(0);
   const [failed, setFailed] = useState(0);
+  const [failures, setFailures] = useState<Array<{ id: string; message: string }>>([]);
+  const failuresRef = useRef<Array<{ id: string; message: string }>>([]);
   // 本轮实际跑的目标总数（override 时与 items.length 不同），null=未在跑
   const [runTotal, setRunTotal] = useState<number | null>(null);
 
@@ -59,6 +64,8 @@ export function useBatchOperation<T>(
     setPerItemStatus({});
     setProcessed(0);
     setFailed(0);
+    failuresRef.current = [];
+    setFailures([]);
   }, [items]);
 
   const runWorker = useCallback(async () => {
@@ -78,7 +85,9 @@ export function useBatchOperation<T>(
         setProcessed((p) => p + 1);
       } catch (err: unknown) {
         failCountRef.current += 1;
+        const message = err instanceof Error ? err.message : String(err);
         logger.error('批量操作单项失败', id, err);
+        failuresRef.current.push({ id, message });
         setPerItemStatus((prev) => ({ ...prev, [id]: 'failed' }));
         setFailed((f) => f + 1);
       }
@@ -106,6 +115,8 @@ export function useBatchOperation<T>(
     setPerItemStatus(initial);
     setProcessed(0);
     setFailed(0);
+    failuresRef.current = [];
+    setFailures([]);
     setRunTotal(list.length);
     setIsRunning(true);
 
@@ -120,10 +131,12 @@ export function useBatchOperation<T>(
       runningRef.current = false;
       setIsRunning(false);
       setRunTotal(null);
+      setFailures([...failuresRef.current]);
       if (onComplete) {
         onComplete({
           success: successCountRef.current,
           failed: failCountRef.current,
+          failures: [...failuresRef.current],
         });
       }
     });
@@ -137,6 +150,7 @@ export function useBatchOperation<T>(
     failed,
     currentStage: stageLabel,
     perItemStatus,
+    failures,
     start,
     reset,
   };

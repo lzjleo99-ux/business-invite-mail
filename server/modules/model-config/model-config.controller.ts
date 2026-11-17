@@ -4,11 +4,13 @@ import { CurrentUser } from '../auth/current-user.decorator';
 import { IsString, IsOptional, IsNumber, IsIn, Min, Max, ValidateIf } from 'class-validator';
 import { Type } from 'class-transformer';
 import { ModelConfigService } from './model-config.service';
+import { ModelBalanceService } from './model-balance.service';
 import type {
   ModelConfig,
   UpdateModelConfigRequest,
   TestConnectionResponse,
   TestConnectionRequest,
+  ModelBalanceResponse,
 } from '@shared/api.interface';
 
 class TestConnectionDto implements TestConnectionRequest {
@@ -67,7 +69,10 @@ class UpdateModelConfigDto implements UpdateModelConfigRequest {
 @UseGuards(JwtAuthGuard)
 @Controller('api/model-config')
 export class ModelConfigController {
-  constructor(private readonly modelConfigService: ModelConfigService) {}
+  constructor(
+    private readonly modelConfigService: ModelConfigService,
+    private readonly modelBalanceService: ModelBalanceService,
+  ) {}
 
   @Get()
   async getConfig(@CurrentUser() user: JwtPayload): Promise<ModelConfig> {
@@ -96,5 +101,16 @@ export class ModelConfigController {
     @Body() dto: TestConnectionDto,
   ): Promise<TestConnectionResponse> {
     return this.modelConfigService.testConnection(user.userId, dto);
+  }
+
+  /** 手动检查模型剩余额度 / Token（表单里的值优先，未填则用已保存的配置） */
+  @Post('balance')
+  async checkBalance(
+    @CurrentUser() user: JwtPayload,
+    @Body() dto: TestConnectionDto,
+  ): Promise<ModelBalanceResponse> {
+    // 表单里没填密钥时用该用户已保存的（getConfig 只返回 apiKeySet，拿不到明文）
+    const creds = await this.modelConfigService.getCredentialsForProbe(user.userId, dto);
+    return this.modelBalanceService.check(creds);
   }
 }
