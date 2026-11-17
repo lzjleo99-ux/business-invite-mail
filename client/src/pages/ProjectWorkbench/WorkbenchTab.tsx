@@ -557,7 +557,7 @@ const WorkbenchTab: React.FC<WorkbenchTabProps> = ({
     } finally {
       setEmailRescanRunning(false);
     }
-  }, [projectId, batchAnalyzeOp, t, qc]);
+  }, [projectId, batchAnalyzeOp, t, qc, selectedIds]);
 
   // --- Batch generate email operation ---
   // 「一键生成全部」只圈「已分析 + 有邮箱 + 尚未生成」的公司：
@@ -822,7 +822,7 @@ const WorkbenchTab: React.FC<WorkbenchTabProps> = ({
     } finally {
       setSendAllRunning(false);
     }
-  }, [projectId, t, qc, sendLang, emailDisplayLang]);
+  }, [projectId, t, qc, sendLang, emailDisplayLang, selectedIds, sendAccountId, sendProfileId]);
 
   const STATUS_OPTIONS: { value: StatusFilterValue; label: string }[] = [
     { value: 'all', label: t('全部') },
