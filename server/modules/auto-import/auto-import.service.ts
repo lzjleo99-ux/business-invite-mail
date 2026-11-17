@@ -274,24 +274,37 @@ export class AutoImportService {
     // 那几乎必然是"用户报了代码但机器人没识别"，按名字建会造出一个新项目。
     // 先按代码查：命中就用；查不到明确报错，让用户核对代码。
     if (!projectId) {
-      const nameLooksLikeCode = /^[A-Z]{2}[0-9]{4}$/.test(projectName.trim().toUpperCase());
-      if (nameLooksLikeCode) {
+      const trimmedName = projectName.trim();
+      const nameLooksLikeCode = /^[A-Z]{2}[0-9]{4}$/.test(trimmedName.toUpperCase());
+      // 从名字里提取代码：用户说「推送给网站原有项目 EP3596」时，LLM 常把
+      // target_project 抽成「原有项目EP3596」。只认「整个名字就是代码」会漏判，
+      // 按名字新建出一个重复项目（2026-11-17 实测）。提取到代码就先查库，
+      // 命中即使用已有项目；查不到时只有"整个名字就是代码"才报错，
+      // 避免误伤名字里碰巧含类似代码的正常项目。
+      const embedded = trimmedName.match(
+        /(?<![A-Z0-9])([A-Z]{2}[0-9]{4})(?![A-Z0-9])/i,
+      )?.[1]?.toUpperCase();
+      const candidateCode = embedded || (nameLooksLikeCode ? trimmedName.toUpperCase() : '');
+      if (candidateCode) {
         const byName = await this.db
           .select({ id: projects.id, name: projects.name })
           .from(projectMeta)
           .innerJoin(projects, eq(projectMeta.projectId, projects.id))
-          .where(eq(projectMeta.code, projectName.trim().toUpperCase()))
+          .where(eq(projectMeta.code, candidateCode))
           .limit(1);
         if (byName[0]) {
           projectId = byName[0].id;
-        } else {
+          resolvedName = byName[0].name;
+          resolvedCode = candidateCode;
+        } else if (nameLooksLikeCode) {
           throw new BadRequestException(
-            `"${projectName.trim()}" 形似项目代码，但系统中不存在该代码。` +
+            `"${trimmedName}" 形似项目代码，但系统中不存在该代码。` +
               '请到项目列表核对项目卡片上的「机器人代码」后重试' +
               '（若它确实是项目名，请使用完整项目名）。',
           );
         }
-      } else {
+      }
+      if (!projectId) {
         // 名字是「指令残片」（给网站 / 新建项目 / xlsx 文件名…）或机器人显式
         // 要求自动命名时，用 AI 分析这批线索内容生成项目名。
         // 正常项目名一律原样保留，不改动既有按名字追加的语义。
