@@ -457,12 +457,21 @@ const WorkbenchTab: React.FC<WorkbenchTabProps> = ({
     },
     concurrency: 2,
     stageLabel: t('分析中...'),
-    onComplete: ({ success, failed }: { success: number; failed: number }) => {
+    onComplete: ({
+      success, failed, failures,
+    }: {
+      success: number;
+      failed: number;
+      failures: Array<{ id: string; message: string }>;
+    }) => {
       void qc.invalidateQueries({ queryKey: ['companies'] });
       void qc.invalidateQueries({ queryKey: ['company-stats'] });
       if (failed > 0) {
+        const top = [...new Set(failures.map((f) => f.message || t('未知错误')))].slice(0, 3).join('；');
         toast.warning(
-          t('批量分析完成：成功 {s} 条，失败 {f} 条', { s: success, f: failed }),
+          t('批量分析完成：成功 {s} 条，失败 {f} 条', { s: success, f: failed })
+            + t('。失败原因：{reason}', { reason: top }),
+          { duration: 12000 },
         );
       } else {
         toast.success(t('批量分析完成：共 {s} 条全部成功', { s: success }));
@@ -694,11 +703,20 @@ const WorkbenchTab: React.FC<WorkbenchTabProps> = ({
     },
     concurrency: 2,
     stageLabel: t('准备IM话术中...'),
-    onComplete: ({ success, failed }: { success: number; failed: number }) => {
+    onComplete: ({
+      success, failed, failures,
+    }: {
+      success: number;
+      failed: number;
+      failures: Array<{ id: string; message: string }>;
+    }) => {
       void qc.invalidateQueries({ queryKey: ['companies'] });
       if (failed > 0) {
+        const top = [...new Set(failures.map((f) => f.message || t('未知错误')))].slice(0, 3).join('；');
         toast.warning(
-          t('批量准备 IM 话术完成：成功 {s} 条，失败 {f} 条', { s: success, f: failed }),
+          t('批量准备 IM 话术完成：成功 {s} 条，失败 {f} 条', { s: success, f: failed })
+            + t('。失败原因：{reason}', { reason: top }),
+          { duration: 12000 },
         );
       } else {
         toast.success(t('批量准备 IM 话术完成：共 {s} 条全部成功', { s: success }));
