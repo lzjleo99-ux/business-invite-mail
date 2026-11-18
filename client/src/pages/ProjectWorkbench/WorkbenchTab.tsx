@@ -490,9 +490,12 @@ const WorkbenchTab: React.FC<WorkbenchTabProps> = ({
   type AnalyzeScope = 'unanalyzed' | 'analyzed' | 'all';
   const [analyzeScope, setAnalyzeScope] = useState<AnalyzeScope>('unanalyzed');
   const ANALYZE_SCOPE_STATUSES: Record<AnalyzeScope, CompanyStatus[]> = {
-    unanalyzed: ['pending', 'failed'],
+    // analyzing 也要圈进来：浏览器断网/关页会中断批量分析，卡在"分析中"的
+    // 公司此前没有任何范围能重新圈到（且分析没有生成那样的僵尸回收），
+    // 会永久卡住。重新分析它们无害——analyzeCompany 幂等覆盖字段。
+    unanalyzed: ['pending', 'failed', 'analyzing'],
     analyzed: ['analyzed', 'generating', 'generated'],
-    all: ['pending', 'failed', 'analyzed', 'generating', 'generated'],
+    all: ['pending', 'failed', 'analyzing', 'analyzed', 'generating', 'generated'],
   };
   /** 下拉菜单里显示的选项（label 走 t() 翻译） */
   const ANALYZE_SCOPE_OPTIONS: { value: AnalyzeScope; label: string }[] = [
