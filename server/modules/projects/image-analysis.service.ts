@@ -17,6 +17,7 @@ export interface EmailImageCandidate {
   fileName: string;
   description: string;
   /** 描述来源：vision=模型看图，fallback=OCR/文件名兜底 */
+  isEssential: boolean;
   source: 'vision' | 'fallback';
 }
 
@@ -88,10 +89,17 @@ export class ImageAnalysisService {
               material_id   uuid PRIMARY KEY REFERENCES project_materials(id) ON DELETE CASCADE,
               description   text NOT NULL,
               source        varchar(20) NOT NULL DEFAULT 'fallback',
+              is_essential  boolean NOT NULL DEFAULT false,
               _created_at   timestamptz(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
               _updated_at   timestamptz(3) NOT NULL DEFAULT CURRENT_TIMESTAMP
             )
           `);
+          // 存量表补列（幂等）：AI 生成邮件时必要图片必须包含
+          try {
+            await run('ALTER TABLE material_image_descriptions ADD COLUMN IF NOT EXISTS is_essential boolean NOT NULL DEFAULT false');
+          } catch (err) {
+            this.logger.warn(`is_essential 补列失败（可忽略）: ${String(err).split('\n')[0]}`);
+          }
           // 角色不存在（如平台托管库）时授权失败可容忍——那种环境不走
           // SET LOCAL ROLE 中间件；记录日志即可。
           try {
@@ -165,6 +173,7 @@ export class ImageAnalysisService {
         contentSummary: projectMaterials.contentSummary,
         parsedContent: projectMaterials.parsedContent,
         description: materialImageDescriptions.description,
+        isEssential: materialImageDescriptions.isEssential,
       })
       .from(projectMaterials)
       .leftJoin(materialImageDescriptions, eq(materialImageDescriptions.materialId, projectMaterials.id))
@@ -191,6 +200,7 @@ export class ImageAnalysisService {
           fileName: img.fileName,
           description: description.replace(/^(vision|fallback|manual):/, '').slice(0, 400),
           source,
+          isEssential: img.isEssential,
         });
       } else {
         // 连兜底描述都没有（例如 OCR 也没跑出来）——至少给个文件名让模型知道有这张图
@@ -198,6 +208,7 @@ export class ImageAnalysisService {
           materialId: img.id,
           fileName: img.fileName,
           description: `(no description available; filename only: ${img.fileName})`,
+          isEssential: img.isEssential,
           source: 'fallback',
         });
       }

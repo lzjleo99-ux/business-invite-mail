@@ -265,6 +265,7 @@ export class ProjectsService {
         fileSize: projectMaterials.fileSize,
         contentSummary: projectMaterials.contentSummary,
         imageDescription: materialImageDescriptions.description,
+      isEssential: materialImageDescriptions.isEssential,
         sortOrder: projectMaterials.sortOrder,
         createdAt: projectMaterials.createdAt,
       })
@@ -281,8 +282,9 @@ export class ProjectsService {
       fileSize: m.fileSize,
       contentSummary: m.contentSummary,
       imageDescription: m.imageDescription
-        ? m.imageDescription.replace(/^(vision|fallback):/, '')
+        ? m.imageDescription.replace(/^(vision|fallback|essential):/, '')
         : null,
+      isEssential: m.isEssential === true,
       sortOrder: m.sortOrder,
       createdAt: m.createdAt.toISOString(),
     }));
@@ -479,6 +481,7 @@ export class ProjectsService {
       fileSize: m.fileSize,
       contentSummary: m.contentSummary,
       imageDescription: null, // 图片描述由 ImageAnalysisService 异步分析后写入独立表
+      isEssential: false,
       sortOrder: m.sortOrder,
       createdAt: m.createdAt.toISOString(),
     };
@@ -490,6 +493,7 @@ export class ProjectsService {
     materialId: string,
     userId: string,
     description: string,
+    isEssential?: boolean,
   ): Promise<void> {
     // 归属校验：素材必须属于调用者的项目
     const owned = await this.db
@@ -500,12 +504,19 @@ export class ProjectsService {
       .limit(1);
     if (owned.length === 0) throw new NotFoundException('素材不存在或无权访问');
     const desc = `manual:${description.trim().slice(0, 400)}`;
+    // isEssential 给了就一起写（没给保持原值——描述编辑与必要勾选可独立保存）
+    const setClause: Record<string, unknown> = { description: desc, updatedAt: new Date() };
+    if (isEssential !== undefined) setClause.isEssential = isEssential;
     await this.db
       .insert(materialImageDescriptions)
-      .values({ materialId, description: desc })
+      .values({
+        materialId,
+        description: desc,
+        ...(isEssential !== undefined ? { isEssential } : {}),
+      })
       .onConflictDoUpdate({
         target: materialImageDescriptions.materialId,
-        set: { description: desc, updatedAt: new Date() },
+        set: setClause,
       });
   }
 
@@ -581,6 +592,7 @@ export class ProjectsService {
         fileSize: projectMaterials.fileSize,
         contentSummary: projectMaterials.contentSummary,
         imageDescription: materialImageDescriptions.description,
+      isEssential: materialImageDescriptions.isEssential,
         sortOrder: projectMaterials.sortOrder,
         createdAt: projectMaterials.createdAt,
       })
@@ -597,8 +609,9 @@ export class ProjectsService {
       fileSize: m.fileSize,
       contentSummary: m.contentSummary,
       imageDescription: m.imageDescription
-        ? m.imageDescription.replace(/^(vision|fallback):/, '')
+        ? m.imageDescription.replace(/^(vision|fallback|essential):/, '')
         : null,
+      isEssential: m.isEssential === true,
       sortOrder: m.sortOrder,
       createdAt: m.createdAt.toISOString(),
     }));

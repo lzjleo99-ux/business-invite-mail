@@ -205,13 +205,13 @@ export class ProjectsController {
     @Param('id') id: string,
     @Param('materialId') materialId: string,
     @CurrentUser() user: JwtPayload,
-    @Body() body: { description: string },
+    @Body() body: { description: string; isEssential?: boolean },
   ): Promise<{ ok: boolean }> {
     if (!body || typeof body.description !== 'string') {
       throw new BadRequestException('缺少 description');
     }
     await this.projectsService.setMaterialDescription(
-      id, materialId, user.userId, body.description,
+      id, materialId, user.userId, body.description, body.isEssential,
     );
     return { ok: true };
   }

@@ -16,6 +16,7 @@ import { AuthService } from '@server/modules/auth/auth.service';
 import { MailService } from '@server/common/services/mail.service';
 import { EmailInboxService } from '@server/modules/email-generator/email-inbox.service';
 import { WeComNotifyService } from '@server/modules/email-generator/wecom-notify.service';
+import axios from 'axios';
 import { JwtAuthGuard, type JwtPayload } from '@server/modules/auth/jwt-auth.guard';
 import { AdminGuard } from '@server/common/guards/admin.guard';
 import { SuperAdminGuard } from '@server/common/guards/super-admin.guard';
@@ -374,6 +375,54 @@ export class AdminController {
     }
     await this.adminService.setSuperAdmin(userId);
     return { ok: true };
+  }
+
+  /** 网络连通性诊断（super_admin）：从容器内测指定 URL，定位"Network Error"类问题 */
+  @Get('netcheck')
+  async netcheck(
+    @CurrentUser() user: JwtPayload,
+    @Query('url') url: string | undefined,
+  ): Promise<Record<string, unknown>> {
+    const target = (url || '').trim();
+    if (!target || !/^https?:\/\//i.test(target)) {
+      throw new BadRequestException('url 必须以 http(s):// 开头');
+    }
+    const started = Date.now();
+    try {
+      const r2 = await axios.get(target, {
+        headers: { Authorization: 'Bearer probe', Accept: 'application/json' },
+        timeout: 8000,
+        validateStatus: () => true,
+      });
+      return {
+        url: target,
+        reachable: true,
+        httpStatus: r2.status,
+        ms: Date.now() - started,
+        note: 'HTTP 状态已返回 = 网络可达（401/403 = 可达但鉴权失败，属正常探测）',
+      };
+    } catch (err: unknown) {
+      const isAx = (err as { isAxiosError?: boolean })?.isAxiosError === true;
+      const code = (err as { code?: string })?.code;
+      const message = err instanceof Error ? err.message : String(err);
+      return {
+        url: target,
+        reachable: false,
+        ms: Date.now() - started,
+        error: message,
+        code: isAx ? code : undefined,
+        hint:
+          code === 'ECONNABORTED' || (Date.now() - started) > 7500
+            ? '连接超时：容器到该地址的网络不通（可能是跨境/防火墙）'
+            : code === 'ECONNREFUSED'
+              ? '连接被拒绝：目标端口未开放'
+              : code === 'ENOTFOUND'
+                ? '域名解析失败'
+                : message.toLowerCase().includes('network')
+                  ? '网络层失败：容器无法建立到该地址的连接（跨境访问中国 IP 常见）'
+                  : undefined,
+      };
+    }
   }
 
   @Get('users')

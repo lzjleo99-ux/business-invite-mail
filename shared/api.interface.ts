@@ -161,6 +161,8 @@ export interface ProjectMaterial {
   contentSummary: string | null;
   /** 图片素材的 AI 视觉描述（vision 或 OCR/文件名兜底），非图片/未分析为 null */
   imageDescription: string | null;
+  /** 必要图片：生成邮件时 AI 必须包含（位置/顺序由 AI 决定） */
+  isEssential: boolean;
   sortOrder: number;
   createdAt: string;
 }

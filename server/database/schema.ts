@@ -599,6 +599,8 @@ export const materialImageDescriptions = pgTable("material_image_descriptions", 
   // 前缀 vision:/fallback: 标记描述来源（读取时剥掉）
   description: text("description").notNull(),
   source: varchar("source", { length: 20 }).notNull().default("fallback"),
+  // 必要图片：生成邮件时 AI 必须包含（位置/顺序由 AI 决定）；非必要则按内容选用
+  isEssential: boolean("is_essential").notNull().default(false),
   createdAt: customTimestamptz("_created_at", { precision: 3 }).notNull().default(sql`CURRENT_TIMESTAMP`),
   updatedAt: customTimestamptz("_updated_at", { precision: 3 }).notNull().default(sql`CURRENT_TIMESTAMP`),
 });

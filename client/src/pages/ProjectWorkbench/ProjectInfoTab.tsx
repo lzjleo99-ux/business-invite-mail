@@ -239,6 +239,7 @@ const ProjectInfoTab: React.FC<ProjectInfoTabProps> = ({
                     materialId={mat.id}
                     fileName={mat.fileName}
                     initial={(mat.imageDescription || '').replace(/^manual:/, '')}
+                    initialEssential={mat.isEssential === true}
                   />
                 )}
                 <div className="flex items-center gap-2">
@@ -278,11 +279,13 @@ const ImageDescriptionEditor: React.FC<{
   materialId: string;
   fileName: string;
   initial?: string;
-}> = ({ projectId, materialId, fileName, initial = '' }) => {
+  initialEssential?: boolean;
+}> = ({ projectId, materialId, fileName, initial = '', initialEssential = false }) => {
   const { t } = useI18n();
   const [value, setValue] = useState(initial);
   const [saved, setSaved] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [essential, setEssential] = useState(initialEssential);
 
   const save = async (): Promise<void> => {
     if (!value.trim()) return;
@@ -290,12 +293,38 @@ const ImageDescriptionEditor: React.FC<{
     try {
       await axiosForBackend.patch(
         `/api/projects/${projectId}/materials/${materialId}/description`,
-        { description: value.trim() },
+        { description: value.trim(), isEssential: essential },
       );
       setSaved(true);
       toast.success(t('图片描述已保存——生成邮件时会按描述放在合适位置'));
       setTimeout(() => setSaved(false), 2500);
     } catch (err: unknown) {
+      toast.error(errMessage(err, t('保存失败')));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  // 勾选"必要图片"立即保存：生成邮件时 AI 必须包含这张图（位置由 AI 决定）
+  const toggleEssential = async (): Promise<void> => {
+    const next = !essential;
+    setEssential(next);
+    setBusy(true);
+    try {
+      await axiosForBackend.patch(
+        `/api/projects/${projectId}/materials/${materialId}/description`,
+        {
+          description: value.trim() || (initial || '').trim() || fileName,
+          isEssential: next,
+        },
+      );
+      toast.success(
+        next
+          ? t('已标记为必要图片——生成邮件时 AI 会把它放进邮件（位置由 AI 决定）')
+          : t('已取消必要标记——AI 将按邮件内容决定是否使用这张图'),
+      );
+    } catch (err: unknown) {
+      setEssential(!next);
       toast.error(errMessage(err, t('保存失败')));
     } finally {
       setBusy(false);
@@ -328,6 +357,18 @@ const ImageDescriptionEditor: React.FC<{
           {t('保存')}
         </Button>
       </div>
+      <label className="flex items-center gap-2 text-xs text-slate-600 cursor-pointer select-none">
+        <input
+          type="checkbox"
+          checked={essential}
+          disabled={busy}
+          onChange={() => void toggleEssential()}
+          className="h-3.5 w-3.5 accent-blue-600"
+        />
+        <span className={essential ? 'font-medium text-blue-700' : ''}>
+          {t('必要图片（生成邮件时 AI 必须包含它，位置和顺序由 AI 决定）')}
+        </span>
+      </label>
       {saved && <p className="text-xs text-green-600">{t('已保存 ✓')}</p>}
       <span className="hidden">{fileName}</span>
     </div>

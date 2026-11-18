@@ -1413,14 +1413,19 @@ export class EmailGeneratorService {
     const aliasMap = new Map<string, string>();
     images.forEach((img, i) => aliasMap.set(String(i + 1), img.materialId));
 
+    // 必要图片必须包含（位置/顺序由 AI 按内容决定）；非必要图片按需选用（上限 2）
+    const essentialCount = images.filter((img) => img.isEssential).length;
     const imagesSection = images.length > 0
       ? `\n## AVAILABLE PRODUCT IMAGES\n`
-      + `You may embed up to 2 of the images below into EACH version of the email — but ONLY where the image genuinely supports the point that email is making. Match by content: compare each image's description with the single alignment point and the concrete details of the email (industry, product, scene). An image that is merely from the same industry but shows something the email never mentions is a WRONG choice — do not use it. If no image truly fits, embed none. Never embed an image just because it exists.\n\n`
+      + (essentialCount > 0
+        ? `ESSENTIAL IMAGES: IMG-${images.map((img, i) => (img.isEssential ? i + 1 : null)).filter(Boolean).join(', IMG-')} — you MUST embed ${essentialCount > 1 ? 'ALL of them' : 'it'} into EACH version of the email. You decide the best position and order for each one based on the email content. This requirement overrides any other image rule.\n\n`
+        : '')
+      + `OPTIONAL IMAGES (all non-essential ones): You may embed up to 2 of them into EACH version of the email — but ONLY where the image genuinely supports the point that email is making. Match by content: compare each image's description with the single alignment point and the concrete details of the email (industry, product, scene). An image that is merely from the same industry but shows something the email never mentions is a WRONG choice — do not use it. If no image truly fits, embed none. Never embed an image just because it exists.\n\n`
       + `To embed an image, put this exact marker on its own line at the exact spot the image should appear:\n`
       + `[[IMG:1]]\n`
       + `On the NEXT line, write a short caption for it — one plain sentence in the same language as that email version, describing what the picture shows in the context of the email. No brackets, no "Caption:" prefix.\n\n`
-      + `Images (alias — description):\n`
-      + images.map((img, i) => `- IMG-${i + 1}: ${img.description} (file: ${img.fileName})`).join('\n')
+      + `Images (alias — essential? — description):\n`
+      + images.map((img, i) => `- IMG-${i + 1}: ${img.isEssential ? 'ESSENTIAL — ' : ''}${img.description} (file: ${img.fileName})`).join('\n')
       : '';
 
     const langName = this.getLanguageName(languageCode);
