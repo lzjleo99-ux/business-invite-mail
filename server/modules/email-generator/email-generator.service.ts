@@ -1211,7 +1211,7 @@ export class EmailGeneratorService {
     // 总并发 = 10，比原"每批 5 条、批间串行"快约 5 倍；不能整除时
     // 多出来的任务按序号轮流塞进各组（各组数量差不超过 1）。
     // 中转若限流返回 429，ai-chat 的暂时性重试会每 3 秒自动退避。
-    const GROUP_COUNT = 10;
+    const GROUP_COUNT = 6; // 实测 10 并发会把中转压垮（连接直接被断开 → Network Error）；6 是稳定值
     const groups: string[][] = Array.from(
       { length: Math.min(GROUP_COUNT, Math.max(ids.length, 1)) },
       () => [],
