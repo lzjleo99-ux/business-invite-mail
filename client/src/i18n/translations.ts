@@ -20,6 +20,7 @@ export const enMessages: Record<string, string> = {
   '第 {page} / {totalPages} 页': 'Page {page} of {totalPages}',
 
   // ---- antd table locale ----
+  '无网站兜底': 'no website - name only',
   '检查余额 / Token': 'Check balance / Token',
   '检查中...': 'Checking...',
   '额度查询成功': 'Balance retrieved',

@@ -522,7 +522,10 @@ const WorkbenchTab: React.FC<WorkbenchTabProps> = ({
       if (targets.length === 0) {
         toast.info(t('该范围内没有需要分析的公司'));
       } else {
-        batchAnalyzeOp.start(targets);
+        // 串行：等 AI 分析全部完成，再跑邮箱核验。
+        // 之前两段并行，按钮一直显示"正在核验邮箱..."，分析进度条却被遮蔽，
+        // 看起来像"没在分析"（2026-11-17 用户反馈）。
+        await batchAnalyzeOp.start(targets);
       }
     } catch (err: unknown) {
       logger.error('获取待分析公司列表失败', err);
@@ -532,7 +535,7 @@ const WorkbenchTab: React.FC<WorkbenchTabProps> = ({
     }
     setAnalyzeAllPreparing(false);
 
-    // 邮箱核验（不依赖第 1 步结果，全部公司都重扫）
+    // 邮箱核验（纯 HTTP 不调 AI；第 1 段完成后才执行，进度显示不再互相遮蔽）
     setEmailRescanRunning(true);
     try {
       const summary = await websiteAnalyzerApi.rescanEmails(projectId);
@@ -1160,6 +1163,10 @@ const WorkbenchTab: React.FC<WorkbenchTabProps> = ({
         const analyzeStatus = batchAnalyzeOp.perItemStatus[record.id];
         const generateStatus = batchGenerateOp.perItemStatus[record.id];
         const whatsappStatus = batchWhatsAppOp.perItemStatus[record.id];
+        // 无网站兜底标记：这类公司没有走 AI 分析（无网页可抓），
+        // 明确显示出来，避免"进度飞快=没分析"的误解。
+        const isFallbackAnalyzed = record.status === 'analyzed'
+          && /No website available/i.test(record.analyzeError || '');
 
         let batchStatus: BatchItemStatus | undefined;
         let batchLabel = '';
@@ -1193,6 +1200,18 @@ const WorkbenchTab: React.FC<WorkbenchTabProps> = ({
           return (
             <Badge variant="secondary" className="bg-green-50 text-green-700 border-green-200">
               {t('成功')}
+            </Badge>
+          );
+        }
+        // 已分析 + 无网站兜底：显示成"已分析·无网站兜底"，一眼区分真 AI 分析和名称推断
+        if (isFallbackAnalyzed) {
+          return (
+            <Badge
+              variant="secondary"
+              className="bg-amber-50 text-amber-700 border-amber-200"
+              title={record.analyzeError || undefined}
+            >
+              {t('已分析')} · {t('无网站兜底')}
             </Badge>
           );
         }

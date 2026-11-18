@@ -23,8 +23,9 @@ export interface UseBatchOperationResult<T> {
   perItemStatus: Record<string, BatchItemStatus>;
   /** 本轮失败详情（onComplete 也会带一份） */
   failures: Array<{ id: string; message: string }>;
-  /** start(overrideItems?) — 不传则跑当前列表，传则跑调用方给的完整列表（不受分页限制） */
-  start: (overrideItems?: T[]) => void;
+  /** start(overrideItems?) — 不传则跑当前列表，传则跑调用方给的完整列表（不受分页限制）。
+   *  返回 Promise：全部跑完后 resolve，调用方可以 await 它做两段式串行。 */
+  start: (overrideItems?: T[]) => Promise<void>;
   reset: () => void;
 }
 
@@ -95,7 +96,7 @@ export function useBatchOperation<T>(
   }, [getItemId, operation]);
 
   const start = useCallback((overrideItems?: T[]) => {
-    if (runningRef.current) return;
+    if (runningRef.current) return Promise.resolve();
     const list = overrideItems ?? items;
     if (list.length === 0) return;
 
@@ -127,7 +128,7 @@ export function useBatchOperation<T>(
       workers.push(runWorker());
     }
 
-    void Promise.all(workers).then(() => {
+    return Promise.all(workers).then(() => {
       runningRef.current = false;
       setIsRunning(false);
       setRunTotal(null);
