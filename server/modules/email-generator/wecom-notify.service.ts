@@ -23,9 +23,23 @@ const DEFAULTS: WeComNotifyConfig = {
 
 export interface ReplyNoticeInput {
   companyName: string | null;
+  /** 发件人（客户） */
   fromAddr: string;
+  /** 收件人（我们这边被回复的邮箱） */
+  toAddr?: string | null;
+  /** 抄送 */
+  ccAddr?: string | null;
   subject: string;
-  snippet: string;
+  /** 邮件正文全文（不再只给 snippet） */
+  body: string;
+  /** 兼容旧字段 */
+  snippet?: string;
+  /** 收到时间 */
+  receivedAt?: Date | string | null;
+  /** 所属项目名 */
+  projectName?: string | null;
+  /** 邮件历史记录 id（便于追溯） */
+  historyId?: string | null;
 }
 
 /**
@@ -211,27 +225,45 @@ export class WeComNotifyService {
       if (!cfg.enabled || !cfg.webhookUrl) return false;
 
       const who = input.companyName || input.fromAddr;
-      const lines = [
+      const received = input.receivedAt
+        ? new Date(input.receivedAt).toLocaleString('zh-CN', { hour12: false })
+        : new Date().toLocaleString('zh-CN', { hour12: false });
+      const body = String(input.body || input.snippet || '').trim();
+      const header = [
         `## 📬 客户回复：${input.subject || '（无主题）'}`,
         `> **公司**：${who}`,
         `> **发件人**：${input.fromAddr}`,
-      ];
-      if (cfg.includeSnippet && input.snippet) {
-        lines.push('', '---', input.snippet.slice(0, 300));
-      }
-      const res = await axios.post(
-        cfg.webhookUrl,
-        { msgtype: 'markdown', markdown: { content: lines.join('\n') } },
-        { timeout: 10_000 },
-      );
-      if (res.data?.errcode) {
-        this.logger.warn(
-          `企微提醒返回错误 errcode=${res.data.errcode} ${res.data.errmsg ?? ''}`,
+        `> **收件人**：${input.toAddr || '（未知）'}`,
+        input.ccAddr ? `> **抄送**：${input.ccAddr}` : '',
+        `> **项目**：${input.projectName || '（未关联）'}`,
+        `> **时间**：${received}`,
+        input.historyId ? `> **记录ID**：${input.historyId.slice(0, 8)}` : '',
+      ].filter(Boolean).join('\n');
+
+      // 企微 markdown 单条上限约 4096 字节：按 UTF-8 字节切正文，分多条推送。
+      // 只截正文、不丢头部信息；每段标注 (i/n)。
+      const maxBodyBytes = 3800; // 给 JSON 包装与头部留余量
+      const chunks = this.splitByUtf8Bytes(body || '（邮件正文为空）', maxBodyBytes);
+      let ok = true;
+      for (let i = 0; i < chunks.length; i += 1) {
+        const prefix = chunks.length > 1
+          ? `**正文 ${i + 1}/${chunks.length}**\n`
+          : '**邮件正文**\n';
+        const content = `${header}\n\n---\n${prefix}${chunks[i]}`;
+        const res = await axios.post(
+          cfg.webhookUrl,
+          { msgtype: 'markdown', markdown: { content } },
+          { timeout: 10_000 },
         );
-        return false;
+        if (res.data?.errcode) {
+          this.logger.warn(
+            `企微提醒返回错误 errcode=${res.data.errcode} ${res.data.errmsg ?? ''}`,
+          );
+          ok = false;
+        }
       }
-      this.logger.log(`企微提醒已推送：${who}`);
-      return true;
+      if (ok) this.logger.log(`企微提醒已推送（${chunks.length} 段）：${who}`);
+      return ok;
     } catch (err: unknown) {
       this.logger.warn(
         `企微提醒推送失败（不影响收信）：${err instanceof Error ? err.message : String(err)}`,
@@ -240,6 +272,25 @@ export class WeComNotifyService {
     }
   }
 
+  /** 按 UTF-8 字节切分文本（企微按字节限额，中文占 3 字节） */
+  private splitByUtf8Bytes(text: string, maxBytes: number): string[] {
+    const chunks: string[] = [];
+    let current = '';
+    let bytes = 0;
+    for (const char of text) {
+      const size = Buffer.byteLength(char, 'utf8');
+      if (bytes + size > maxBytes && current) {
+        chunks.push(current);
+        current = char;
+        bytes = size;
+      } else {
+        current += char;
+        bytes += size;
+      }
+    }
+    if (current) chunks.push(current);
+    return chunks.length > 0 ? chunks : ['（正文为空）'];
+  }
   /** 群机器人 Webhook 必须是 qyapi 的 send?key= 形式 */
   static isWebhookUrl(url: string): boolean {
     return /^https:\/\/qyapi\.weixin\.qq\.com\/cgi-bin\/webhook\/send\?key=[A-Za-z0-9-]+/.test(
@@ -268,7 +319,7 @@ export class WeComNotifyService {
         target,
         {
           msgtype: 'markdown',
-          markdown: { content: '✅ 邮件收发助手：企微提醒通道测试成功（收到此消息即配置正确）' },
+          markdown: { content: '✅ 邮件收发助手：企微提醒通道测试成功（收到此消息即配置正确）\n> ⚠️ 这是【测试消息】，不是客户回复。真实客户回复会显示：公司、发件人、收件人、抄送、项目、时间、完整邮件正文。' },
         },
         { timeout: 10_000 },
       );

@@ -3,7 +3,7 @@ import { DRIZZLE_DATABASE, type PostgresJsDatabase } from '@lark-apaas/fullstack
 import { eq, or, sql } from 'drizzle-orm';
 import { ImapFlow } from 'imapflow';
 import { simpleParser } from 'mailparser';
-import { restaurants } from '@server/database/schema';
+import { projects, restaurants } from '@server/database/schema';
 import { MailService } from '@server/common/services/mail.service';
 import { EmailHistoryService } from './email-history.service';
 import { WeComNotifyService } from './wecom-notify.service';
@@ -180,6 +180,13 @@ export class EmailInboxService implements OnModuleInit, OnModuleDestroy {
     fromAddr: string,
     subject: string,
     body: string,
+    opts: {
+      toAddr?: string | null;
+      ccAddr?: string | null;
+      receivedAt?: Date | string | null;
+      historyId?: string | null;
+      pollOwnerId?: string;
+    } = {},
   ): Promise<void> {
     try {
       const cfg = await this.wecom.getConfig();
@@ -206,11 +213,36 @@ export class EmailInboxService implements OnModuleInit, OnModuleDestroy {
                 .limit(1)
             )[0]?.name ?? null
           : null;
+      // 项目名：公司挂在哪个项目下（用于企微通知展示）
+      let projectName: string | null = null;
+      if (companyId) {
+        try {
+          const r = await this.db
+            .select({ projectId: restaurants.projectId })
+            .from(restaurants)
+            .where(eq(restaurants.id, companyId))
+            .limit(1);
+          if (r[0]?.projectId) {
+            const p = await this.db
+              .select({ name: projects.name })
+              .from(projects)
+              .where(eq(projects.id, r[0].projectId))
+              .limit(1);
+            projectName = p[0]?.name ?? null;
+          }
+        } catch { /* 项目名查不到不影响通知 */ }
+      }
       await this.wecom.notifyReply({
         companyName: name,
         fromAddr,
+        toAddr: opts.toAddr,
+        ccAddr: opts.ccAddr,
         subject,
+        body,
         snippet: (body || '').replace(/\s+/g, ' ').trim(),
+        receivedAt: opts.receivedAt,
+        projectName,
+        historyId: opts.historyId,
       });
     } catch (err: unknown) {
       this.logger.warn(
@@ -331,6 +363,13 @@ export class EmailInboxService implements OnModuleInit, OnModuleDestroy {
                     fromAddr,
                     parsed.subject ?? '',
                     parsed.text ?? '',
+                    {
+                      toAddr: toAddrs[0] || s.fromEmail,
+                      ccAddr: ccAddrs.length > 0 ? ccAddrs.join(',') : null,
+                      receivedAt: parsed.date ?? new Date(),
+                      historyId: undefined,
+                      pollOwnerId: userId,
+                    },
                   );
                 } else {
                   this.logger.log(`收到退信通知（不计为回复）：${fromAddr} | ${parsed.subject ?? ''}`);
