@@ -20,6 +20,11 @@ export const enMessages: Record<string, string> = {
   '第 {page} / {totalPages} 页': 'Page {page} of {totalPages}',
 
   // ---- antd table locale ----
+  '服务器正在分析网站...': 'Server is analysing websites...',
+  '服务器正在生成邮件...': 'Server is generating emails...',
+  '后台批量完成：成功 {s} 条，失败 {f} 条': 'Background batch finished: {s} succeeded, {f} failed',
+  '后台批量完成：{s} 条全部成功': 'Background batch finished: all {s} succeeded',
+  '任务在服务器后台执行：断网或关闭页面都不会中断，回来后进度照常显示': 'Runs on the server: closing the tab or losing connection will not stop it - progress is here when you return',
   '无网站兜底': 'no website - name only',
   '检查余额 / Token': 'Check balance / Token',
   '检查中...': 'Checking...',

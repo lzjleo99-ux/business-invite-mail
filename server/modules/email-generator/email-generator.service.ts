@@ -28,6 +28,7 @@ import { ensureOwnSenderRow } from '@server/modules/sender-config/sender-config.
 import { SenderProfilesService } from '@server/modules/sender-profiles/sender-profiles.service';
 import { runIdempotentMigration } from '@server/common/utils/ddl-runner';
 import { postChatCompletions } from '@server/common/utils/ai-chat';
+import { startServerBatch, tickServerBatch, finishServerBatch, getServerBatches, type ServerBatchProgress } from '@server/common/utils/server-batch';
 import {
   companyContacts,
   emailAttachmentsTable,
@@ -296,6 +297,7 @@ export class EmailGeneratorService {
         .where(inArray(restaurants.id, companyIds));
       targetIds = rows.map((r: { id: string }) => r.id);
     } else if (projectId) {
+      // 服务端批量模式：只对有收件人的公司生成（无邮箱会生成失败，白烧额度）
       const rows = await this.db
         .select({ id: restaurants.id })
         .from(restaurants)
@@ -303,6 +305,11 @@ export class EmailGeneratorService {
           and(
             eq(restaurants.projectId, projectId),
             eq(restaurants.status, 'analyzed' as CompanyStatus),
+            // 有收件人才生成：websiteContactEmail 优先，导入邮箱兜底
+            or(
+              isNotNull(restaurants.websiteContactEmail),
+              isNotNull(restaurants.email),
+            ),
           ),
         );
       targetIds = rows.map((r: { id: string }) => r.id);
@@ -311,8 +318,16 @@ export class EmailGeneratorService {
     }
 
     const total = targetIds.length;
-    void this.processBatch(targetIds, userId);
+    // 服务端后台执行 + 进度跟踪：断网/关页不再中断批量
+    const key = `generate:${userId}:${projectId ?? 'selected'}`;
+    startServerBatch(key, 'generate', userId, projectId ?? null, total);
+    void this.processBatch(targetIds, userId, key).then(() => finishServerBatch(key));
     return { total };
+  }
+
+  /** 查询该用户某项目的批量生成进度（前端轮询用） */
+  getGenerateBatchStatuses(userId: string, projectId: string | null): ServerBatchProgress[] {
+    return getServerBatches(userId, projectId, 'generate');
   }
 
   async getEml(companyId: string, userId?: string): Promise<EmlDownloadResponse> {
@@ -1191,17 +1206,20 @@ export class EmailGeneratorService {
     }
   }
 
-  private async processBatch(ids: string[], userId: string): Promise<void> {
+  private async processBatch(ids: string[], userId: string, batchKey?: string): Promise<void> {
     for (let i = 0; i < ids.length; i += this.CONCURRENCY) {
       const chunk = ids.slice(i, i + this.CONCURRENCY);
       await Promise.all(
         chunk.map((id: string) =>
-          this.generateEmail(id, userId).catch((err: unknown) => {
-            this.logger.error(
-              `生成邮件失败 ${id}`,
-              err instanceof Error ? err.stack : String(err),
-            );
-          }),
+          this.generateEmail(id, userId)
+            .then(() => { if (batchKey) tickServerBatch(batchKey, true); })
+            .catch((err: unknown) => {
+              if (batchKey) tickServerBatch(batchKey, false);
+              this.logger.error(
+                `生成邮件失败 ${id}`,
+                err instanceof Error ? err.stack : String(err),
+              );
+            }),
         ),
       );
     }

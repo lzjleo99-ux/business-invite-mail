@@ -503,6 +503,99 @@ const WorkbenchTab: React.FC<WorkbenchTabProps> = ({
     { value: 'analyzed', label: '已分析的' },
     { value: 'all', label: '全部' },
   ];
+  // ---- 服务端批量（断网保护）：分析/生成在服务器后台执行，前端只触发和轮询 ----
+  const [serverBatch, setServerBatch] = useState<{
+    kind: 'analyze' | 'generate';
+    projectId: string;
+    total: number;
+  } | null>(null);
+  const [serverProgress, setServerProgress] = useState<{
+    done: number;
+    failed: number;
+    total: number;
+    finishedAt: string | null;
+  } | null>(null);
+  const serverBatchRef = useRef<{ kind: 'analyze' | 'generate'; projectId: string; total: number } | null>(null);
+  const serverBatchDoneRef = useRef(false);
+
+  // 轮询：3 秒一次，finishedAt 出现即完成（toast 汇总结果）
+  useEffect(() => {
+    if (!serverBatch) return;
+    const { kind, projectId } = serverBatch;
+    let alive = true;
+    const poll = async (): Promise<void> => {
+      try {
+        const list =
+          kind === 'analyze'
+            ? await websiteAnalyzerApi.getAnalyzeBatchStatus(projectId)
+            : await emailGeneratorApi.getGenerateBatchStatus(projectId);
+        if (!alive) return;
+        // 取 startedAt 最新的一条（同 key 重复触发会覆盖，一般只有一条）
+        const cur = list[0];
+        if (!cur) return;
+        setServerProgress({
+          done: cur.done,
+          failed: cur.failed,
+          total: cur.total,
+          finishedAt: cur.finishedAt,
+        });
+        if (cur.finishedAt) {
+          serverBatchDoneRef.current = true;
+          void qc.invalidateQueries({ queryKey: ['companies'] });
+          void qc.invalidateQueries({ queryKey: ['company-stats'] });
+          if (cur.failed > 0) {
+            toast.warning(
+              t('后台批量完成：成功 {s} 条，失败 {f} 条', { s: cur.done, f: cur.failed }),
+              { duration: 12000 },
+            );
+          } else {
+            toast.success(t('后台批量完成：{s} 条全部成功', { s: cur.done }));
+          }
+          setServerBatch(null);
+          setServerProgress(null);
+        }
+      } catch {
+        // 轮询失败（如短暂断网）静默重试：服务器不受影响，继续跑
+      }
+    };
+    void poll();
+    const timer = setInterval(() => void poll(), 3000);
+    return () => {
+      alive = false;
+      clearInterval(timer);
+    };
+  }, [serverBatch, qc, t]);
+
+  // 进入页面时恢复：有进行中的服务端批量就接上进度显示（离开页面再回来不断档）
+  useEffect(() => {
+    if (!projectId || serverBatch) return;
+    let alive = true;
+    const check = async (): Promise<void> => {
+      try {
+        const [a, g] = await Promise.all([
+          websiteAnalyzerApi.getAnalyzeBatchStatus(projectId),
+          emailGeneratorApi.getGenerateBatchStatus(projectId),
+        ]);
+        if (!alive || serverBatch) return;
+        const running = [...a, ...g].find((b) => !b.finishedAt);
+        if (running) {
+          setServerBatch({
+            kind: running.kind,
+            projectId,
+            total: running.total,
+          });
+        }
+      } catch {
+        /* 静默 */
+      }
+    };
+    void check();
+    return () => {
+      alive = false;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [projectId]);
+
   const handleAnalyzeAll = useCallback(async () => {
     setAnalyzeAllPreparing(true);
     try {
@@ -525,10 +618,21 @@ const WorkbenchTab: React.FC<WorkbenchTabProps> = ({
       if (targets.length === 0) {
         toast.info(t('该范围内没有需要分析的公司'));
       } else {
-        // 串行：等 AI 分析全部完成，再跑邮箱核验。
-        // 之前两段并行，按钮一直显示"正在核验邮箱..."，分析进度条却被遮蔽，
-        // 看起来像"没在分析"（2026-11-17 用户反馈）。
-        await batchAnalyzeOp.start(targets);
+        // 服务端批量（断网保护）：分析在服务器后台执行，关页/断网不影响；
+        // 前端轮询进度显示。串行：分析完成后再跑邮箱核验。
+        await websiteAnalyzerApi.batchAnalyze(
+          { projectId, companyIds: targets.map((c) => c.id), scope: analyzeScope },
+        );
+        setServerBatch({ kind: 'analyze', projectId, total: targets.length });
+        await new Promise<void>((resolve) => {
+          const timer = setInterval(() => {
+            if (serverBatchDoneRef.current) {
+              clearInterval(timer);
+              serverBatchDoneRef.current = false;
+              resolve();
+            }
+          }, 500);
+        });
       }
     } catch (err: unknown) {
       logger.error('获取待分析公司列表失败', err);
@@ -659,7 +763,18 @@ const WorkbenchTab: React.FC<WorkbenchTabProps> = ({
         return;
       }
       skippedNoEmailRef.current = noEmail;
-      batchGenerateOp.start(targets);
+      // 服务端批量（断网保护）：生成在服务器后台执行，前端轮询进度
+      await emailGeneratorApi.batchGenerate(projectId, targets.map((c) => c.id));
+      setServerBatch({ kind: 'generate', projectId, total: targets.length });
+      await new Promise<void>((resolve) => {
+        const timer = setInterval(() => {
+          if (serverBatchDoneRef.current) {
+            clearInterval(timer);
+            serverBatchDoneRef.current = false;
+            resolve();
+          }
+        }, 500);
+      });
     } catch (err: unknown) {
       logger.error('获取可生成公司列表失败', err);
       toast.error(t('获取待分析列表失败，请重试'));
@@ -2361,7 +2476,7 @@ const WorkbenchTab: React.FC<WorkbenchTabProps> = ({
               <Button
                 variant="secondary"
                 onClick={() => void handleAnalyzeAll()}
-                disabled={analyzeAllPreparing || emailRescanRunning || batchAnalyzeOp.isRunning || items.length === 0 || batchGenerateOp.isRunning || batchWhatsAppOp.isRunning}
+                disabled={analyzeAllPreparing || emailRescanRunning || batchAnalyzeOp.isRunning || items.length === 0 || batchGenerateOp.isRunning || batchWhatsAppOp.isRunning || !!serverBatch}
                 className="rounded-r-none"
               >
               {analyzeAllPreparing || emailRescanRunning || batchAnalyzeOp.isRunning ? (
@@ -2409,7 +2524,7 @@ const WorkbenchTab: React.FC<WorkbenchTabProps> = ({
             <Button
               variant="default"
               onClick={() => void handleGenerateAll()}
-              disabled={generateAllPreparing || batchGenerateOp.isRunning || items.length === 0 || batchAnalyzeOp.isRunning || batchWhatsAppOp.isRunning}
+              disabled={generateAllPreparing || batchGenerateOp.isRunning || items.length === 0 || batchAnalyzeOp.isRunning || batchWhatsAppOp.isRunning || !!serverBatch}
             >
               {generateAllPreparing || batchGenerateOp.isRunning ? (
                 <Loader2 className="animate-spin" size={16} />
@@ -2612,7 +2727,52 @@ const WorkbenchTab: React.FC<WorkbenchTabProps> = ({
         </Dialog>
 
         {/* Batch progress bar */}
-        {(batchAnalyzeOp.isRunning || batchGenerateOp.isRunning || batchWhatsAppOp.isRunning) && (
+        {serverBatch && serverProgress ? (
+          /* 服务端批量（断网保护）：进度来自服务器轮询，关页/断网不影响执行 */
+          <div className="mb-4">
+            <div className="h-1.5 w-full bg-slate-100 rounded-full overflow-hidden">
+              <div
+                className="h-full bg-primary transition-all duration-300"
+                style={{
+                  width: `${
+                    serverProgress.total === 0
+                      ? 100
+                      : Math.round(
+                          ((serverProgress.done + serverProgress.failed) /
+                            serverProgress.total) *
+                            100,
+                        )
+                  }%`,
+                }}
+              />
+            </div>
+            <div className="flex items-center justify-between mt-1.5 text-xs text-slate-500">
+              <span className="flex items-center gap-1.5">
+                <Loader2 className="animate-spin" size={12} />
+                {serverBatch.kind === 'analyze'
+                  ? t('服务器正在分析网站...')
+                  : t('服务器正在生成邮件...')}
+              </span>
+              <span>
+                {t('已处理 {p}/{t}（{percent}%）', {
+                  p: serverProgress.done + serverProgress.failed,
+                  t: serverProgress.total,
+                  percent:
+                    serverProgress.total === 0
+                      ? 100
+                      : Math.round(
+                          ((serverProgress.done + serverProgress.failed) /
+                            serverProgress.total) *
+                            100,
+                        ),
+                })}
+              </span>
+            </div>
+            <p className="mt-1 text-xs text-slate-400">
+              {t('任务在服务器后台执行：断网或关闭页面都不会中断，回来后进度照常显示')}
+            </p>
+          </div>
+        ) : (batchAnalyzeOp.isRunning || batchGenerateOp.isRunning || batchWhatsAppOp.isRunning) && (
           <div className="mb-4">
             <div className="h-1.5 w-full bg-slate-100 rounded-full overflow-hidden">
               <div

@@ -1,5 +1,5 @@
 import { axiosForBackend } from '@lark-apaas/client-toolkit/utils/getAxiosForBackend';
-import type {
+import type { ServerBatchProgress,
   GeneratedEmail,
   BatchGenerateRequest,
   WhatsAppInfo,
@@ -301,4 +301,14 @@ export async function listMessengerStatus(
     `/api/email-generator/messenger-check/${projectId}`,
   );
   return response.data.items ?? [];
+}
+
+/** 服务端批量生成进度（批量在服务器后台跑，断网/关页不受影响） */
+export async function getGenerateBatchStatus(
+  projectId: string,
+): Promise<ServerBatchProgress[]> {
+  const response = await axiosForBackend.get(
+    `/api/email-generator/generate-batch-status?projectId=${projectId}`,
+  );
+  return response.data;
 }

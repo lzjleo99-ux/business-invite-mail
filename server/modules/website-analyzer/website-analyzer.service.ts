@@ -14,6 +14,7 @@ import { randomUUID } from 'crypto';
 import * as fs from 'fs/promises';
 import { restaurants, modelConfig, projects, companyContacts } from '@server/database/schema';
 import { runIdempotentMigration } from '@server/common/utils/ddl-runner';
+import { startServerBatch, tickServerBatch, finishServerBatch, getServerBatches, type ServerBatchProgress } from '@server/common/utils/server-batch';
 import type { Company, CompanyStatus } from '@shared/api.interface';
 
 const execFileAsync = promisify(execFile);
@@ -237,8 +238,16 @@ export class WebsiteAnalyzerService {
     companyIds: string[] | undefined,
     projectId: string | undefined,
     userId: string,
+    /** 分析范围：unanalyzed=pending+failed+analyzing；all=全部状态 */
+    scope?: 'unanalyzed' | 'analyzed' | 'all',
   ): Promise<{ total: number }> {
     let targetIds: string[];
+    const scopeStatuses: Record<string, CompanyStatus[]> = {
+      unanalyzed: ['pending', 'failed', 'analyzing'],
+      analyzed: ['analyzed', 'generating', 'generated'],
+      all: ['pending', 'failed', 'analyzing', 'analyzed', 'generating', 'generated'],
+    };
+    const statuses = scopeStatuses[scope ?? 'unanalyzed'] ?? scopeStatuses.unanalyzed;
 
     if (companyIds && companyIds.length > 0) {
       const rows = await this.db
@@ -253,7 +262,7 @@ export class WebsiteAnalyzerService {
         .where(
           and(
             eq(restaurants.projectId, projectId),
-            eq(restaurants.status, 'pending' as CompanyStatus),
+            inArray(restaurants.status, statuses),
           ),
         );
       targetIds = rows.map((r: { id: string }) => r.id);
@@ -261,26 +270,37 @@ export class WebsiteAnalyzerService {
       const rows = await this.db
         .select({ id: restaurants.id })
         .from(restaurants)
-        .where(eq(restaurants.status, 'pending' as CompanyStatus));
+        .where(inArray(restaurants.status, statuses));
       targetIds = rows.map((r: { id: string }) => r.id);
     }
 
     const total = targetIds.length;
-    void this.processBatch(targetIds, userId);
+    // 服务端后台执行 + 进度跟踪：断网/关页不再中断批量
+    const key = `analyze:${userId}:${projectId ?? 'selected'}`;
+    startServerBatch(key, 'analyze', userId, projectId ?? null, total);
+    void this.processBatch(targetIds, userId, key).then(() => finishServerBatch(key));
     return { total };
   }
 
-  private async processBatch(ids: string[], userId: string): Promise<void> {
+  /** 查询该用户某项目的批量分析进度（前端轮询用） */
+  getAnalyzeBatchStatuses(userId: string, projectId: string | null): ServerBatchProgress[] {
+    return getServerBatches(userId, projectId, 'analyze');
+  }
+
+  private async processBatch(ids: string[], userId: string, batchKey?: string): Promise<void> {
     for (let i = 0; i < ids.length; i += this.CONCURRENCY) {
       const chunk = ids.slice(i, i + this.CONCURRENCY);
       await Promise.all(
         chunk.map((id: string) =>
-          this.analyzeCompany(id, userId).catch((err: unknown) => {
-            this.logger.error(
-              `分析公司失败 ${id}`,
-              err instanceof Error ? err.stack : String(err),
-            );
-          }),
+          this.analyzeCompany(id, userId)
+            .then(() => { if (batchKey) tickServerBatch(batchKey, true); })
+            .catch((err: unknown) => {
+              if (batchKey) tickServerBatch(batchKey, false);
+              this.logger.error(
+                `分析公司失败 ${id}`,
+                err instanceof Error ? err.stack : String(err),
+              );
+            }),
         ),
       );
     }

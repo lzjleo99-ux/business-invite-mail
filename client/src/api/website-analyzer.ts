@@ -4,6 +4,7 @@ import type {
   Restaurant,
   BatchAnalyzeRequest,
 } from '@shared/api.interface';
+import type { ServerBatchProgress } from '@shared/api.interface';
 
 // --- Legacy Restaurant-named function (backward compatibility) ---
 
@@ -15,6 +16,7 @@ export async function analyzeWebsite(restaurantId: string): Promise<Restaurant> 
 export async function batchAnalyze(
   projectIdOrData: string | BatchAnalyzeRequest,
   maybeCompanyIds?: string[],
+  maybeScope?: 'unanalyzed' | 'analyzed' | 'all',
 ): Promise<{ total: number }> {
   let body: BatchAnalyzeRequest;
   if (typeof projectIdOrData === 'string') {
@@ -24,6 +26,7 @@ export async function batchAnalyze(
     // Legacy form: batchAnalyze({ projectId?, companyIds? })
     body = projectIdOrData;
   }
+  if (maybeScope) body.scope = maybeScope;
   const response = await axiosForBackend.post('/api/website-analyzer/batch-analyze', body);
   return response.data;
 }
@@ -75,4 +78,14 @@ export async function getCompanyContacts(companyId: string): Promise<CompanyCont
     `/api/website-analyzer/contacts/${companyId}`,
   );
   return (response.data?.items ?? []) as CompanyContact[];
+}
+
+/** 服务端批量分析进度（批量在服务器后台跑，断网/关页不受影响） */
+export async function getAnalyzeBatchStatus(
+  projectId: string,
+): Promise<ServerBatchProgress[]> {
+  const response = await axiosForBackend.get(
+    `/api/website-analyzer/batch-status?projectId=${projectId}`,
+  );
+  return response.data;
 }

@@ -4,6 +4,7 @@ import {
   Get,
   Param,
   Body,
+  Query,
   BadRequestException,
   UseGuards,
 } from '@nestjs/common';
@@ -12,6 +13,7 @@ import { CurrentUser } from '../auth/current-user.decorator';
 import { IsArray, IsOptional, IsString } from 'class-validator';
 import { Type } from 'class-transformer';
 import { WebsiteAnalyzerService } from './website-analyzer.service';
+import type { ServerBatchProgress } from '@server/common/utils/server-batch';
 import type { EmailRescanSummary } from './website-analyzer.service';
 import type { Company, BatchAnalyzeRequest } from '@shared/api.interface';
 
@@ -24,6 +26,9 @@ class BatchAnalyzeDto implements BatchAnalyzeRequest {
   @IsOptional()
   @IsString()
   projectId?: string;
+  @IsOptional()
+  @IsString()
+  scope?: 'unanalyzed' | 'analyzed' | 'all';
 }
 
 class RescanEmailsDto {
@@ -74,6 +79,19 @@ export class WebsiteAnalyzerController {
       dto.companyIds,
       dto.projectId,
       user.userId,
+      dto.scope,
+    );
+  }
+
+  /** 服务端批量进度（前端轮询）：批量在服务器后台执行，断网/关页不受影响 */
+  @Get('batch-status')
+  async analyzeBatchStatus(
+    @CurrentUser() user: JwtPayload,
+    @Query('projectId') projectId: string | undefined,
+  ): Promise<ServerBatchProgress[]> {
+    return this.websiteAnalyzerService.getAnalyzeBatchStatuses(
+      user.userId,
+      projectId ?? null,
     );
   }
 

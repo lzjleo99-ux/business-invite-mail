@@ -22,6 +22,7 @@ import type { Response } from 'express';
 import { JwtAuthGuard, type JwtPayload } from '../auth/jwt-auth.guard';
 import { CurrentUser } from '../auth/current-user.decorator';
 import { EmailGeneratorService, type BatchSendSummary } from './email-generator.service';
+import type { ServerBatchProgress } from '@server/common/utils/server-batch';
 import { MessengerService } from './messenger.service';
 import { EmailHistoryService, type EmailHistoryRow, type EmailHistoryDetail } from './email-history.service';
 import { EmailInboxService, type InboxPollResult } from './email-inbox.service';
@@ -172,6 +173,18 @@ export class EmailGeneratorController {
       dto.companyIds,
       dto.projectId,
       user.userId,
+    );
+  }
+
+  /** 服务端批量生成进度（前端轮询） */
+  @Get('generate-batch-status')
+  async generateBatchStatus(
+    @CurrentUser() user: JwtPayload,
+    @Query('projectId') projectId: string | undefined,
+  ): Promise<ServerBatchProgress[]> {
+    return this.emailGeneratorService.getGenerateBatchStatuses(
+      user.userId,
+      projectId ?? null,
     );
   }
 

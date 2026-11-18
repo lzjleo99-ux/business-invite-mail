@@ -264,7 +264,9 @@ export interface AnalyzeWebsiteRequest {
 
 export interface BatchAnalyzeRequest {
   companyIds?: string[];
-  projectId?: string;
+  projectId?: string;  /** 分析范围（服务端批量用） */
+  scope?: 'unanalyzed' | 'analyzed' | 'all';
+
 }
 
 export interface GenerateEmailRequest {
@@ -395,6 +397,17 @@ export interface ModelBalanceResponse {
   message: string;
   detail?: string;
   checkedAt: string;
+}
+
+/** 服务端批量任务进度（浏览器只触发和轮询，执行在服务器） */
+export interface ServerBatchProgress {
+  key: string;
+  kind: 'analyze' | 'generate';
+  total: number;
+  done: number;
+  failed: number;
+  startedAt: string;
+  finishedAt: string | null;
 }
 
 // Legacy aliases for backward compatibility
