@@ -127,7 +127,10 @@ export class WebsiteAnalyzerService {
       .where(eq(restaurants.id, companyId));
 
     try {
+      const siteStart = Date.now();
       const fetchResult = await this.fetchWebsiteContent(company.website, userId, company.country);
+      const fetchMs = Date.now() - siteStart;
+      const modelStart = Date.now();
       const extraction = await this.extractWithModel(
         fetchResult.content,
         company.name,
@@ -167,6 +170,10 @@ export class WebsiteAnalyzerService {
         status: 'analyzed' as CompanyStatus,
         analyzeError: null,
       };
+      this.logger.log(
+        `网站分析耗时 company=${String(company.name || '').slice(0, 30)} `
+          + `抓取=${fetchMs}ms 模型=${Date.now() - modelStart}ms 方式=${fetchResult.method}`,
+      );
 
       const primaryEmail = allEmails[0];
       if (primaryEmail && !company.email) {
@@ -418,13 +425,21 @@ export class WebsiteAnalyzerService {
     // 本地语言路径很关键：塞尔维亚/德国/法国站点的"联系我们"很少用 /contact，
     // 常见 /kontakt（德/塞）、/nous-contacter（法）、/contatti（意）——
     // 只爬英文路径会漏掉整站唯一的联系方式。
-    const pages = ['', '/about', '/contact', '/products', '/services', '/company', ...localPaths];
+        const fetchStart = Date.now();
+const pages = ['', '/about', '/contact', '/products', '/services', '/company', ...localPaths];
     const contents: string[] = [];
     const seen = new Set<string>();
 
-    for (const page of pages) {
-      if (seen.has(page)) continue;
+    const uniquePages = pages.filter((page) => {
+      if (seen.has(page)) return false;
       seen.add(page);
+      return true;
+    });
+
+    // 6 路并发抓取（实测 8-12 页串行要 6-12 秒，6 路并发约 2 秒）。
+    // 首页单独先抓：首页失败仍按原语义直接抛（说明站点真的不可达），
+    // 其余栏目页并发抓取、个别失败静默跳过，保持"能抓多少算多少"。
+    const fetchOne = async (page: string): Promise<string | null> => {
       try {
         const url = page ? this.joinUrl(baseUrl, page) : baseUrl;
         const response = await this.httpClient.get<string>(url, {
@@ -432,20 +447,30 @@ export class WebsiteAnalyzerService {
           headers: { Referer: baseUrl + '/' },
         });
         const contentType = String(response.headers['content-type'] ?? '');
-        if (!contentType.includes('text/html')) {
-          continue;
-        }
+        if (!contentType.includes('text/html')) return null;
         const text = this.extractText(response.data);
-        if (text.trim().length > 0) {
-          contents.push(`[${page || 'home'}]\n${text}`);
-        }
+        return text.trim().length > 0 ? `[${page || 'home'}]\n${text}` : null;
       } catch (err: unknown) {
-        if (page === '') {
-          throw err;
-        }
+        if (page === '') throw err; // 首页失败 = 站点不可达，保持原语义
+        return null;
       }
+    };
+
+    if (uniquePages.includes('')) {
+      const home = await fetchOne('');
+      if (home) contents.push(home);
+    }
+    const rest = uniquePages.filter((p) => p !== '');
+    for (let i = 0; i < rest.length; i += 6) {
+      const chunk = rest.slice(i, i + 6);
+      const results = await Promise.all(chunk.map((page) => fetchOne(page)));
+      for (const r of results) if (r) contents.push(r);
     }
 
+    this.logger.log(
+      `网页抓取 pages=${uniquePages.length} 命中=${contents.length} `
+        + `耗时=${Date.now() - fetchStart}ms base=${baseUrl.slice(0, 60)}`,
+    );
     const combined = contents.join('\n\n---\n\n');
     return combined.slice(0, this.MAX_TEXT_LENGTH);
   }

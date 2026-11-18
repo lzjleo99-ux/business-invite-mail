@@ -76,8 +76,13 @@ export class EmailGeneratorService {
   private readonly CONCURRENCY = 5;
   // TPK/GLM-5.2 是推理模型，重负载公司单条生成可能跑好几分钟；180s 会把这类判为
   // timeout of 180000ms exceeded 直接失败。放宽到 600s，最多重试 2 次（共 3 次尝试）。
-  private readonly MODEL_TIMEOUT_MS = 600000;
-  private readonly MAX_RETRIES = 2;
+  /**
+   * 单次模型请求超时：3 分钟。
+   * 实测 GLM-5.2 生成双语邮件耗时 75-136 秒；90 秒会误杀正常请求，
+   * 10 分钟则让异常请求长期占住并发槽。内层 postChatCompletions 已负责
+   * 503/429 的 3 秒退避重试（总上限 5 分钟），这里只管单次请求。
+   */
+  private readonly MODEL_TIMEOUT_MS = 180000;
   /**
    * 僵尸状态回收：generating / analyzing 是「进行中」标记，正常请求结束一定会落到
    * generated/analyzed/failed。但进程被重启（部署）、容器被杀、OOM 或前端刷新导致
@@ -1398,6 +1403,7 @@ export class EmailGeneratorService {
     userId?: string;
   }): Promise<BilingualEmailResult> {
     const { company, projectContext, sender, languageCode, config, images, userId } = params;
+    const callBilingualStart = Date.now();
 
     // 签名要带联系方式：发件邮箱取 SMTP 配置（设置页「发件人邮箱」），就是客户回信时看到的地址
     let senderEmail = '';
@@ -1547,9 +1553,23 @@ Return ONLY a JSON object with these exact keys:
       ],
       temperature: config.temperature ?? 0.9,
       jsonMode: true,
+      // 上限 6000：正常双语邮件实测 1800-3600 tokens，不影响；
+      // 仅拦截模型异常陷入超长输出。不能设 1500 之类的小值——会截断 JSON。
+      maxTokens: 6000,
     });
 
+    // 耗时日志：区分"准备阶段（取图/取上下文）"与"模型推理"的耗时
+    const genStart = Date.now();
     const response = await this.callModelWithRetry(config, body);
+    const modelMs = Date.now() - genStart;
+    const usage = response.data?.usage as
+      | { completion_tokens?: number; total_tokens?: number }
+      | undefined;
+    this.logger.log(
+      `邮件生成耗时 company=${String(company.name || '').slice(0, 30)} `
+        + `准备=${genStart - callBilingualStart}ms 模型=${modelMs}ms `
+        + `输出tokens=${usage?.completion_tokens ?? '-'} 模型=${config.modelName}`,
+    );
 
     const contentStr = response.data?.choices?.[0]?.message?.content;
     if (!contentStr) {
@@ -1851,47 +1871,20 @@ Return ONLY a JSON object with these exact keys:
     body: Record<string, unknown>,
   ) {
     const url: string = `${config.apiBaseUrl.replace(/\/+$/, '')}/chat/completions`;
-    let lastError: unknown = null;
-
-    for (let attempt = 0; attempt <= this.MAX_RETRIES; attempt += 1) {
-      try {
-        // 统一入口：模型不吃 temperature/max_tokens 等参数时自动适配重试
-        const response = await postChatCompletions(
-          url,
-          body,
-          {
-            'Content-Type': 'application/json',
-            Authorization: `Bearer ${config.apiKey}`,
-          },
-          { timeout: this.MODEL_TIMEOUT_MS, label: 'email-generator', retryTransient: true },
-        );
-        return response;
-      } catch (err: unknown) {
-        lastError = err;
-        const errObj = err as unknown as Record<string, unknown>;
-        const isTimeout =
-          err instanceof Error &&
-          (err.message.includes('timeout') ||
-            errObj.code === 'ECONNABORTED');
-        const responseObj = errObj.response as Record<string, unknown> | undefined;
-        const status = responseObj?.status != null ? Number(responseObj.status) : null;
-        const is5xx = status != null && status >= 500;
-
-        if (attempt < this.MAX_RETRIES && (isTimeout || is5xx)) {
-          const waitMs: number = 2000 * (attempt + 1);
-          this.logger.warn(
-            `模型调用失败，${waitMs}ms 后重试（第 ${attempt + 1}/${this.MAX_RETRIES} 次）：${isTimeout ? 'timeout' : String(status ?? err)}`,
-          );
-          await new Promise((resolve) => setTimeout(resolve, waitMs));
-          continue;
-        }
-        throw err;
-      }
-    }
-
-    throw lastError;
+    // 不再做外层重试：postChatCompletions 内部已对 503/429/网络抖动做
+    // 每 3 秒退避、总上限 5 分钟的重试。此前外层再重试 2 次（每次最长
+    // 10 分钟 + 等待），单家最坏可达 45 分钟，且占住并发槽拖垮整批。
+    // 参数不兼容（400）的自动适配也在内层完成。
+    return postChatCompletions(
+      url,
+      body,
+      {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${config.apiKey}`,
+      },
+      { timeout: this.MODEL_TIMEOUT_MS, label: 'email-generator', retryTransient: true },
+    );
   }
-
   private buildCompanyInfo(
     company: typeof restaurants.$inferSelect,
   ): string {

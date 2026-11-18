@@ -4,7 +4,7 @@ import {
   DRIZZLE_DATABASE,
   type PostgresJsDatabase,
 } from '@lark-apaas/fullstack-nestjs-core';
-import { eq, asc, sql } from 'drizzle-orm';
+import {eq, asc, sql, inArray } from 'drizzle-orm';
 import axios from 'axios';
 import { postChatCompletions } from '@server/common/utils/ai-chat';
 import { spawn } from 'child_process';
@@ -182,17 +182,35 @@ export class ImageAnalysisService {
 
     const images = rows.filter((r) => r.fileType === 'image').slice(0, 6);
     const result: EmailImageCandidate[] = [];
+
+    // 并发补齐缺失的图片描述（此前 6 张串行 await，首轮生成每张可能耗时数十秒）。
+    // describeMaterial 内部有缓存与 inflight 去重，并发安全；未命中的才调视觉模型。
+    const needsDescription = images.filter((img) => !img.description);
+    if (needsDescription.length > 0) {
+      await Promise.all(
+        needsDescription.map((img) =>
+          this.describeMaterial(img.id, userId).catch(() => null),
+        ),
+      );
+    }
+
+    // 重新读取一次：describeMaterial 已把新描述写入表，统一从最新缓存取
+    const refreshed = needsDescription.length > 0
+      ? await this.db
+          .select({
+            id: materialImageDescriptions.materialId,
+            description: materialImageDescriptions.description,
+          })
+          .from(materialImageDescriptions)
+          .where(inArray(materialImageDescriptions.materialId, images.map((img) => img.id)))
+      : [];
+    const descMap = new Map(refreshed.map((d) => [d.id, d.description]));
+
     for (const img of images) {
-      let description = img.description;
+      const description = img.description || descMap.get(img.id) || null;
       let source: EmailImageCandidate['source'] = 'fallback';
       if (description) {
         source = description.startsWith('vision:') ? 'vision' : 'fallback';
-      } else {
-        const fresh = await this.describeMaterial(img.id, userId);
-        if (fresh) {
-          description = fresh;
-          source = fresh.startsWith('vision:') ? 'vision' : 'fallback';
-        }
       }
       if (description) {
         result.push({
@@ -203,7 +221,7 @@ export class ImageAnalysisService {
           isEssential: img.isEssential,
         });
       } else {
-        // 连兜底描述都没有（例如 OCR 也没跑出来）——至少给个文件名让模型知道有这张图
+        // 连兜底描述都没有——至少给个文件名让模型知道有这张图
         result.push({
           materialId: img.id,
           fileName: img.fileName,
