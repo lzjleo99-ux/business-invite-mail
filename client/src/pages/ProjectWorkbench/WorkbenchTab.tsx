@@ -2521,10 +2521,12 @@ const WorkbenchTab: React.FC<WorkbenchTabProps> = ({
               </DropdownMenuContent>
             </DropdownMenu>
             </div>
+            <div className="flex items-stretch">
             <Button
               variant="default"
               onClick={() => void handleGenerateAll()}
               disabled={generateAllPreparing || batchGenerateOp.isRunning || items.length === 0 || batchAnalyzeOp.isRunning || batchWhatsAppOp.isRunning || !!serverBatch}
+              className="rounded-r-none"
             >
               {generateAllPreparing || batchGenerateOp.isRunning ? (
                 <Loader2 className="animate-spin" size={16} />
@@ -2547,7 +2549,7 @@ const WorkbenchTab: React.FC<WorkbenchTabProps> = ({
                 <Button
                   variant="default"
                   disabled={generateAllPreparing || batchGenerateOp.isRunning || !!serverBatch}
-                  className="rounded-l-none border-l-0 px-2"
+                  className="rounded-l-none border-l border-slate-300 px-2"
                   aria-label={t('生成范围')}
                 >
                   <ChevronDown size={14} />
@@ -2566,6 +2568,7 @@ const WorkbenchTab: React.FC<WorkbenchTabProps> = ({
                 ))}
               </DropdownMenuContent>
             </DropdownMenu>
+            </div>
             <div className="flex items-stretch">
               <Button
                 variant="outline"
