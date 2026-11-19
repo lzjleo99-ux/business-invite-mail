@@ -485,6 +485,8 @@ const WorkbenchTab: React.FC<WorkbenchTabProps> = ({
   //    没邮箱的尝试从官网挖。纯 HTTP 不调 AI，与第 1 步并行执行。
   const [analyzeAllPreparing, setAnalyzeAllPreparing] = useState(false);
   const [emailRescanRunning, setEmailRescanRunning] = useState(false);
+  // 分析批量完成后是否要接着跑邮箱核验（放服务端批量后面串行执行）
+  const pendingEmailRescanRef = useRef(false);
   // 「一键分析全部」的取数范围：默认只跑未分析的（与历史行为一致），
   // 也可选只重跑已分析过的（换分析逻辑后重新抓联系方式），或全部。
   type AnalyzeScope = 'unanalyzed' | 'analyzed' | 'all';
@@ -516,7 +518,6 @@ const WorkbenchTab: React.FC<WorkbenchTabProps> = ({
     finishedAt: string | null;
   } | null>(null);
   const serverBatchRef = useRef<{ kind: 'analyze' | 'generate'; projectId: string; total: number } | null>(null);
-  const serverBatchDoneRef = useRef(false);
 
   // 轮询：3 秒一次，finishedAt 出现即完成（toast 汇总结果）
   useEffect(() => {
@@ -540,9 +541,32 @@ const WorkbenchTab: React.FC<WorkbenchTabProps> = ({
           finishedAt: cur.finishedAt,
         });
         if (cur.finishedAt) {
-          serverBatchDoneRef.current = true;
           void qc.invalidateQueries({ queryKey: ['companies'] });
           void qc.invalidateQueries({ queryKey: ['company-stats'] });
+          if (kind === 'analyze' && pendingEmailRescanRef.current) {
+            pendingEmailRescanRef.current = false;
+            // 分析完成后再跑邮箱核验（纯 HTTP，不调 AI），两段严格串行
+            void (async () => {
+              setEmailRescanRunning(true);
+              try {
+                const summary = await websiteAnalyzerApi.rescanEmails(projectId);
+                void qc.invalidateQueries({ queryKey: ['companies'] });
+                void qc.invalidateQueries({ queryKey: ['company-stats'] });
+                if (summary.updated + summary.added > 0) {
+                  toast.success(t('邮箱核验完成：扫描 {s} 个网站，替换 {u} 家、新找到 {a} 家的邮箱', {
+                    s: summary.scanned, u: summary.updated, a: summary.added,
+                  }));
+                } else {
+                  toast.info(t('邮箱核验完成：{s} 个网站中没有发现可更新的邮箱', { s: summary.scanned }));
+                }
+              } catch (err: unknown) {
+                logger.error('邮箱核验失败', err);
+                toast.error(t('邮箱核验失败，请稍后重试'));
+              } finally {
+                setEmailRescanRunning(false);
+              }
+            })();
+          }
           if (cur.failed > 0) {
             toast.warning(
               t('后台批量完成：成功 {s} 条，失败 {f} 条', { s: cur.done, f: cur.failed }),
@@ -616,6 +640,7 @@ const WorkbenchTab: React.FC<WorkbenchTabProps> = ({
         targets = targets.filter((c) => picked.has(c.id));
       }
       if (targets.length === 0) {
+        pendingEmailRescanRef.current = false;
         toast.info(t('该范围内没有需要分析的公司'));
       } else {
         // 服务端批量（断网保护）：分析在服务器后台执行，关页/断网不影响；
@@ -624,15 +649,9 @@ const WorkbenchTab: React.FC<WorkbenchTabProps> = ({
           { projectId, companyIds: targets.map((c) => c.id), scope: analyzeScope },
         );
         setServerBatch({ kind: 'analyze', projectId, total: targets.length });
-        await new Promise<void>((resolve) => {
-          const timer = setInterval(() => {
-            if (serverBatchDoneRef.current) {
-              clearInterval(timer);
-              serverBatchDoneRef.current = false;
-              resolve();
-            }
-          }, 500);
-        });
+        pendingEmailRescanRef.current = true;
+        // 不等待整批完成（否则按钮会长时间显示"正在获取待分析列表..."）。
+        // 批量在服务器后台跑，前端轮询进度即可。
       }
     } catch (err: unknown) {
       logger.error('获取待分析公司列表失败', err);
@@ -641,33 +660,8 @@ const WorkbenchTab: React.FC<WorkbenchTabProps> = ({
       return;
     }
     setAnalyzeAllPreparing(false);
-
-    // 邮箱核验（纯 HTTP 不调 AI；第 1 段完成后才执行，进度显示不再互相遮蔽）
-    setEmailRescanRunning(true);
-    try {
-      const summary = await websiteAnalyzerApi.rescanEmails(projectId);
-      void qc.invalidateQueries({ queryKey: ['companies'] });
-      void qc.invalidateQueries({ queryKey: ['company-stats'] });
-      if (summary.updated + summary.added > 0) {
-        toast.success(
-          t('邮箱核验完成：扫描 {s} 个网站，替换 {u} 家、新找到 {a} 家的邮箱', {
-            s: summary.scanned,
-            u: summary.updated,
-            a: summary.added,
-          }),
-        );
-      } else {
-        toast.info(
-          t('邮箱核验完成：{s} 个网站中没有发现可更新的邮箱', { s: summary.scanned }),
-        );
-      }
-    } catch (err: unknown) {
-      logger.error('邮箱核验失败', err);
-      toast.error(t('邮箱核验失败，请稍后重试'));
-    } finally {
-      setEmailRescanRunning(false);
-    }
-  }, [projectId, batchAnalyzeOp, t, qc, selectedIds]);
+    // 邮箱核验已排队（在成功触发批量时设置），等轮询完成后执行
+  }, [projectId, batchAnalyzeOp, t, qc, selectedIds, analyzeScope]);
 
   // --- Batch generate email operation ---
   // 「一键生成全部」只圈「已分析 + 有邮箱 + 尚未生成」的公司：
@@ -763,22 +757,16 @@ const WorkbenchTab: React.FC<WorkbenchTabProps> = ({
         return;
       }
       skippedNoEmailRef.current = noEmail;
-      // 服务端批量（断网保护）：生成在服务器后台执行，前端轮询进度
+      // 服务端批量（断网保护）：生成在服务器后台执行，前端只轮询进度。
+      // 关键：触发后立即解除 preparing 状态——此前 await 等待整批完成，
+      // 导致按钮在 1-2 小时里一直显示"Loading eligible list..."，看起来像卡死。
+      // 批量期间按钮禁用由 serverBatch 状态控制。
       await emailGeneratorApi.batchGenerate(projectId, targets.map((c) => c.id));
       setServerBatch({ kind: 'generate', projectId, total: targets.length });
-      await new Promise<void>((resolve) => {
-        const timer = setInterval(() => {
-          if (serverBatchDoneRef.current) {
-            clearInterval(timer);
-            serverBatchDoneRef.current = false;
-            resolve();
-          }
-        }, 500);
-      });
+      setGenerateAllPreparing(false);
     } catch (err: unknown) {
       logger.error('获取可生成公司列表失败', err);
       toast.error(t('获取待分析列表失败，请重试'));
-    } finally {
       setGenerateAllPreparing(false);
     }
   }, [projectId, batchGenerateOp, t]);
