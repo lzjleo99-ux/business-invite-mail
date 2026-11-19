@@ -15,6 +15,7 @@ import UserManagementPage from './pages/UserManagement/UserManagementPage';
 import EmailHistoryPage from './pages/EmailHistory/EmailHistoryPage';
 import UserGuidePage from './pages/UserGuide/UserGuidePage';
 import ProtectedRoute from './components/ProtectedRoute';
+import { ErrorBoundary } from './components/ErrorBoundary';
 
 const RoutesComponent = () => {
   return (
@@ -26,8 +27,8 @@ const RoutesComponent = () => {
           <Route element={<ProtectedRoute><Layout /></ProtectedRoute>}>
             <Route index element={<ProjectListPage />} />
             <Route path="projects" element={<ProjectListPage />} />
-            <Route path="projects/:id" element={<ProjectWorkbenchPage />} />
-            <Route path="settings" element={<SettingsPage />} />
+            <Route path="projects/:id" element={<ErrorBoundary label="Workbench"><ProjectWorkbenchPage /></ErrorBoundary>} />
+            <Route path="settings" element={<ErrorBoundary label="Settings"><SettingsPage /></ErrorBoundary>} />
             <Route path="email-history" element={<EmailHistoryPage />} />
             <Route path="compose/:companyId" element={<ComposeEmailPage />} />
             <Route path="admin/users" element={<UserManagementPage />} />

@@ -10,7 +10,8 @@ export interface WeComNotifyConfig {
   autoStarOnReply: boolean;
   includeSnippet: boolean;
   webhookUrl: string | null;
-  webhookSet: boolean;
+  webhookSet: boolean;  uiLanguage: string;
+
 }
 
 const DEFAULTS: WeComNotifyConfig = {
@@ -19,6 +20,7 @@ const DEFAULTS: WeComNotifyConfig = {
   includeSnippet: true,
   webhookUrl: null,
   webhookSet: false,
+  uiLanguage: 'zh',
 };
 
 export interface ReplyNoticeInput {
@@ -81,6 +83,9 @@ export class WeComNotifyService {
           // CREATE TABLE IF NOT EXISTS 对已存在的表是 no-op，所以必须显式 ALTER。
           await run(
             'ALTER TABLE wecom_notify_settings ADD COLUMN IF NOT EXISTS owner_id varchar(64)',
+          );
+          await run(
+            'ALTER TABLE wecom_notify_settings ADD COLUMN IF NOT EXISTS ui_language varchar(8) NOT NULL DEFAULT \'zh\'',
           );
           await run(
             'CREATE INDEX IF NOT EXISTS idx_wecom_notify_owner ON wecom_notify_settings (owner_id)',
@@ -146,6 +151,7 @@ export class WeComNotifyService {
         includeSnippet: r.includeSnippet,
         webhookUrl: r.webhookUrl,
         webhookSet: !!r.webhookUrl,
+        uiLanguage: r.uiLanguage || 'zh',
       };
     } catch {
       return { ...DEFAULTS };
@@ -159,6 +165,7 @@ export class WeComNotifyService {
       includeSnippet: r.includeSnippet,
       webhookUrl: r.webhookUrl,
       webhookSet: !!r.webhookUrl,
+      uiLanguage: r.uiLanguage || 'zh',
     };
   }
 
@@ -167,6 +174,8 @@ export class WeComNotifyService {
     enabled?: boolean;
     autoStarOnReply?: boolean;
     includeSnippet?: boolean;
+    /** 保存时的界面语言（en/zh）：企微通知按它渲染 */
+    uiLanguage?: string;
   }, userId?: string): Promise<void> {
     await this.ensureTable();
     const prev = await this.getConfig(userId);
@@ -184,6 +193,11 @@ export class WeComNotifyService {
     }
     const values = {
       webhookUrl: url || null,
+      // 语言只在明确传入时更新（避免旧的保存请求把语言重置回中文）
+      uiLanguage:
+        input.uiLanguage === 'en' || input.uiLanguage === 'zh'
+          ? input.uiLanguage
+          : (prev.uiLanguage || 'zh'),
       enabled: input.enabled !== undefined ? input.enabled : prev.enabled,
       autoStarOnReply:
         input.autoStarOnReply !== undefined ? input.autoStarOnReply : prev.autoStarOnReply,
@@ -225,30 +239,47 @@ export class WeComNotifyService {
       if (!cfg.enabled || !cfg.webhookUrl) return false;
 
       const who = input.companyName || input.fromAddr;
+      const lang = cfg.uiLanguage === 'en' ? 'en' : 'zh';
       const received = input.receivedAt
-        ? new Date(input.receivedAt).toLocaleString('zh-CN', { hour12: false })
-        : new Date().toLocaleString('zh-CN', { hour12: false });
+        ? new Date(input.receivedAt).toLocaleString(lang === 'en' ? 'en-GB' : 'zh-CN', { hour12: false })
+        : new Date().toLocaleString(lang === 'en' ? 'en-GB' : 'zh-CN', { hour12: false });
       const body = String(input.body || input.snippet || '').trim();
+      // 文案两套：保存配置时的界面语言决定推送语言（英文界面保存→英文推送）
+      const L = lang === 'en'
+        ? {
+            title: (subj: string) => `## 📬 Customer reply: ${subj || '(no subject)'}`,
+            company: 'Company', from: 'From', to: 'To', cc: 'Cc',
+            project: 'Project', time: 'Received', record: 'Record ID',
+            bodyLabel: 'Email body', bodyEmpty: '(empty body)',
+            part: (i: number, n: number) => `**Body ${i}/${n}**\n`,
+          }
+        : {
+            title: (subj: string) => `## 📬 客户回复：${subj || '（无主题）'}`,
+            company: '公司', from: '发件人', to: '收件人', cc: '抄送',
+            project: '项目', time: '时间', record: '记录ID',
+            bodyLabel: '邮件正文', bodyEmpty: '（邮件正文为空）',
+            part: (i: number, n: number) => `**正文 ${i + 1}/${n}**\n`,
+          };
       const header = [
-        `## 📬 客户回复：${input.subject || '（无主题）'}`,
-        `> **公司**：${who}`,
-        `> **发件人**：${input.fromAddr}`,
-        `> **收件人**：${input.toAddr || '（未知）'}`,
-        input.ccAddr ? `> **抄送**：${input.ccAddr}` : '',
-        `> **项目**：${input.projectName || '（未关联）'}`,
-        `> **时间**：${received}`,
-        input.historyId ? `> **记录ID**：${input.historyId.slice(0, 8)}` : '',
+        L.title(input.subject || ''),
+        `> **${L.company}**：${who}`,
+        `> **${L.from}**：${input.fromAddr}`,
+        `> **${L.to}**：${input.toAddr || (lang === 'en' ? '(unknown)' : '（未知）')}`,
+        input.ccAddr ? `> **${L.cc}**：${input.ccAddr}` : '',
+        `> **${L.project}**：${input.projectName || (lang === 'en' ? '(none)' : '（未关联）')}`,
+        `> **${L.time}**：${received}`,
+        input.historyId ? `> **${L.record}**：${input.historyId.slice(0, 8)}` : '',
       ].filter(Boolean).join('\n');
 
       // 企微 markdown 单条上限约 4096 字节：按 UTF-8 字节切正文，分多条推送。
       // 只截正文、不丢头部信息；每段标注 (i/n)。
       const maxBodyBytes = 3800; // 给 JSON 包装与头部留余量
-      const chunks = this.splitByUtf8Bytes(body || '（邮件正文为空）', maxBodyBytes);
+      const chunks = this.splitByUtf8Bytes(body || (lang === 'en' ? '(empty body)' : '（邮件正文为空）'), maxBodyBytes);
       let ok = true;
       for (let i = 0; i < chunks.length; i += 1) {
         const prefix = chunks.length > 1
-          ? `**正文 ${i + 1}/${chunks.length}**\n`
-          : '**邮件正文**\n';
+          ? L.part(i, chunks.length)
+          : `**${L.bodyLabel}**\n`;
         const content = `${header}\n\n---\n${prefix}${chunks[i]}`;
         const res = await axios.post(
           cfg.webhookUrl,

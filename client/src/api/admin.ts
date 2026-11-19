@@ -103,6 +103,7 @@ export async function saveWecomNotifyConfig(body: {
   enabled?: boolean;
   autoStarOnReply?: boolean;
   includeSnippet?: boolean;
+  uiLanguage?: string;
 }): Promise<{ success: boolean }> {
   const response = await axiosForBackend.post('/api/admin/wecom-notify-config', body);
   return response.data;

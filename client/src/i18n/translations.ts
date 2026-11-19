@@ -20,6 +20,7 @@ export const enMessages: Record<string, string> = {
   '第 {page} / {totalPages} 页': 'Page {page} of {totalPages}',
 
   // ---- antd table locale ----
+  '例如：车间俯拍图，适合放在"自动化清粪系统"段落后': 'e.g. Overhead workshop photo, good fit right after the "automated manure system" paragraph',
   '必要图片（生成邮件时 AI 必须包含它，位置和顺序由 AI 决定）': 'Essential image (the AI MUST include it in generated emails; position and order are its call)',
   '已标记为必要图片——生成邮件时 AI 会把它放进邮件（位置由 AI 决定）': 'Marked as essential - the AI will place this image in generated emails (position is its call)',
   '已取消必要标记——AI 将按邮件内容决定是否使用这张图': 'Essential mark removed - the AI will now decide whether to use this image based on the email content',

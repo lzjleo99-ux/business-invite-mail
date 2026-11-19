@@ -424,6 +424,8 @@ export const wecomNotifySettings = pgTable("wecom_notify_settings", {
   autoStarOnReply: boolean("auto_star_on_reply").notNull().default(true),
   /** 提醒里是否带正文摘要（超长截断） */
   includeSnippet: boolean("include_snippet").notNull().default(true),
+  /** 保存配置时的界面语言：en/zh——企微通知按这个语言渲染 */
+  uiLanguage: varchar("ui_language", { length: 8 }).notNull().default("zh"),
   createdAt: customTimestamptz("_created_at", { precision: 3 }).notNull().default(sql`CURRENT_TIMESTAMP`),
   updatedAt: customTimestamptz("_updated_at", { precision: 3 }).notNull().default(sql`CURRENT_TIMESTAMP`),
 });

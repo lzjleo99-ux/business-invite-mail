@@ -244,6 +244,7 @@ export class AdminController {
       enabled?: boolean;
       autoStarOnReply?: boolean;
       includeSnippet?: boolean;
+      uiLanguage?: string;
     },
     @CurrentUser() user: JwtPayload,
   ): Promise<{ success: boolean }> {

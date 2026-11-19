@@ -955,6 +955,8 @@ const SettingsPage = () => {
                         enabled: wecom.enabled,
                         autoStarOnReply: wecom.autoStarOnReply,
                         includeSnippet: wecom.includeSnippet,
+                        // 记录保存时的界面语言：企微通知按它渲染（英文界面→英文通知）
+                        uiLanguage: (localStorage.getItem('bd-mail-ui-lang') === 'en' ? 'en' : 'zh') as 'en' | 'zh',
                       });
                       // 已保存的地址继续显示，别清空（清空像被删了）
                       setWecom((prev) => ({ ...prev, webhookSet: true }));

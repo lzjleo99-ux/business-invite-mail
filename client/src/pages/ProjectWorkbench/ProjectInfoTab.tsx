@@ -344,7 +344,7 @@ const ImageDescriptionEditor: React.FC<{
         <Input
           value={value}
           onChange={(e) => setValue(e.target.value)}
-          placeholder={t(`例如：车间俯拍图，适合放在"自动化清粪系统"段落后`)}
+          placeholder={t('例如：车间俯拍图，适合放在"自动化清粪系统"段落后')}
           className="h-8 text-xs"
         />
         <Button
