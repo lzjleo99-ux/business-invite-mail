@@ -22,6 +22,10 @@ export interface SenderProfile {
   senderTitle: string | null;
   companyName: string | null;
   signatureHtml: string;
+  /** 发件人介绍开关：启用后 AI 会把介绍内容按收件公司定制并融入邮件正文 */
+  introEnabled: boolean;
+  /** 发件人介绍原文（专业背景/国籍/公司发展设想等） */
+  introContent: string | null;
   isDefault: boolean;
   createdAt: string;
 }
@@ -32,6 +36,8 @@ export interface SenderProfileInput {
   senderTitle?: string | null;
   companyName?: string | null;
   signatureHtml?: string | null;
+  introEnabled?: boolean;
+  introContent?: string | null;
   isDefault?: boolean;
 }
 
@@ -45,6 +51,8 @@ const TABLE_DDL = `
     company_name   varchar(255),
     signature_html text NOT NULL DEFAULT '',
     is_default     boolean NOT NULL DEFAULT false,
+    intro_enabled  boolean NOT NULL DEFAULT false,
+    intro_content  text,
     _created_at    timestamptz(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
     _updated_at    timestamptz(3) NOT NULL DEFAULT CURRENT_TIMESTAMP
   )
@@ -66,6 +74,13 @@ export class SenderProfilesService {
         'sender_profiles 建表迁移',
         async (run) => {
           await run(TABLE_DDL);
+          // 老库补列：发件人介绍（开关 + 内容）
+          await run(
+            'ALTER TABLE sender_profiles ADD COLUMN IF NOT EXISTS intro_enabled boolean NOT NULL DEFAULT false',
+          );
+          await run(
+            'ALTER TABLE sender_profiles ADD COLUMN IF NOT EXISTS intro_content text',
+          );
           await run(`CREATE TABLE IF NOT EXISTS sender_profile_images (
             id         uuid PRIMARY KEY DEFAULT gen_random_uuid(),
             owner_id   text NOT NULL,
@@ -125,6 +140,8 @@ export class SenderProfilesService {
         senderTitle: input.senderTitle?.trim() || null,
         companyName: input.companyName?.trim() || null,
         signatureHtml: input.signatureHtml ?? '',
+        introEnabled: input.introEnabled === true,
+        introContent: input.introContent?.trim() || null,
         isDefault,
       })
       .returning();
@@ -139,6 +156,8 @@ export class SenderProfilesService {
     if (input.senderTitle !== undefined) patch.senderTitle = input.senderTitle?.trim() || null;
     if (input.companyName !== undefined) patch.companyName = input.companyName?.trim() || null;
     if (input.signatureHtml !== undefined) patch.signatureHtml = input.signatureHtml;
+    if (input.introEnabled !== undefined) patch.introEnabled = input.introEnabled === true;
+    if (input.introContent !== undefined) patch.introContent = input.introContent?.trim() || null;
     if (Object.keys(patch).length === 0) {
       throw new BadRequestException('没有要更新的字段');
     }
@@ -262,6 +281,8 @@ export class SenderProfilesService {
       senderTitle: r.senderTitle,
       companyName: r.companyName,
       signatureHtml: r.signatureHtml,
+      introEnabled: r.introEnabled === true,
+      introContent: r.introContent ?? null,
       isDefault: r.isDefault,
       createdAt: r.createdAt.toISOString(),
     };

@@ -551,6 +551,8 @@ export const senderProfilesTable = pgTable("sender_profiles", {
   companyName: varchar("company_name", { length: 255 }),
   signatureHtml: text("signature_html").notNull().default(""),
   isDefault: boolean("is_default").notNull().default(false),
+  introEnabled: boolean("intro_enabled").notNull().default(false),
+  introContent: text("intro_content"),
   createdAt: customTimestamptz("_created_at", { precision: 3 }).notNull().default(sql`CURRENT_TIMESTAMP`),
   updatedAt: customTimestamptz("_updated_at", { precision: 3 }).notNull().default(sql`CURRENT_TIMESTAMP`),
 });

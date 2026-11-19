@@ -505,6 +505,14 @@ const WorkbenchTab: React.FC<WorkbenchTabProps> = ({
     { value: 'analyzed', label: '已分析的' },
     { value: 'all', label: '全部' },
   ];
+  // 生成范围：未生成（已分析未生成）/ 已生成（重跑）/ 全部
+  type GenerateScope = 'not_generated' | 'generated' | 'all';
+  const [generateScope, setGenerateScope] = useState<GenerateScope>('not_generated');
+  const GENERATE_SCOPE_OPTIONS: { value: GenerateScope; label: string }[] = [
+    { value: 'not_generated', label: '未生成' },
+    { value: 'generated', label: '已生成' },
+    { value: 'all', label: '全部' },
+  ];
   // ---- 服务端批量（断网保护）：分析/生成在服务器后台执行，前端只触发和轮询 ----
   const [serverBatch, setServerBatch] = useState<{
     kind: 'analyze' | 'generate';
@@ -738,7 +746,11 @@ const WorkbenchTab: React.FC<WorkbenchTabProps> = ({
       // 生成只对 analyzed 状态有意义（failed 需要先重新分析；generated 有行内重新生成按钮）。
       // generating 也要圈进来：它是"进行中"标记，若上次请求被部署/刷新打断就会永久卡住
       // （服务端 batchGenerate 只选 analyzed），不圈进来这些公司永远重试不了。
-      for (const status of ['analyzed', 'generating'] as const) {
+      const genStatuses: ('analyzed' | 'generating' | 'generated')[] =
+        generateScope === 'not_generated' ? ['analyzed', 'generating']
+        : generateScope === 'generated' ? ['generated']
+        : ['analyzed', 'generating', 'generated'];
+      for (const status of genStatuses) {
         page = 1;
         for (;;) {
           const res = await getCompanies({ projectId, page, pageSize: 100, status });
@@ -761,7 +773,7 @@ const WorkbenchTab: React.FC<WorkbenchTabProps> = ({
       // 关键：触发后立即解除 preparing 状态——此前 await 等待整批完成，
       // 导致按钮在 1-2 小时里一直显示"Loading eligible list..."，看起来像卡死。
       // 批量期间按钮禁用由 serverBatch 状态控制。
-      await emailGeneratorApi.batchGenerate(projectId, targets.map((c) => c.id));
+      await emailGeneratorApi.batchGenerate(projectId, targets.map((c) => c.id), generateScope);
       setServerBatch({ kind: 'generate', projectId, total: targets.length });
       setGenerateAllPreparing(false);
     } catch (err: unknown) {
@@ -769,7 +781,7 @@ const WorkbenchTab: React.FC<WorkbenchTabProps> = ({
       toast.error(t('获取待分析列表失败，请重试'));
       setGenerateAllPreparing(false);
     }
-  }, [projectId, batchGenerateOp, t]);
+  }, [projectId, batchGenerateOp, t, generateScope]);
 
   // 批量操作的语言版本（按钮右侧下拉选择）：
   // - sendLang：一键发送实际发出哪个语言版本（local=收件人本地语言，en=英文）
@@ -2529,6 +2541,31 @@ const WorkbenchTab: React.FC<WorkbenchTabProps> = ({
                     })
                   : t('一键生成全部')}
             </Button>
+            {/* 生成范围：未生成 / 已生成 / 全部（与「一键分析」的范围下拉同款） */}
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button
+                  variant="default"
+                  disabled={generateAllPreparing || batchGenerateOp.isRunning || !!serverBatch}
+                  className="rounded-l-none border-l-0 px-2"
+                  aria-label={t('生成范围')}
+                >
+                  <ChevronDown size={14} />
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="start">
+                <DropdownMenuLabel>{t('生成范围')}</DropdownMenuLabel>
+                {GENERATE_SCOPE_OPTIONS.map((opt) => (
+                  <DropdownMenuCheckboxItem
+                    key={opt.value}
+                    checked={generateScope === opt.value}
+                    onCheckedChange={() => setGenerateScope(opt.value)}
+                  >
+                    {t(opt.label)}
+                  </DropdownMenuCheckboxItem>
+                ))}
+              </DropdownMenuContent>
+            </DropdownMenu>
             <div className="flex items-stretch">
               <Button
                 variant="outline"

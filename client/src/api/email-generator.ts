@@ -38,11 +38,13 @@ export async function generateEmail(restaurantId: string): Promise<GeneratedEmai
 export async function batchGenerate(
   projectIdOrData: string | BatchGenerateRequest,
   maybeCompanyIds?: string[],
+  maybeScope?: 'not_generated' | 'generated' | 'all',
 ): Promise<{ total: number }> {
   let body: BatchGenerateRequest;
   if (typeof projectIdOrData === 'string') {
     // New form: batchGenerate(projectId, companyIds?)
     body = { projectId: projectIdOrData, companyIds: maybeCompanyIds };
+    if (maybeScope) body.scope = maybeScope;
   } else {
     // Legacy form: batchGenerate({ projectId?, companyIds? })
     body = projectIdOrData;

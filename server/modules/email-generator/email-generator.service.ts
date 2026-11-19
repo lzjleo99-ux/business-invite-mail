@@ -216,6 +216,22 @@ export class EmailGeneratorService {
       const config = await this.getModelConfig(userId);
       const sender = await this.getSenderConfig(userId);
       const projectContext = await this.getProjectContext(company.projectId);
+      // 发件人介绍：读默认/指定档案的开关与内容（生成时融入正文）
+      let senderIntroEnabled = false;
+      let senderIntroContent = '';
+      if (userId) {
+        try {
+          const profile = await this.senderProfiles.resolveForSend(userId, undefined);
+          if (profile?.introEnabled && profile.introContent?.trim()) {
+            senderIntroEnabled = true;
+            senderIntroContent = profile.introContent.trim().slice(0, 1200);
+          }
+        } catch (err: unknown) {
+          this.logger.warn(
+            `读取发件人介绍失败（忽略）：${err instanceof Error ? err.message : String(err)}`,
+          );
+        }
+      }
 
       // 图片候选：项目素材里的图片 + AI 视觉描述（缓存），供模型挑选贴合正文的图。
       // 无图/无描述时为空数组，prompt 不出现图片段。
@@ -247,6 +263,7 @@ export class EmailGeneratorService {
         languageCode,
         config,
         images: emailImages,
+        senderIntro: senderIntroEnabled ? senderIntroContent : null,
       });
 
       await this.db
@@ -288,6 +305,8 @@ export class EmailGeneratorService {
     companyIds: string[] | undefined,
     projectId: string | undefined,
     userId: string,
+    /** 生成范围：not_generated=已分析未生成；generated=已生成（重跑）；all=两者+进行中 */
+    scope?: 'not_generated' | 'generated' | 'all',
   ): Promise<{ total: number }> {
     let targetIds: string[];
 
@@ -295,21 +314,42 @@ export class EmailGeneratorService {
     // 重跑多少次都救不回来。
     await this.recoverZombieGenerating(projectId);
 
+    // 归属过滤：只允许操作**自己项目**下的公司。此前 companyIds/projectId 分支
+    // 都不校验归属，任何登录用户传别人的公司 id 就能把用自己身份写的落款
+    // 写进别人的数据（跨用户串扰）。join projects.ownerId 一次堵死。
+    const ownFilter = and(
+      eq(projects.ownerId, userId),
+    );
+
     if (companyIds && companyIds.length > 0) {
       const rows = await this.db
         .select({ id: restaurants.id })
         .from(restaurants)
-        .where(inArray(restaurants.id, companyIds));
+        .innerJoin(projects, eq(projects.id, restaurants.projectId))
+        .where(and(inArray(restaurants.id, companyIds), ownFilter));
+      const found = new Set(rows.map((r: { id: string }) => r.id));
+      // 传入的 id 里有不属于自己的：直接报错，让调用方知道传错了
+      const foreign = companyIds.filter((id) => !found.has(id));
+      if (foreign.length > 0) {
+        throw new BadRequestException(
+          `${foreign.length} 家公司不属于你的项目，已拒绝生成（数据隔离）`,
+        );
+      }
       targetIds = rows.map((r: { id: string }) => r.id);
     } else if (projectId) {
-      // 服务端批量模式：只对有收件人的公司生成（无邮箱会生成失败，白烧额度）
+      const statuses: CompanyStatus[] =
+        scope === 'generated' ? ['generated' as CompanyStatus]
+        : scope === 'all' ? ['analyzed', 'generating', 'generated'] as CompanyStatus[]
+        : ['analyzed' as CompanyStatus];
       const rows = await this.db
         .select({ id: restaurants.id })
         .from(restaurants)
+        .innerJoin(projects, eq(projects.id, restaurants.projectId))
         .where(
           and(
             eq(restaurants.projectId, projectId),
-            eq(restaurants.status, 'analyzed' as CompanyStatus),
+            ownFilter,
+            inArray(restaurants.status, statuses),
             // 有收件人才生成：websiteContactEmail 优先，导入邮箱兜底
             or(
               isNotNull(restaurants.websiteContactEmail),
@@ -329,7 +369,6 @@ export class EmailGeneratorService {
     void this.processBatch(targetIds, userId, key).then(() => finishServerBatch(key));
     return { total };
   }
-
   /** 查询该用户某项目的批量生成进度（前端轮询用） */
   getGenerateBatchStatuses(userId: string, projectId: string | null): ServerBatchProgress[] {
     return getServerBatches(userId, projectId, 'generate');
@@ -1399,10 +1438,12 @@ export class EmailGeneratorService {
       temperature: number | null;
     };
     images: EmailImageCandidate[];
+    /** 发件人介绍（档案开关开启时传入）：AI 会按收件公司定制并融入正文 */
+    senderIntro?: string | null;
     /** 当前用户：决定发件邮箱取谁的 SMTP */
     userId?: string;
   }): Promise<BilingualEmailResult> {
-    const { company, projectContext, sender, languageCode, config, images, userId } = params;
+    const { company, projectContext, sender, languageCode, config, images, userId, senderIntro } = params;
     const callBilingualStart = Date.now();
 
     // 签名要带联系方式：发件邮箱取 SMTP 配置（设置页「发件人邮箱」），就是客户回信时看到的地址
@@ -1495,6 +1536,14 @@ ${imagesSection}
 Name: ${sender.senderName}
 ${sender.senderTitle ? `Title: ${sender.senderTitle}` : ''}
 Email: ${senderEmail || 'your email address'}
+${senderIntro ? `
+## SENDER INTRODUCTION (must use)
+The sender provided this self-introduction:
+<INTRO>
+${senderIntro}
+</INTRO>
+
+You MUST weave a short, warm self-introduction into EACH version of the email (2-4 sentences, placed naturally - usually after the opening or before the closing). Tailor it to THIS recipient company: connect the sender's professional background, nationality and company vision to what the recipient does. Natural storytelling, never a copied block - paraphrase and personalise it for the recipient.` : ''}
 
 ${ukNote}
 

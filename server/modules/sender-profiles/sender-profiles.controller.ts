@@ -25,6 +25,8 @@ class SaveProfileDto implements SenderProfileInput {
   senderTitle?: string | null;
   companyName?: string | null;
   signatureHtml?: string | null;
+  introEnabled?: boolean;
+  introContent?: string | null;
   isDefault?: boolean;
 }
 

@@ -181,7 +181,9 @@ export interface SenderProfile {
   companyName: string | null;
   signatureHtml: string;
   isDefault: boolean;
-  createdAt: string;
+  createdAt: string;  introEnabled: boolean;
+  introContent: string | null;
+
 }
 
 export interface SenderProfileInput {
@@ -190,7 +192,9 @@ export interface SenderProfileInput {
   senderTitle?: string | null;
   companyName?: string | null;
   signatureHtml?: string | null;
-  isDefault?: boolean;
+  isDefault?: boolean;  introEnabled?: boolean;
+  introContent?: string | null;
+
 }
 
 export interface UpdateProjectRequest {
@@ -277,7 +281,8 @@ export interface GenerateEmailRequest {
 
 export interface BatchGenerateRequest {
   companyIds?: string[];
-  projectId?: string;
+  projectId?: string;  scope?: 'not_generated' | 'generated' | 'all';
+
 }
 
 export interface BatchWhatsAppRequest {

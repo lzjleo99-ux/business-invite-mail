@@ -76,7 +76,10 @@ class BatchGenerateDto implements BatchGenerateRequest {
 
   @IsOptional()
   @IsString()
-  projectId?: string;
+  projectId?: string;  @IsOptional()
+  @IsIn(['not_generated', 'generated', 'all'])
+  scope?: 'not_generated' | 'generated' | 'all';
+
 }
 
 class BatchWhatsAppDto implements BatchWhatsAppRequest {
@@ -173,6 +176,7 @@ export class EmailGeneratorController {
       dto.companyIds,
       dto.projectId,
       user.userId,
+      dto.scope,
     );
   }
 

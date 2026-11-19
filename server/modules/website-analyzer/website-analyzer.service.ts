@@ -256,19 +256,32 @@ export class WebsiteAnalyzerService {
     };
     const statuses = scopeStatuses[scope ?? 'unanalyzed'] ?? scopeStatuses.unanalyzed;
 
+    // 归属过滤：只允许分析**自己项目**下的公司（与 batchGenerate 同样的隔离规则）
+    const ownFilter = and(eq(projects.ownerId, userId));
+
     if (companyIds && companyIds.length > 0) {
       const rows = await this.db
         .select({ id: restaurants.id })
         .from(restaurants)
-        .where(inArray(restaurants.id, companyIds));
+        .innerJoin(projects, eq(projects.id, restaurants.projectId))
+        .where(and(inArray(restaurants.id, companyIds), ownFilter));
+      const found = new Set(rows.map((r: { id: string }) => r.id));
+      const foreign = companyIds.filter((id) => !found.has(id));
+      if (foreign.length > 0) {
+        throw new BadRequestException(
+          `${foreign.length} 家公司不属于你的项目，已拒绝分析（数据隔离）`,
+        );
+      }
       targetIds = rows.map((r: { id: string }) => r.id);
     } else if (projectId) {
       const rows = await this.db
         .select({ id: restaurants.id })
         .from(restaurants)
+        .innerJoin(projects, eq(projects.id, restaurants.projectId))
         .where(
           and(
             eq(restaurants.projectId, projectId),
+            ownFilter,
             inArray(restaurants.status, statuses),
           ),
         );
@@ -277,6 +290,7 @@ export class WebsiteAnalyzerService {
       const rows = await this.db
         .select({ id: restaurants.id })
         .from(restaurants)
+        .innerJoin(projects, eq(projects.id, restaurants.projectId))
         .where(inArray(restaurants.status, statuses));
       targetIds = rows.map((r: { id: string }) => r.id);
     }
@@ -288,7 +302,6 @@ export class WebsiteAnalyzerService {
     void this.processBatch(targetIds, userId, key).then(() => finishServerBatch(key));
     return { total };
   }
-
   /** 查询该用户某项目的批量分析进度（前端轮询用） */
   getAnalyzeBatchStatuses(userId: string, projectId: string | null): ServerBatchProgress[] {
     return getServerBatches(userId, projectId, 'analyze');

@@ -20,6 +20,10 @@ export const enMessages: Record<string, string> = {
   '第 {page} / {totalPages} 页': 'Page {page} of {totalPages}',
 
   // ---- antd table locale ----
+  '发件人介绍（AI 会按收件公司定制，自然融入邮件正文）': 'Sender introduction (the AI tailors it to each recipient and weaves it into the email body)',
+  '写一段你的自我介绍：专业背景、国籍、公司发展设想等。AI 会针对每家收件公司改写并融入邮件。': 'Write your self-introduction: professional background, nationality, company vision, etc. The AI adapts it for each recipient company and weaves it into the email.',
+  '生成范围': 'Generation scope',
+  '未生成': 'Not generated',
   '例如：车间俯拍图，适合放在"自动化清粪系统"段落后': 'e.g. Overhead workshop photo, good fit right after the "automated manure system" paragraph',
   '必要图片（生成邮件时 AI 必须包含它，位置和顺序由 AI 决定）': 'Essential image (the AI MUST include it in generated emails; position and order are its call)',
   '已标记为必要图片——生成邮件时 AI 会把它放进邮件（位置由 AI 决定）': 'Marked as essential - the AI will place this image in generated emails (position is its call)',

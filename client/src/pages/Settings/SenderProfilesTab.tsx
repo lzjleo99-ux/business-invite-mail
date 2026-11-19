@@ -32,6 +32,8 @@ const SenderProfilesTab: React.FC = () => {
   const [senderTitle, setSenderTitle] = useState('');
   const [companyName, setCompanyName] = useState('');
   const [signatureHtml, setSignatureHtml] = useState('');
+  const [introEnabled, setIntroEnabled] = useState(false);
+  const [introContent, setIntroContent] = useState('');
   const [isDefault, setIsDefault] = useState(false);
   const sigRef = useRef<HTMLDivElement>(null);
   const sigWrapRef = useRef<HTMLDivElement>(null);
@@ -184,6 +186,8 @@ const SenderProfilesTab: React.FC = () => {
     setSenderTitle('');
     setCompanyName('');
     setSignatureHtml('');
+    setIntroEnabled(false);
+    setIntroContent('');
     setIsDefault(profiles.length === 0);
   };
 
@@ -194,6 +198,8 @@ const SenderProfilesTab: React.FC = () => {
     setSenderTitle(p.senderTitle || '');
     setCompanyName(p.companyName || '');
     setSignatureHtml(p.signatureHtml || '');
+    setIntroEnabled(p.introEnabled === true);
+    setIntroContent(p.introContent || '');
     setIsDefault(p.isDefault);
   };
 
@@ -210,6 +216,8 @@ const SenderProfilesTab: React.FC = () => {
         senderTitle: senderTitle || null,
         companyName: companyName || null,
         signatureHtml,
+        introEnabled,
+        introContent: introContent || null,
         isDefault,
       };
       const htmlOut = sigRef.current?.innerHTML ?? signatureHtml;
@@ -469,6 +477,30 @@ const SenderProfilesTab: React.FC = () => {
           />
           {t('设为默认发信人（发送时不选即用默认）')}
         </label>
+
+        {/* 发件人介绍：开关 + 内容。启用后 AI 会按收件公司定制并融入邮件正文 */}
+        <div className="space-y-1.5 border-t border-slate-100 pt-3">
+          <label className="flex items-center gap-2 text-sm text-slate-700 cursor-pointer select-none">
+            <input
+              type="checkbox"
+              checked={introEnabled}
+              onChange={(e) => setIntroEnabled(e.target.checked)}
+              className="h-4 w-4 accent-blue-600"
+            />
+            <span className={introEnabled ? 'font-medium text-blue-700' : ''}>
+              {t('发件人介绍（AI 会按收件公司定制，自然融入邮件正文）')}
+            </span>
+          </label>
+          {introEnabled && (
+            <textarea
+              value={introContent}
+              onChange={(e) => setIntroContent(e.target.value)}
+              rows={4}
+              placeholder={t('写一段你的自我介绍：专业背景、国籍、公司发展设想等。AI 会针对每家收件公司改写并融入邮件。')}
+              className="w-full rounded-md border border-slate-200 p-2 text-sm focus:outline-none focus:ring-1 focus:ring-blue-500"
+            />
+          )}
+        </div>
 
         <div className="flex justify-end gap-2">
           <Button variant="outline" onClick={() => setEditing(null)}>
