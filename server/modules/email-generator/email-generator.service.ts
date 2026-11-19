@@ -264,6 +264,7 @@ export class EmailGeneratorService {
         config,
         images: emailImages,
         senderIntro: senderIntroEnabled ? senderIntroContent : null,
+        userId,
       });
 
       await this.db
@@ -1139,6 +1140,8 @@ export class EmailGeneratorService {
       sender,
       config,
       languageCode,
+      // 同邮件生成：落款邮箱必须取调用者自己的 SMTP（漏传会写到部署者全局配置）
+      userId,
     });
 
     await this.db
