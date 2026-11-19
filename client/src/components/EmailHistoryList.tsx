@@ -118,7 +118,7 @@ export const EmailHistoryList: React.FC<Props> = ({
       </ul>
 
       <Dialog open={!!openId} onOpenChange={(v) => !v && setOpenId(null)}>
-        <DialogContent className="sm:max-w-2xl">
+        <DialogContent className="sm:max-w-2xl max-h-[90vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>
               {detail ? detail.subject || t('（无主题）') : t('加载中...')}
@@ -126,7 +126,7 @@ export const EmailHistoryList: React.FC<Props> = ({
           </DialogHeader>
           {detail ? (
             <div className="space-y-3 text-sm">
-              <div className="space-y-1 rounded-md bg-slate-50 p-3 text-xs text-slate-600">
+              <div className="max-w-full space-y-1 overflow-hidden rounded-md bg-slate-50 p-3 text-xs text-slate-600">
                 <p>
                   <span className="font-medium text-slate-700">{t('类型')}：</span>
                   {detail.status === 'bounce'
@@ -215,7 +215,7 @@ export const EmailHistoryList: React.FC<Props> = ({
                     {t('退信原文包含追踪图片与被退回的邮件全文，此处已折叠。')}
                   </p>
                 ) : (
-                  <pre className="max-h-[50vh] overflow-auto whitespace-pre-wrap break-words rounded-md border border-slate-200 bg-white p-3 text-xs leading-relaxed text-slate-700">
+                  <pre className="max-h-[50vh] max-w-full overflow-auto whitespace-pre-wrap break-all rounded-md border border-slate-200 bg-white p-3 text-xs leading-relaxed text-slate-700">
                     {(detail.bodyText || '').trim() || t('（无正文）')}
                   </pre>
                 )}
@@ -229,7 +229,10 @@ export const EmailHistoryList: React.FC<Props> = ({
               <Button
                 variant="default"
                 size="sm"
-                onClick={() => setReplyId(openId)}
+                onClick={() => {
+                  setOpenId(null);
+                  setReplyId(openId);
+                }}
                 title={t('回复这封邮件')}
               >
                 <Reply size={14} />

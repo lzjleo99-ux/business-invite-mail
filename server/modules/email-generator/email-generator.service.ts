@@ -894,26 +894,10 @@ export class EmailGeneratorService {
       }
     }
 
-    // 正文：用户写的回复放最前面；下面附原邮件引用（与客户端回复模板一致）
-    const stamp = new Date(original.at).toLocaleString('zh-CN', { hour12: false });
-    const quoted = [
-      '',
-      '----- Original message -----',
-      `From: ${original.fromAddr}`,
-      `Sent: ${stamp}`,
-      `To: ${original.toAddr}`,
-      `Subject: ${original.subject || ''}`,
-      '',
-      (original.bodyText || '').slice(0, 8000),
-    ].join('\n');
-    const text = `${body}\n${quoted}`;
-    const html = [
-      `<div style="white-space:pre-wrap">${this.escapeHtml(body)}</div>`,
-      '<hr style="border:0;border-top:1px solid #ccc;margin:16px 0" />',
-      '<div style="color:#666;font-size:12px;white-space:pre-wrap">',
-      this.escapeHtml(quoted),
-      '</div>',
-    ].join('');
+    // 正文：前端编辑器已预填「新回复 + 引用原文」且用户可自行编辑全部内容，
+    // 所以服务端不再追加引用（否则原文会出现两遍）。
+    const text = body;
+    const html = `<div style="white-space:pre-wrap">${this.escapeHtml(body)}</div>`;
 
     // nodemailer sendMail 原生支持 attachments；accountId 显式指定发信账号
     const sender = await this.mailService.resolveSender(

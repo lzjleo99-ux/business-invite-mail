@@ -47,7 +47,6 @@ const ReplyComposer: React.FC<Props> = ({ historyId, detail, onClose, onSent }) 
   const [to, setTo] = useState('');
   const [cc, setCc] = useState('');
   const [bodyHtml, setBodyHtml] = useState('');
-  const [quoted, setQuoted] = useState('');
   const [attachments, setAttachments] = useState<EmailAttachment[]>([]);
   const [attBusy, setAttBusy] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
@@ -64,8 +63,15 @@ const ReplyComposer: React.FC<Props> = ({ historyId, detail, onClose, onSent }) 
         if (!alive) return;
         setSubject(draft.subject);
         setTo(draft.to);
-        setQuoted(draft.quoted);
-        setBodyHtml('<p><br/></p>');
+        // 原邮件正文直接放进可编辑区：用户能在同一个编辑器里写新回复 + 改原文，
+        // 符合正常邮件客户端回复体验（引用原文可编辑）。
+        const quoteHtml = draft.quoted
+          ? `<p><br/></p><hr style=\"border:0;border-top:1px solid #ccc;margin:12px 0\" /><div style=\"color:#666;font-size:12px\">${draft.quoted
+              .split('\n')
+              .map((line) => (line ? `<div>${line.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')}</div>` : '<div><br/></div>'))
+              .join('')}</div>`
+          : '';
+        setBodyHtml(`<p><br/></p>${quoteHtml}`);
       } catch (err: unknown) {
         if (alive) toast.error(err instanceof Error ? err.message : t('加载回复模板失败'));
       } finally {
@@ -147,7 +153,7 @@ const ReplyComposer: React.FC<Props> = ({ historyId, detail, onClose, onSent }) 
 
   return (
     <Dialog open={!!historyId} onOpenChange={(v) => !v && onClose()}>
-      <DialogContent className="sm:max-w-3xl">
+      <DialogContent className="sm:max-w-3xl max-h-[92vh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle>{t('回复邮件')}</DialogTitle>
         </DialogHeader>
@@ -158,7 +164,7 @@ const ReplyComposer: React.FC<Props> = ({ historyId, detail, onClose, onSent }) 
           </div>
         ) : (
           <div className="space-y-3">
-            <div className="grid grid-cols-[70px,1fr] items-center gap-2 text-sm">
+            <div className="grid grid-cols-[80px,minmax(0,1fr)] items-center gap-2 text-sm">
               <label className="text-slate-500">{t('收件人')}</label>
               <Input value={to} onChange={(e) => setTo(e.target.value)} className="h-8 text-sm" />
               <label className="text-slate-500">CC</label>
@@ -181,16 +187,6 @@ const ReplyComposer: React.FC<Props> = ({ historyId, detail, onClose, onSent }) 
                 placeholder={t('在此输入回复内容...')}
               />
             </div>
-
-            {/* 引用原文（只读，与现有回复模板一致） */}
-            <details className="rounded-md bg-slate-50 p-2 text-xs text-slate-600">
-              <summary className="cursor-pointer font-medium">
-                {t('原邮件内容（将附在回复下方）')}
-              </summary>
-              <pre className="mt-2 max-h-40 overflow-auto whitespace-pre-wrap break-words text-slate-500">
-                {quoted}
-              </pre>
-            </details>
 
             {/* 附件：与撰写页共用每公司附件表 */}
             <div className="space-y-1.5">
