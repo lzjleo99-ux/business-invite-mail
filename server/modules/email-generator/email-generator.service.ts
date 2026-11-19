@@ -10,6 +10,7 @@ import {
   Inject,
   Logger,
   BadRequestException,
+  NotFoundException,
 } from '@nestjs/common';
 import {
   DRIZZLE_DATABASE,
@@ -843,6 +844,111 @@ export class EmailGeneratorService {
    * 单公司直发：把已生成的邮件经 SMTP 发给该公司（自动收件人/主题/内嵌图）。
    * 成功后标记 contactStatus.emailContactedAt。
    */
+  /**
+   * 邮件回复：按往来记录 id 找原邮件，生成 Re: 主题 + 引用原文模板，
+   * 用调用者自己的 SMTP 发出（支持附件），并回写一条 outbound 往来。
+   * 与现有「打开邮件 → 阅读 → 回复」的邮件客户端体验一致（参考 RainLoop / Gmail）。
+   */
+  async replyToHistory(
+    historyId: string,
+    input: { body: string; subject?: string; to?: string; cc?: string; accountId?: string },
+    user: { userId: string; role: string },
+  ): Promise<{ to: string; subject: string; messageId: string | null }> {
+    // 读取原邮件（getDetail 内含归属鉴权，防跨用户回复）
+    const original = await this.emailHistory.getDetail(historyId, {
+      userId: user.userId,
+      role: user.role as UserRole,
+    });
+    if (!original) throw new NotFoundException('邮件记录不存在或无权访问');
+    if (original.status === 'bounce') {
+      throw new BadRequestException('退信通知不能回复');
+    }
+
+    const to = (input.to || original.fromAddr || '').trim();
+    if (!to) throw new BadRequestException('原邮件没有发件人地址，无法回复');
+    const baseSubject = (original.subject || '').replace(/^((re|fw|fwd):\s*)+/i, '').trim();
+    const subject = (input.subject || `Re: ${baseSubject || '(no subject)'}`).trim();
+    const body = (input.body || '').trim();
+    if (!body) throw new BadRequestException('回复正文不能为空');
+
+    // 字段处理：收件人回填原发件人；发件邮箱取调用者自己的账号（不回退部署者全局配置）
+    const cfg = await this.mailService.getSettings(user.userId);
+    const fromAddr = (cfg?.fromEmail || '').trim();
+    if (!fromAddr) throw new BadRequestException('尚未配置发信邮箱，请在设置里添加');
+
+    // 附件：复用「每公司附件表」中调用者已上传的文件
+    const attachments: Array<{ filename: string; content: Buffer; contentType: string }> = [];
+    if (original.companyId) {
+      await this.ensureAttachmentsTable();
+      const rows = (await this.db
+        .select()
+        .from(emailAttachmentsTable)
+        .where(
+          and(
+            eq(emailAttachmentsTable.companyId, original.companyId),
+            eq(emailAttachmentsTable.ownerId, user.userId),
+          ),
+        )) as Array<{ filename: string; mime: string; bytes: Buffer }>;
+      for (const r of rows) {
+        attachments.push({ filename: r.filename, content: r.bytes, contentType: r.mime });
+      }
+    }
+
+    // 正文：用户写的回复放最前面；下面附原邮件引用（与客户端回复模板一致）
+    const stamp = new Date(original.at).toLocaleString('zh-CN', { hour12: false });
+    const quoted = [
+      '',
+      '----- Original message -----',
+      `From: ${original.fromAddr}`,
+      `Sent: ${stamp}`,
+      `To: ${original.toAddr}`,
+      `Subject: ${original.subject || ''}`,
+      '',
+      (original.bodyText || '').slice(0, 8000),
+    ].join('\n');
+    const text = `${body}\n${quoted}`;
+    const html = [
+      `<div style="white-space:pre-wrap">${this.escapeHtml(body)}</div>`,
+      '<hr style="border:0;border-top:1px solid #ccc;margin:16px 0" />',
+      '<div style="color:#666;font-size:12px;white-space:pre-wrap">',
+      this.escapeHtml(quoted),
+      '</div>',
+    ].join('');
+
+    // nodemailer sendMail 原生支持 attachments；accountId 显式指定发信账号
+    const sender = await this.mailService.resolveSender(
+      input.accountId, undefined, user.userId, user.role,
+    );
+    const messageId = await sender.transporter.sendMail({
+      from: sender.fromName ? `"${sender.fromName}" <${sender.email}>` : sender.email,
+      to,
+      cc: input.cc || undefined,
+      subject,
+      text,
+      html,
+      attachments,
+      // 线程化：回信带 In-Reply-To / References，客户端能归到同一会话
+      inReplyTo: original.messageId || undefined,
+      reference: original.messageId || undefined,
+    } as Parameters<typeof sender.transporter.sendMail>[0]).then((info) => (info as { messageId?: string }).messageId ?? null);
+
+    await this.emailHistory.recordOutbound({
+      companyId: original.companyId ?? null,
+      projectId: original.projectId ?? null,
+      fromAddr,
+      toAddr: to,
+      subject,
+      bodyText: text,
+      messageId,
+      status: 'sent',
+    });
+    return { to, subject, messageId };
+  }
+
+  private escapeHtml(s: string): string {
+    return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  }
+
   async sendCompanyEmail(
     companyId: string,
     lang: 'local' | 'en' = 'local',

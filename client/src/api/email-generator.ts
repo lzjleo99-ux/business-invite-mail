@@ -314,3 +314,26 @@ export async function getGenerateBatchStatus(
   );
   return response.data;
 }
+
+
+/** 回复草稿预览（零写入）：Re: 主题 + 原发件人 + 引用原文模板 */
+export async function getReplyDraft(
+  historyId: string,
+): Promise<{ subject: string; to: string; quoted: string }> {
+  const response = await axiosForBackend.get(
+    `/api/email-generator/histories/${historyId}/reply-draft`,
+  );
+  return response.data;
+}
+
+/** 发送邮件回复（可带附件；附件取自当前公司的附件表） */
+export async function sendEmailReply(
+  historyId: string,
+  input: { body: string; subject?: string; to?: string; cc?: string; accountId?: string },
+): Promise<{ to: string; subject: string; messageId: string | null }> {
+  const response = await axiosForBackend.post(
+    `/api/email-generator/histories/${historyId}/reply`,
+    input,
+  );
+  return response.data;
+}

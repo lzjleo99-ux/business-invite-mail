@@ -419,6 +419,50 @@ export class EmailGeneratorController {
   }
 
   /** 单条往来详情（点开看完整正文；列表只返回 140 字摘要） */
+  /** 邮件回复：按往来记录 id 回复（Re: 主题 + 引用原文 + 附件），用调用者自己的 SMTP 发出 */
+  @UseGuards(JwtAuthGuard)
+  @Post('histories/:id/reply')
+  async replyToHistory(
+    @Param('id') id: string,
+    @CurrentUser() user: JwtPayload,
+    @Body() dto: { body: string; subject?: string; to?: string; cc?: string; accountId?: string },
+  ): Promise<{ to: string; subject: string; messageId: string | null }> {
+    return this.emailGeneratorService.replyToHistory(id, dto, {
+      userId: user.userId,
+      role: user.role,
+    });
+  }
+
+  /** 回复模板预览：打开回复编辑器时预填 Re: 主题与引用原文（零写入） */
+  @UseGuards(JwtAuthGuard)
+  @Get('histories/:id/reply-draft')
+  async replyDraft(
+    @Param('id') id: string,
+    @CurrentUser() user: JwtPayload,
+  ): Promise<{ subject: string; to: string; quoted: string }> {
+    const original = await this.emailHistoryService.getDetail(id, {
+      userId: user.userId,
+      role: user.role,
+    });
+    if (!original) throw new NotFoundException('邮件记录不存在或无权访问');
+    const baseSubject = (original.subject || '').replace(/^((re|fw|fwd):\s*)+/i, '').trim();
+    const stamp = new Date(original.at).toLocaleString('zh-CN', { hour12: false });
+    return {
+      subject: `Re: ${baseSubject || '(no subject)'}`,
+      to: original.fromAddr,
+      quoted: [
+        '',
+        '----- Original message -----',
+        `From: ${original.fromAddr}`,
+        `Sent: ${stamp}`,
+        `To: ${original.toAddr}`,
+        `Subject: ${original.subject || ''}`,
+        '',
+        (original.bodyText || '').slice(0, 8000),
+      ].join('\n'),
+    };
+  }
+
   @Get('histories/detail/:id')
   async historyDetail(
     @Param('id') id: string,

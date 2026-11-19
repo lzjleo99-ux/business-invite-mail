@@ -1,12 +1,14 @@
 import React, { useState } from 'react';
-import { Mail, MailCheck, Send, XCircle, Inbox, ChevronDown, AlertTriangle } from 'lucide-react';
+import { Mail, MailCheck, Send, XCircle, Inbox, ChevronDown, AlertTriangle, Reply } from 'lucide-react';
 import type {
   EmailHistoryItem,
   EmailHistoryDetail,
 } from '@client/src/api/email-generator';
 import { getEmailHistoryDetail } from '@client/src/api/email-generator';
 import { useI18n } from '@client/src/i18n';
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { Button } from '@client/src/components/ui/button';
+import ReplyComposer from '@client/src/components/ReplyComposer';
 import {
   Dialog,
   DialogContent,
@@ -32,6 +34,9 @@ export const EmailHistoryList: React.FC<Props> = ({
   const [openId, setOpenId] = useState<string | null>(null);
   // 退信原文默认折叠（是一大坨追踪图片 + 退回邮件全文）
   const [showRaw, setShowRaw] = useState(false);
+  // 回复编辑器（点详情弹窗的「回复」打开）
+  const [replyId, setReplyId] = useState<string | null>(null);
+  const qc = useQueryClient();
 
   // 详情按需拉取：列表只带 140 字摘要，正文最多 2 万字，不能一次性全塞回来
   const { data: detail } = useQuery({
@@ -219,8 +224,31 @@ export const EmailHistoryList: React.FC<Props> = ({
           ) : (
             <p className="py-6 text-center text-sm text-slate-400">{t('加载中...')}</p>
           )}
+          {detail && detail.status !== 'bounce' && (
+            <div className="flex justify-end gap-2 border-t border-slate-100 pt-3">
+              <Button
+                variant="default"
+                size="sm"
+                onClick={() => setReplyId(openId)}
+                title={t('回复这封邮件')}
+              >
+                <Reply size={14} />
+                {t('回复')}
+              </Button>
+            </div>
+          )}
         </DialogContent>
       </Dialog>
+      <ReplyComposer
+        historyId={replyId}
+        detail={detail ?? null}
+        onClose={() => setReplyId(null)}
+        onSent={() => {
+          void qc.invalidateQueries({ queryKey: ['email-history'] });
+          void qc.invalidateQueries({ queryKey: ['email-histories'] });
+          void qc.invalidateQueries({ queryKey: ['company-email-histories'] });
+        }}
+      />
     </>
   );
 };
