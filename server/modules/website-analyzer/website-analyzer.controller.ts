@@ -84,6 +84,18 @@ export class WebsiteAnalyzerController {
   }
 
   /** 服务端批量进度（前端轮询）：批量在服务器后台执行，断网/关页不受影响 */
+  /** 停止正在跑的批量分析 */
+  @UseGuards(JwtAuthGuard)
+  @Post('batch-stop')
+  async stopAnalyzeBatch(
+    @CurrentUser() user: JwtPayload,
+    @Body() dto: { projectId?: string },
+  ): Promise<{ stopped: boolean; recovered: number }> {
+    return this.websiteAnalyzerService.stopBatch(
+      'analyze', user.userId, dto.projectId ?? null,
+    );
+  }
+
   @Get('batch-status')
   async analyzeBatchStatus(
     @CurrentUser() user: JwtPayload,

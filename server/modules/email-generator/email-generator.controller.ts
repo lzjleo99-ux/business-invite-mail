@@ -180,6 +180,18 @@ export class EmailGeneratorController {
     );
   }
 
+  /** 停止正在跑的批量（用户点「停止」）：标记取消 + 回收 generating 僵尸 */
+  @UseGuards(JwtAuthGuard)
+  @Post('generate-batch-stop')
+  async stopGenerateBatch(
+    @CurrentUser() user: JwtPayload,
+    @Body() dto: { projectId?: string },
+  ): Promise<{ stopped: boolean; recovered: number }> {
+    return this.emailGeneratorService.stopBatch(
+      'generate', user.userId, dto.projectId ?? null,
+    );
+  }
+
   /** 服务端批量生成进度（前端轮询） */
   @Get('generate-batch-status')
   async generateBatchStatus(

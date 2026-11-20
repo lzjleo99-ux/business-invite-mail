@@ -337,3 +337,13 @@ export async function sendEmailReply(
   );
   return response.data;
 }
+
+
+/** 停止正在跑的服务端批量生成（回收 generating 僵尸） */
+export async function stopGenerateBatch(projectId: string): Promise<{ stopped: boolean; recovered: number }> {
+  const response = await axiosForBackend.post(
+    '/api/email-generator/generate-batch-stop',
+    { projectId },
+  );
+  return response.data;
+}

@@ -14,7 +14,7 @@ import { randomUUID } from 'crypto';
 import * as fs from 'fs/promises';
 import { restaurants, modelConfig, projects, companyContacts } from '@server/database/schema';
 import { runIdempotentMigration } from '@server/common/utils/ddl-runner';
-import { startServerBatch, tickServerBatch, finishServerBatch, getServerBatches, type ServerBatchProgress , beginServerBatchItem, getProcessedIds, claimResume, releaseResume, getFailedIds} from '@server/common/utils/server-batch';
+import { startServerBatch, tickServerBatch, finishServerBatch, getServerBatches, type ServerBatchProgress , beginServerBatchItem, getProcessedIds, claimResume, releaseResume, getFailedIds, isServerBatchCancelled, clearServerBatchCancel, cancelServerBatch, findServerBatchKey} from '@server/common/utils/server-batch';
 import type { Company, CompanyStatus } from '@shared/api.interface';
 
 const execFileAsync = promisify(execFile);
@@ -303,6 +303,41 @@ export class WebsiteAnalyzerService {
     return { total };
   }
   /** 查询该用户某项目的批量分析进度（前端轮询用） */
+
+  /**
+   * 停止批量任务：标记取消（运行中的循环下一轮退出）+ 回收卡在
+   * analyzing 的僵尸公司（否则它们永远进不了下一次批量）。
+   */
+  async stopBatch(
+    kind: 'analyze' | 'generate',
+    userId: string,
+    projectId: string | null,
+  ): Promise<{ stopped: boolean; recovered: number }> {
+    const key = findServerBatchKey(userId, projectId, kind);
+    if (!key) return { stopped: false, recovered: 0 };
+    const stopped = cancelServerBatch(key);
+    // 回收僵尸：把该项目里卡在 analyzing 的公司改回可处理状态
+    const conditions = [
+      eq(restaurants.status, 'analyzing' as CompanyStatus),
+    ];
+    if (projectId) conditions.push(eq(restaurants.projectId, projectId));
+    const stale = await this.db
+      .select({ id: restaurants.id })
+      .from(restaurants)
+      .where(and(...conditions));
+    if (stale.length > 0) {
+      // 分析僵尸回到 pending（可再次被分析）
+      await this.db
+        .update(restaurants)
+        .set({ status: 'pending' as CompanyStatus })
+        .where(inArray(restaurants.id, stale.map((r: { id: string }) => r.id)));
+    }
+    this.logger.warn(
+      `批量已停止 ${key}：回收僵尸 ${stale.length} 条（analyzing → pending）`,
+    );
+    return { stopped, recovered: stale.length };
+  }
+
   getAnalyzeBatchStatuses(userId: string, projectId: string | null): ServerBatchProgress[] {
     const list = getServerBatches(userId, projectId, 'analyze');
     // 断点续跑：重启后进度从 DB 恢复，这里惰性重启，跳过已处理项
@@ -336,6 +371,8 @@ export class WebsiteAnalyzerService {
     // 多出来的任务按序号轮流塞进各组（各组数量差不超过 1）。
     // 中转若限流返回 429，ai-chat 的暂时性重试会每 3 秒自动退避。
     const GROUP_COUNT = 6; // 实测 10 并发会把中转压垮（连接直接被断开 → Network Error）；6 是稳定值
+    // 重新触发时清除旧的停止标记
+    if (batchKey) clearServerBatchCancel(batchKey);
     const groups: string[][] = Array.from(
       { length: Math.min(GROUP_COUNT, Math.max(ids.length, 1)) },
       () => [],
@@ -351,6 +388,11 @@ export class WebsiteAnalyzerService {
     const runGroup = async (group: string[]): Promise<void> => {
       for (const id of group) {
         if (tripped) return;
+        // 用户点了「停止」：立即退出这一组（其余组同样会退出）
+        if (batchKey && isServerBatchCancelled(batchKey)) {
+          this.logger.warn(`批量 ${batchKey} 已被用户停止，剩余任务不再执行`);
+          return;
+        }
         if (batchKey && getProcessedIds(batchKey).has(id)) return; // 断点续跑：这条已完成
         if (batchKey) beginServerBatchItem(batchKey, id);
         await this.analyzeCompany(id, userId)

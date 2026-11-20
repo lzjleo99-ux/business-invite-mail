@@ -30,6 +30,7 @@ import {
   RotateCcw,
   ChevronDown,
   Check,
+  Square,
 } from 'lucide-react';
 
 import * as websiteAnalyzerApi from '@client/src/api/website-analyzer';
@@ -519,6 +520,30 @@ const WorkbenchTab: React.FC<WorkbenchTabProps> = ({
     projectId: string;
     total: number;
   } | null>(null);
+  // 停止批量（用户手动中断）
+  const [stoppingBatch, setStoppingBatch] = useState(false);
+  const handleStopBatch = useCallback(async (): Promise<void> => {
+    if (!serverBatch || stoppingBatch) return;
+    setStoppingBatch(true);
+    try {
+      const res =
+        serverBatch.kind === 'analyze'
+          ? await websiteAnalyzerApi.stopAnalyzeBatch(serverBatch.projectId)
+          : await emailGeneratorApi.stopGenerateBatch(serverBatch.projectId);
+      toast.success(
+        t('已停止批量任务，回收 {n} 条未完成任务', { n: res.recovered ?? 0 }),
+      );
+      setServerBatch(null);
+      setServerProgress(null);
+      void qc.invalidateQueries({ queryKey: ['companies'] });
+      void qc.invalidateQueries({ queryKey: ['company-stats'] });
+    } catch (err: unknown) {
+      logger.error('停止批量失败', err);
+      toast.error(t('停止失败，请重试'));
+    } finally {
+      setStoppingBatch(false);
+    }
+  }, [serverBatch, stoppingBatch, qc, t]);
   const [serverProgress, setServerProgress] = useState<{
     done: number;
     failed: number;
@@ -2783,7 +2808,7 @@ const WorkbenchTab: React.FC<WorkbenchTabProps> = ({
                   ? t('服务器正在分析网站...')
                   : t('服务器正在生成邮件...')}
               </span>
-              <span>
+              <span className="flex items-center gap-2">
                 {t('已处理 {p}/{t}（{percent}%）', {
                   p: Math.min(
                     serverProgress.total,
@@ -2802,6 +2827,21 @@ const WorkbenchTab: React.FC<WorkbenchTabProps> = ({
                           ),
                         ),
                 })}
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="h-6 px-2 text-xs text-red-600 hover:text-red-700"
+                  disabled={stoppingBatch}
+                  onClick={() => void handleStopBatch()}
+                  title={t('停止当前批量任务')}
+                >
+                  {stoppingBatch ? (
+                    <Loader2 className="animate-spin" size={12} />
+                  ) : (
+                    <Square size={11} />
+                  )}
+                  {t('停止')}
+                </Button>
               </span>
             </div>
             <p className="mt-1 text-xs text-slate-400">

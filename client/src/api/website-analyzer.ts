@@ -89,3 +89,10 @@ export async function getAnalyzeBatchStatus(
   );
   return response.data;
 }
+
+
+/** 停止正在跑的服务端批量分析（回收 analyzing 僵尸） */
+export async function stopAnalyzeBatch(projectId: string): Promise<{ stopped: boolean; recovered: number }> {
+  const response = await axiosForBackend.post('/api/website-analyzer/batch-stop', { projectId });
+  return response.data;
+}

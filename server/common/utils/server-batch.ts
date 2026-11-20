@@ -326,3 +326,42 @@ export function getAttemptedIds(key: string): Set<string> {
   if (!b) return new Set();
   return new Set([...b.processedIds, ...b.failedIds]);
 }
+
+
+/** 被用户手动停止的批次（进程内标记，processBatch 循环每轮检查） */
+const cancelled = new Set<string>();
+
+/** 请求停止某个批次（用户点「停止」） */
+export function cancelServerBatch(key: string): boolean {
+  const b = registry.get(key);
+  if (!b) return false;
+  cancelled.add(key);
+  // 立刻标记完成：前端轮询立刻显示结束，不再转圈
+  if (!b.finishedAt) {
+    b.finishedAt = new Date().toISOString();
+    b.updatedAt = b.finishedAt;
+    b.activeIds = [];
+    persist(b);
+  }
+  return true;
+}
+
+/** 该批次是否已被要求停止 */
+export function isServerBatchCancelled(key: string): boolean {
+  return cancelled.has(key);
+}
+
+/** 清除停止标记（下次重新触发同一批次时） */
+export function clearServerBatchCancel(key: string): void {
+  cancelled.delete(key);
+}
+
+/** 按用户+项目+类型找到批次 key（停止按钮用） */
+export function findServerBatchKey(
+  userId: string,
+  projectId: string | null,
+  kind: 'analyze' | 'generate',
+): string | null {
+  const key = `${kind}:${userId}:${projectId ?? 'selected'}`;
+  return registry.has(key) ? key : null;
+}

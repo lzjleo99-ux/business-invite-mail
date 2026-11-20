@@ -20,6 +20,10 @@ export const enMessages: Record<string, string> = {
   '第 {page} / {totalPages} 页': 'Page {page} of {totalPages}',
 
   // ---- antd table locale ----
+  '停止': 'Stop',
+  '停止当前批量任务': 'Stop the current batch',
+  '已停止批量任务，回收 {n} 条未完成任务': 'Batch stopped, {n} unfinished items recovered',
+  '停止失败，请重试': 'Failed to stop, please retry',
   '回复邮件': 'Reply',
   '回复': 'Reply',
   '回复这封邮件': 'Reply to this email',
