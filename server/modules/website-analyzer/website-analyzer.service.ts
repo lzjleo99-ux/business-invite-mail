@@ -14,7 +14,7 @@ import { randomUUID } from 'crypto';
 import * as fs from 'fs/promises';
 import { restaurants, modelConfig, projects, companyContacts } from '@server/database/schema';
 import { runIdempotentMigration } from '@server/common/utils/ddl-runner';
-import { startServerBatch, tickServerBatch, finishServerBatch, getServerBatches, type ServerBatchProgress , beginServerBatchItem, getProcessedIds, claimResume, releaseResume} from '@server/common/utils/server-batch';
+import { startServerBatch, tickServerBatch, finishServerBatch, getServerBatches, type ServerBatchProgress , beginServerBatchItem, getProcessedIds, claimResume, releaseResume, getFailedIds} from '@server/common/utils/server-batch';
 import type { Company, CompanyStatus } from '@shared/api.interface';
 
 const execFileAsync = promisify(execFile);

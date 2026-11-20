@@ -2785,15 +2785,21 @@ const WorkbenchTab: React.FC<WorkbenchTabProps> = ({
               </span>
               <span>
                 {t('已处理 {p}/{t}（{percent}%）', {
-                  p: serverProgress.done + serverProgress.failed,
+                  p: Math.min(
+                    serverProgress.total,
+                    serverProgress.done + serverProgress.failed,
+                  ),
                   t: serverProgress.total,
                   percent:
                     serverProgress.total === 0
                       ? 100
-                      : Math.round(
-                          ((serverProgress.done + serverProgress.failed) /
-                            serverProgress.total) *
-                            100,
+                      : Math.min(
+                          100,
+                          Math.round(
+                            ((serverProgress.done + serverProgress.failed) /
+                              serverProgress.total) *
+                              100,
+                          ),
                         ),
                 })}
               </span>

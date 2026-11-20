@@ -29,7 +29,7 @@ import { ensureOwnSenderRow } from '@server/modules/sender-config/sender-config.
 import { SenderProfilesService } from '@server/modules/sender-profiles/sender-profiles.service';
 import { runIdempotentMigration } from '@server/common/utils/ddl-runner';
 import { postChatCompletions } from '@server/common/utils/ai-chat';
-import { startServerBatch, tickServerBatch, finishServerBatch, getServerBatches, type ServerBatchProgress , beginServerBatchItem, getProcessedIds, claimResume, releaseResume} from '@server/common/utils/server-batch';
+import { startServerBatch, tickServerBatch, finishServerBatch, getServerBatches, type ServerBatchProgress , beginServerBatchItem, getProcessedIds, claimResume, releaseResume, getFailedIds} from '@server/common/utils/server-batch';
 import {
   companyContacts,
   emailAttachmentsTable,
@@ -390,7 +390,9 @@ export class EmailGeneratorService {
               finishServerBatch(b.key);
               return;
             }
-            const remaining = b.targets.filter((id) => !done.has(id));
+            const failed = getFailedIds(b.key);
+            // 失败过的这轮不再重试（避免反复烧 token）；用户可用行内按钮单独重试
+            const remaining = b.targets.filter((id) => !done.has(id) && !failed.has(id));
             this.logger.warn(
               `断点续跑 ${b.key}: 已完成 ${done.size} 条，剩余 ${remaining.length} 条`,
             );

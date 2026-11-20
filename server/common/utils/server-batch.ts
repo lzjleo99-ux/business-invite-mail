@@ -33,6 +33,8 @@ export interface ServerBatchProgress {
   processedIds: string[];
   /** 本批完整目标 id 列表（断点续跑用，避免重建队列时范围漂移） */
   targets: string[];
+  /** 本批已尝试但失败的公司 id（不再自动重跑，避免反复烧 token） */
+  failedIds: string[];
   /** 正在处理中、尚未完成的 company id（崩溃后视为断点，需重跑） */
   activeIds: string[];
   startedAt: string;
@@ -49,6 +51,7 @@ interface BatchRow {
   done: number;
   failed: number;
   processed_ids: string[] | null;
+  failed_ids: string[] | null;
   targets: string[] | null;
   active_ids: string[] | null;
   started_at: Date | string;
@@ -76,6 +79,7 @@ function ensureTable(): Promise<void> {
             done          integer NOT NULL DEFAULT 0,
             failed        integer NOT NULL DEFAULT 0,
             processed_ids jsonb NOT NULL DEFAULT '[]'::jsonb,
+            failed_ids   jsonb NOT NULL DEFAULT '[]'::jsonb,
             targets       jsonb NOT NULL DEFAULT '[]'::jsonb,
             active_ids    jsonb NOT NULL DEFAULT '[]'::jsonb,
             started_at    timestamptz(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -85,6 +89,7 @@ function ensureTable(): Promise<void> {
         `);
         try {
           await run('ALTER TABLE server_batches ADD COLUMN IF NOT EXISTS targets jsonb NOT NULL DEFAULT \'[]\'::jsonb');
+          await run('ALTER TABLE server_batches ADD COLUMN IF NOT EXISTS failed_ids jsonb NOT NULL DEFAULT \'[]\'::jsonb');
         } catch { /* 忽略 */ }
         await run(
           'CREATE INDEX IF NOT EXISTS idx_server_batches_scope ON server_batches (user_id, kind, project_id)',
@@ -117,6 +122,7 @@ function toProgress(r: BatchRow): ServerBatchProgress {
     done: r.done,
     failed: r.failed,
     processedIds: Array.isArray(r.processed_ids) ? r.processed_ids : [],
+    failedIds: Array.isArray(r.failed_ids) ? r.failed_ids : [],
     targets: Array.isArray(r.targets) ? r.targets : [],
     activeIds: Array.isArray(r.active_ids) ? r.active_ids : [],
     startedAt: new Date(r.started_at).toISOString(),
@@ -134,10 +140,11 @@ function persist(b: ServerBatchProgress): void {
       await dbRef!.execute(sql`
         INSERT INTO server_batches (
           batch_key, kind, user_id, project_id, total, done, failed,
-          processed_ids, targets, active_ids, started_at, updated_at, finished_at
+          processed_ids, failed_ids, targets, active_ids, started_at, updated_at, finished_at
         ) VALUES (
           ${b.key}, ${b.kind}, ${b.userId}, ${b.projectId}, ${b.total}, ${b.done}, ${b.failed},
           ${JSON.stringify(b.processedIds)}::jsonb,
+          ${JSON.stringify(b.failedIds)}::jsonb,
           ${JSON.stringify(b.targets)}::jsonb,
           ${JSON.stringify(b.activeIds)}::jsonb,
           ${b.startedAt}, ${b.updatedAt}, ${b.finishedAt}
@@ -147,6 +154,7 @@ function persist(b: ServerBatchProgress): void {
           done = EXCLUDED.done,
           failed = EXCLUDED.failed,
           processed_ids = EXCLUDED.processed_ids,
+          failed_ids = EXCLUDED.failed_ids,
           targets = EXCLUDED.targets,
           active_ids = EXCLUDED.active_ids,
           updated_at = EXCLUDED.updated_at,
@@ -208,7 +216,7 @@ export function startServerBatch(
   }
   const b: ServerBatchProgress = {
     key, kind, userId, projectId, total,
-    done: 0, failed: 0, processedIds: [], targets: targets ?? [], activeIds: [],
+    done: 0, failed: 0, processedIds: [], failedIds: [], targets: targets ?? [], activeIds: [],
     startedAt: new Date().toISOString(),
     updatedAt: new Date().toISOString(),
     finishedAt: null,
@@ -232,10 +240,20 @@ export function tickServerBatch(key: string, ok: boolean, companyId?: string): v
   if (!b) return;
   if (companyId) {
     b.activeIds = b.activeIds.filter((id) => id !== companyId);
-    if (ok && !b.processedIds.includes(companyId)) b.processedIds.push(companyId);
+    if (ok) {
+      if (!b.processedIds.includes(companyId)) b.processedIds.push(companyId);
+    } else {
+      // 失败也记录：**同一批里不再重复处理**（否则每轮重跑都从同一批失败项开始，
+      // 反复调 AI 烧 token，计数还会超过 total 显示成 101%）。
+      if (!b.failedIds.includes(companyId)) b.failedIds.push(companyId);
+    }
   }
-  if (ok) b.done += 1;
-  else b.failed += 1;
+  // 计数不重复累加：同一 companyId 失败多次也只计一次（否则 done+failed 会超过 total）
+  if (ok) {
+    if (!companyId || !b.processedIds.includes(companyId)) b.done += 1;
+  } else if (!companyId || !b.failedIds.includes(companyId)) {
+    b.failed += 1;
+  }
   b.updatedAt = new Date().toISOString();
   persist(b);
 }
@@ -294,4 +312,17 @@ export function claimResume(key: string): boolean {
 /** 续跑结束（成功/失败都要释放） */
 export function releaseResume(key: string): void {
   resuming.delete(key);
+}
+
+
+/** 取某 key 的失败 id 集合（续跑时跳过，避免重复烧 token） */
+export function getFailedIds(key: string): Set<string> {
+  return new Set(registry.get(key)?.failedIds ?? []);
+}
+
+/** 取某 key 已尝试过的全部 id（成功+失败）——重跑时默认跳过 */
+export function getAttemptedIds(key: string): Set<string> {
+  const b = registry.get(key);
+  if (!b) return new Set();
+  return new Set([...b.processedIds, ...b.failedIds]);
 }
