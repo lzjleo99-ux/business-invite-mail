@@ -29,7 +29,7 @@ import { ensureOwnSenderRow } from '@server/modules/sender-config/sender-config.
 import { SenderProfilesService } from '@server/modules/sender-profiles/sender-profiles.service';
 import { runIdempotentMigration } from '@server/common/utils/ddl-runner';
 import { postChatCompletions } from '@server/common/utils/ai-chat';
-import { startServerBatch, tickServerBatch, finishServerBatch, getServerBatches, type ServerBatchProgress } from '@server/common/utils/server-batch';
+import { startServerBatch, tickServerBatch, finishServerBatch, getServerBatches, type ServerBatchProgress , beginServerBatchItem, getProcessedIds, claimResume, releaseResume} from '@server/common/utils/server-batch';
 import {
   companyContacts,
   emailAttachmentsTable,
@@ -367,13 +367,46 @@ export class EmailGeneratorService {
     const total = targetIds.length;
     // 服务端后台执行 + 进度跟踪：断网/关页不再中断批量
     const key = `generate:${userId}:${projectId ?? 'selected'}`;
-    startServerBatch(key, 'generate', userId, projectId ?? null, total);
+    startServerBatch(key, 'generate', userId, projectId ?? null, total, targetIds);
     void this.processBatch(targetIds, userId, key).then(() => finishServerBatch(key));
     return { total };
   }
   /** 查询该用户某项目的批量生成进度（前端轮询用） */
   getGenerateBatchStatuses(userId: string, projectId: string | null): ServerBatchProgress[] {
-    return getServerBatches(userId, projectId, 'generate');
+    const list = getServerBatches(userId, projectId, 'generate');
+    // 断点续跑：容器重启后进度从 DB 恢复，但任务未在跑——这里惰性重启，
+    // 跳过 processedIds 里已完成的公司，绝不重复跑、也不丢进度。
+    for (const b of list) {
+      if (!b.finishedAt && claimResume(b.key)) {
+        void (async () => {
+          try {
+            const done = getProcessedIds(b.key);
+            // 只续跑有完整 targets 的新批次；老批次（升级前启动）没有 targets，
+            // 无法安全重建原范围——不自动续跑以免误跑历史数据，进度仍显示。
+            if (b.targets.length === 0) {
+              this.logger.warn(
+                `批量 ${b.key} 缺少目标列表，跳过自动续跑（请重新触发一次，新批次会断点续跑）`,
+              );
+              finishServerBatch(b.key);
+              return;
+            }
+            const remaining = b.targets.filter((id) => !done.has(id));
+            this.logger.warn(
+              `断点续跑 ${b.key}: 已完成 ${done.size} 条，剩余 ${remaining.length} 条`,
+            );
+            await this.processBatch(remaining, b.userId, b.key);
+            finishServerBatch(b.key);
+          } catch (err: unknown) {
+            this.logger.error(
+              `断点续跑失败 ${b.key}: ${err instanceof Error ? err.message : String(err)}`,
+            );
+          } finally {
+            releaseResume(b.key);
+          }
+        })();
+      }
+    }
+    return list;
   }
 
   async getEml(companyId: string, userId?: string): Promise<EmlDownloadResponse> {
@@ -1357,10 +1390,12 @@ export class EmailGeneratorService {
 
     const runGroup = async (group: string[]): Promise<void> => {
       for (const id of group) {
+        if (batchKey && getProcessedIds(batchKey).has(id)) return; // 断点续跑：这条已完成
+        if (batchKey) beginServerBatchItem(batchKey, id);
         await this.generateEmail(id, userId)
-          .then(() => { if (batchKey) tickServerBatch(batchKey, true); })
+          .then(() => { if (batchKey) tickServerBatch(batchKey, true, id); })
           .catch((err: unknown) => {
-            if (batchKey) tickServerBatch(batchKey, false);
+            if (batchKey) tickServerBatch(batchKey, false, id);
             this.logger.error(
               `生成邮件失败 ${id}`,
               err instanceof Error ? err.stack : String(err),

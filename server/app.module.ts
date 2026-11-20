@@ -1,8 +1,37 @@
 import { APP_FILTER } from '@nestjs/core';
-import { Module } from '@nestjs/common';
-import { PlatformModule } from '@lark-apaas/fullstack-nestjs-core';
 
 process.env.BODY_SIZE_LIMIT = '30mb';
+
+import { Inject, Injectable, Logger, Module, OnModuleInit } from '@nestjs/common';
+import { PlatformModule, DRIZZLE_DATABASE, type PostgresJsDatabase } from '@lark-apaas/fullstack-nestjs-core';
+import {
+  initServerBatchStore,
+  listUnfinishedBatches,
+} from './common/utils/server-batch';
+
+/** 批量进度持久化：启动时注入 DB 并在下次请求时续跑（续跑由各 service 触发） */
+// eslint-disable-next-line @darraghor/nestjs-typed/injectable-should-be-provided
+@Injectable()
+class ServerBatchBootstrap implements OnModuleInit {
+  constructor(
+    @Inject(DRIZZLE_DATABASE) private readonly db: PostgresJsDatabase,
+  ) {}
+
+  async onModuleInit(): Promise<void> {
+    const count = await initServerBatchStore(this.db);
+    if (count > 0) {
+      // 有未完成批量：记录日志，具体续跑在各 service 的首次 getBatchStatus/batch 触发时完成
+      new Logger('ServerBatch').log(
+        `${count} 个未完成批量已从数据库恢复，将从断点继续`,
+      );
+    }
+  }
+}
+
+@Module({
+  providers: [ServerBatchBootstrap],
+})
+class ServerBatchPersistenceModule {}
 
 import { GlobalExceptionFilter } from './common/filters/exception.filter';
 import { ViewModule } from './modules/view/view.module';
@@ -22,6 +51,7 @@ import { AdminModule } from './modules/admin/admin.module';
 @Module({
   imports: [
     PlatformModule.forRoot(),
+    ServerBatchPersistenceModule,
     // ====== @route-section: business-modules START ======
     RestaurantsModule,
     ProjectsModule,

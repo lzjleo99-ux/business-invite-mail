@@ -14,7 +14,7 @@ import { randomUUID } from 'crypto';
 import * as fs from 'fs/promises';
 import { restaurants, modelConfig, projects, companyContacts } from '@server/database/schema';
 import { runIdempotentMigration } from '@server/common/utils/ddl-runner';
-import { startServerBatch, tickServerBatch, finishServerBatch, getServerBatches, type ServerBatchProgress } from '@server/common/utils/server-batch';
+import { startServerBatch, tickServerBatch, finishServerBatch, getServerBatches, type ServerBatchProgress , beginServerBatchItem, getProcessedIds, claimResume, releaseResume} from '@server/common/utils/server-batch';
 import type { Company, CompanyStatus } from '@shared/api.interface';
 
 const execFileAsync = promisify(execFile);
@@ -298,13 +298,36 @@ export class WebsiteAnalyzerService {
     const total = targetIds.length;
     // 服务端后台执行 + 进度跟踪：断网/关页不再中断批量
     const key = `analyze:${userId}:${projectId ?? 'selected'}`;
-    startServerBatch(key, 'analyze', userId, projectId ?? null, total);
+    startServerBatch(key, 'analyze', userId, projectId ?? null, total, targetIds);
     void this.processBatch(targetIds, userId, key).then(() => finishServerBatch(key));
     return { total };
   }
   /** 查询该用户某项目的批量分析进度（前端轮询用） */
   getAnalyzeBatchStatuses(userId: string, projectId: string | null): ServerBatchProgress[] {
-    return getServerBatches(userId, projectId, 'analyze');
+    const list = getServerBatches(userId, projectId, 'analyze');
+    // 断点续跑：重启后进度从 DB 恢复，这里惰性重启，跳过已处理项
+    for (const b of list) {
+      if (!b.finishedAt && claimResume(b.key)) {
+        void (async () => {
+          try {
+            const done = getProcessedIds(b.key);
+            const remaining = (b.targets.length > 0 ? b.targets : []).filter((id) => !done.has(id));
+            this.logger.warn(
+              `断点续跑 ${b.key}: 已完成 ${done.size} 条，剩余 ${remaining.length} 条`,
+            );
+            await this.processBatch(remaining, b.userId, b.key);
+            finishServerBatch(b.key);
+          } catch (err: unknown) {
+            this.logger.error(
+              `断点续跑失败 ${b.key}: ${err instanceof Error ? err.message : String(err)}`,
+            );
+          } finally {
+            releaseResume(b.key);
+          }
+        })();
+      }
+    }
+    return list;
   }
 
   private async processBatch(ids: string[], userId: string, batchKey?: string): Promise<void> {
@@ -321,10 +344,12 @@ export class WebsiteAnalyzerService {
 
     const runGroup = async (group: string[]): Promise<void> => {
       for (const id of group) {
+        if (batchKey && getProcessedIds(batchKey).has(id)) return; // 断点续跑：这条已完成
+        if (batchKey) beginServerBatchItem(batchKey, id);
         await this.analyzeCompany(id, userId)
-          .then(() => { if (batchKey) tickServerBatch(batchKey, true); })
+          .then(() => { if (batchKey) tickServerBatch(batchKey, true, id); })
           .catch((err: unknown) => {
-            if (batchKey) tickServerBatch(batchKey, false);
+            if (batchKey) tickServerBatch(batchKey, false, id);
             this.logger.error(
               `分析公司失败 ${id}`,
               err instanceof Error ? err.stack : String(err),

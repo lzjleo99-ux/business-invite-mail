@@ -548,9 +548,11 @@ const WorkbenchTab: React.FC<WorkbenchTabProps> = ({
           total: cur.total,
           finishedAt: cur.finishedAt,
         });
+        // 实时同步：每轮轮询都刷新表格与统计卡——后台每处理一家就写库，
+        // 用户能在表里立刻看到已跑过的公司状态变化（不再等整批结束）。
+        void qc.invalidateQueries({ queryKey: ['companies'] });
+        void qc.invalidateQueries({ queryKey: ['company-stats'] });
         if (cur.finishedAt) {
-          void qc.invalidateQueries({ queryKey: ['companies'] });
-          void qc.invalidateQueries({ queryKey: ['company-stats'] });
           if (kind === 'analyze' && pendingEmailRescanRef.current) {
             pendingEmailRescanRef.current = false;
             // 分析完成后再跑邮箱核验（纯 HTTP，不调 AI），两段严格串行
