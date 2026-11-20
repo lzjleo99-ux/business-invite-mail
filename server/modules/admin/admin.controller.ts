@@ -10,7 +10,10 @@ import {
   Query,
   UseGuards,
   BadRequestException,
+  Inject,
 } from '@nestjs/common';
+import { DRIZZLE_DATABASE, type PostgresJsDatabase } from '@lark-apaas/fullstack-nestjs-core';
+import { sql } from 'drizzle-orm';
 import { AdminService } from './admin.service';
 import { AuthService } from '@server/modules/auth/auth.service';
 import { MailService } from '@server/common/services/mail.service';
@@ -119,6 +122,7 @@ export class AdminController {
     private readonly mailService: MailService,
     private readonly emailInboxService: EmailInboxService,
     private readonly wecomNotifyService: WeComNotifyService,
+    @Inject(DRIZZLE_DATABASE) private readonly db: PostgresJsDatabase,
   ) {}
 
   /** 企业微信群机器人通知配置（webhook 只写不读，只回 webhookSet） */
@@ -379,6 +383,31 @@ export class AdminController {
   }
 
   /** 网络连通性诊断（super_admin）：从容器内测指定 URL，定位"Network Error"类问题 */
+  /** 批量任务诊断（super_admin）：查持久化进度表 + 项目状态分布 */
+  @Get('batch-diagnose')
+  async batchDiagnose(
+    @CurrentUser() user: JwtPayload,
+    @Query('projectId') projectId?: string,
+  ): Promise<Record<string, unknown>> {
+    const batches = await this.db.execute(sql`
+      SELECT batch_key, kind, user_id, project_id, total, done, failed,
+             jsonb_array_length(processed_ids) AS processed,
+             jsonb_array_length(targets) AS targets,
+             active_ids, started_at, updated_at, finished_at
+      FROM server_batches
+      ORDER BY started_at DESC LIMIT 10
+    `);
+    let statusCounts: unknown = null;
+    if (projectId) {
+      const rows = await this.db.execute(sql`
+        SELECT status, count(*)::int AS count
+        FROM restaurants WHERE project_id = ${projectId} GROUP BY status
+      `);
+      statusCounts = rows;
+    }
+    return { batches, statusCounts, note: 'server_batches 持久化进度 + 项目状态分布' };
+  }
+
   @Get('netcheck')
   async netcheck(
     @CurrentUser() user: JwtPayload,
