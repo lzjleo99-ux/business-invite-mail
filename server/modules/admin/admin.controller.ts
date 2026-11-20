@@ -397,6 +397,15 @@ export class AdminController {
       FROM server_batches
       ORDER BY started_at DESC LIMIT 10
     `);
+    // 最近失败样本：generate_error 里写着每次失败的原因（浪费 token 的根因）
+    const errors = await this.db.execute(sql`
+      SELECT left(generate_error, 220) AS err, count(*)::int AS count,
+             min(_updated_at) AS first_at, max(_updated_at) AS last_at
+      FROM restaurants
+      WHERE project_id = ${projectId} AND generate_error IS NOT NULL AND generate_error <> ''
+      GROUP BY left(generate_error, 220)
+      ORDER BY count DESC LIMIT 8
+    `);
     let statusCounts: unknown = null;
     if (projectId) {
       const rows = await this.db.execute(sql`
@@ -405,7 +414,7 @@ export class AdminController {
       `);
       statusCounts = rows;
     }
-    return { batches, statusCounts, note: 'server_batches 持久化进度 + 项目状态分布' };
+    return { batches, errors, statusCounts, note: 'server_batches 持久化进度 + 项目状态分布' };
   }
 
   @Get('netcheck')
