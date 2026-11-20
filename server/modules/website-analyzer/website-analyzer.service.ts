@@ -342,18 +342,40 @@ export class WebsiteAnalyzerService {
     );
     ids.forEach((id: string, idx: number) => groups[idx % groups.length].push(id));
 
+    // 熔断：模型服务整体不可用时继续跑只是白烧 token
+    const SERVICE_DOWN = /持续不可用|ECONNRESET|ETIMEDOUT|timeout/i;
+    const BREAK_THRESHOLD = 5;
+    let serviceDownStreak = 0;
+    let tripped = false;
+
     const runGroup = async (group: string[]): Promise<void> => {
       for (const id of group) {
+        if (tripped) return;
         if (batchKey && getProcessedIds(batchKey).has(id)) return; // 断点续跑：这条已完成
         if (batchKey) beginServerBatchItem(batchKey, id);
         await this.analyzeCompany(id, userId)
-          .then(() => { if (batchKey) tickServerBatch(batchKey, true, id); })
+          .then(() => {
+            serviceDownStreak = 0;
+            if (batchKey) tickServerBatch(batchKey, true, id);
+          })
           .catch((err: unknown) => {
+            const msg = err instanceof Error ? err.message : String(err);
             if (batchKey) tickServerBatch(batchKey, false, id);
             this.logger.error(
               `分析公司失败 ${id}`,
               err instanceof Error ? err.stack : String(err),
             );
+            if (SERVICE_DOWN.test(msg)) {
+              serviceDownStreak += 1;
+              if (serviceDownStreak >= BREAK_THRESHOLD) {
+                tripped = true;
+                this.logger.error(
+                  `模型服务连续 ${serviceDownStreak} 次不可用，已熔断停止本批（避免继续烧 token）。`,
+                );
+              }
+            } else {
+              serviceDownStreak = 0;
+            }
           });
       }
     };

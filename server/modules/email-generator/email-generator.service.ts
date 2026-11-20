@@ -1390,18 +1390,42 @@ export class EmailGeneratorService {
     );
     ids.forEach((id: string, idx: number) => groups[idx % groups.length].push(id));
 
+    // 熔断：模型服务整体不可用时（每家都要等 5 分钟重试才失败），
+    // 继续跑只是白烧 token——连续 N 家因"服务不可用"失败就整批停。
+    const SERVICE_DOWN = /持续不可用|ECONNRESET|ETIMEDOUT|timeout/i;
+    const BREAK_THRESHOLD = 5;
+    let serviceDownStreak = 0;
+    let tripped = false;
+
     const runGroup = async (group: string[]): Promise<void> => {
       for (const id of group) {
+        if (tripped) return;
         if (batchKey && getProcessedIds(batchKey).has(id)) return; // 断点续跑：这条已完成
         if (batchKey) beginServerBatchItem(batchKey, id);
         await this.generateEmail(id, userId)
-          .then(() => { if (batchKey) tickServerBatch(batchKey, true, id); })
+          .then(() => {
+            serviceDownStreak = 0;
+            if (batchKey) tickServerBatch(batchKey, true, id);
+          })
           .catch((err: unknown) => {
+            const msg = err instanceof Error ? err.message : String(err);
             if (batchKey) tickServerBatch(batchKey, false, id);
             this.logger.error(
               `生成邮件失败 ${id}`,
               err instanceof Error ? err.stack : String(err),
             );
+            if (SERVICE_DOWN.test(msg)) {
+              serviceDownStreak += 1;
+              if (serviceDownStreak >= BREAK_THRESHOLD) {
+                tripped = true;
+                this.logger.error(
+                  `模型服务连续 ${serviceDownStreak} 次不可用，已熔断停止本批（避免继续烧 token）。`
+                  + `进度已保存，重新触发会从断点继续。`,
+                );
+              }
+            } else {
+              serviceDownStreak = 0;
+            }
           });
       }
     };
