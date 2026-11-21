@@ -125,16 +125,24 @@ export class ModelBalanceService {
         const exhausted = !info.unlimited_quota
           && typeof info.total_available === 'number'
           && info.total_available <= 0;
+        // 换算：令牌查询服务返回的 quota 是**计费单位**，中转后台按 tokens 展示。
+        // 同一令牌实测：后台 60,000,000 tokens / 网站原样显示 30,000,000 —— 正好 2 倍
+        // （New-API 约定 1 quota = 0.5 token，基准价 $0.5/1M tokens）。
+        // 统一 ×2 转成 tokens，与中转后台页面口径一致。
+        const QUOTA_TO_TOKENS = 2;
+        const granted = typeof info.total_granted === 'number' ? info.total_granted * QUOTA_TO_TOKENS : undefined;
+        const used = typeof info.total_used === 'number' ? info.total_used * QUOTA_TO_TOKENS : undefined;
+        const available = typeof info.total_available === 'number' ? info.total_available * QUOTA_TO_TOKENS : undefined;
         return {
           ok: true,
           keyValid: true,
           provider: 'token-query-service',
-          total: info.total_granted,
-          used: info.total_used,
-          remaining: info.unlimited_quota ? undefined : info.total_available,
-          unit: '额度',
+          total: granted,
+          used,
+          remaining: info.unlimited_quota ? undefined : available,
+          unit: 'tokens',
           message: exhausted
-            ? `${info.name || '该令牌'} 额度已用完（剩余 ${info.total_available}），请充值后再使用`
+            ? `${info.name || '该令牌'} 额度已用完（剩余 ${available ?? 0} tokens），请充值后再使用`
             : (d.message || '已读取令牌查询服务的数据'),
           detail: [
             info.name ? `令牌：${info.name}` : '',
@@ -142,6 +150,7 @@ export class ModelBalanceService {
             info.expires_at
               ? `到期：${new Date(info.expires_at * 1000).toLocaleString('zh-CN')}`
               : '',
+            '显示单位：tokens（与中转后台一致）',
           ].filter(Boolean).join('；'),
           checkedAt,
         };
