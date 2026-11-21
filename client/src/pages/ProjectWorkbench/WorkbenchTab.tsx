@@ -552,6 +552,10 @@ const WorkbenchTab: React.FC<WorkbenchTabProps> = ({
   } | null>(null);
   const serverBatchRef = useRef<{ kind: 'analyze' | 'generate'; projectId: string; total: number } | null>(null);
 
+  // 停滞自愈：服务端 promise 可能因容器重启丢失，finishedAt 永远不来。
+  // 若进度达到 100% 且长时间（2 分钟）无变化，前端主动判定结束。
+  const stalledRef = useRef<{ key: string; since: number } | null>(null);
+
   // 轮询：3 秒一次，finishedAt 出现即完成（toast 汇总结果）
   useEffect(() => {
     if (!serverBatch) return;
@@ -567,6 +571,25 @@ const WorkbenchTab: React.FC<WorkbenchTabProps> = ({
         // 取 startedAt 最新的一条（同 key 重复触发会覆盖，一般只有一条）
         const cur = list[0];
         if (!cur) return;
+        const processedNow = (cur.processedIds?.length ?? cur.done) + (cur.failedIds?.length ?? cur.failed);
+        const stalledKey = `${kind}:${cur.key}:${processedNow}`;
+        if (processedNow >= cur.total && cur.total > 0) {
+          if (stalledRef.current?.key !== stalledKey) {
+            stalledRef.current = { key: stalledKey, since: Date.now() };
+          } else if (Date.now() - stalledRef.current.since > 120_000) {
+            // 进度满且 2 分钟没变 → 视为已结束（容错：服务端可能已停止但未标记）
+            logger.warn('批量进度停滞，前端判定结束', { key: cur.key, processedNow });
+            void qc.invalidateQueries({ queryKey: ['companies'] });
+            void qc.invalidateQueries({ queryKey: ['company-stats'] });
+            toast.info(t('批量任务已结束（检测到进度停滞）'));
+            setServerBatch(null);
+            setServerProgress(null);
+            stalledRef.current = null;
+            return;
+          }
+        } else {
+          stalledRef.current = null;
+        }
         setServerProgress({
           done: cur.done,
           failed: cur.failed,

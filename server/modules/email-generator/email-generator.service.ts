@@ -1459,6 +1459,7 @@ export class EmailGeneratorService {
               serviceDownStreak += 1;
               if (serviceDownStreak >= BREAK_THRESHOLD) {
                 tripped = true;
+                if (batchKey) finishServerBatch(batchKey); // 熔断即标记完成：避免界面永远转圈
                 this.logger.error(
                   `模型服务连续 ${serviceDownStreak} 次不可用，已熔断停止本批（避免继续烧 token）。`
                   + `进度已保存，重新触发会从断点继续。`,

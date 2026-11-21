@@ -296,11 +296,25 @@ export function getServerBatches(
       // 读取时同样自愈（覆盖已完成、不在 init 恢复列表里的记录）
       const realDone = b.processedIds.length;
       const realFailed = b.failedIds.length;
+      let changed = false;
       if (b.done !== realDone || b.failed !== realFailed) {
         b.done = realDone;
         b.failed = realFailed;
-        persist(b);
+        changed = true;
       }
+      // 停滞自愈：超过 15 分钟没更新且未完成 → 判定为已结束（容器重启/promise 丢失）。
+      // 阈值取 15 分钟：单次 AI 调用内层最多重试 5 分钟，6 组并发下更长的静默
+      // 才说明真的卡死，避免误杀仍在等待模型的正常任务。
+      const idleMs = Date.now() - new Date(b.updatedAt).getTime();
+      if (!b.finishedAt && idleMs > 15 * 60 * 1000) {
+        b.finishedAt = b.updatedAt;
+        b.activeIds = [];
+        changed = true;
+        logger.warn(
+          `批量 ${b.key} 停滞超过 15 分钟，已标记为结束（进度 ${b.done + b.failed}/${b.total}）`,
+        );
+      }
+      if (changed) persist(b);
       return b;
     })
     .sort((a, b) => b.startedAt.localeCompare(a.startedAt));
