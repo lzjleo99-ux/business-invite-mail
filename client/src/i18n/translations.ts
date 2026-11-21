@@ -20,6 +20,7 @@ export const enMessages: Record<string, string> = {
   '第 {page} / {totalPages} 页': 'Page {page} of {totalPages}',
 
   // ---- antd table locale ----
+  '批量任务已结束，但没有完成任何一条（可能已被停止或中断）': 'Batch ended with zero completed items (it may have been stopped or interrupted)',
   '停止': 'Stop',
   '停止当前批量任务': 'Stop the current batch',
   '已停止批量任务，回收 {n} 条未完成任务': 'Batch stopped, {n} unfinished items recovered',

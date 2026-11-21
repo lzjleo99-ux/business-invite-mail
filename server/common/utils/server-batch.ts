@@ -179,6 +179,10 @@ export async function initServerBatchStore(db: PostgresJsDatabase): Promise<numb
     `)) as unknown as BatchRow[];
     for (const r of rows) {
       const b = toProgress(r);
+      // 自愈：历史数据曾因计数顺序 bug 出现 processed=58 但 done=0，
+      // 用 processedIds/failedIds 重算一次，保证界面显示与实际写库一致。
+      b.done = b.processedIds.length;
+      b.failed = b.failedIds.length;
       // 崩溃时 activeIds 里的项没处理完 → 放回队列前先清掉，让断点续跑重新处理
       b.activeIds = [];
       registry.set(b.key, b);
@@ -238,21 +242,25 @@ export function beginServerBatchItem(key: string, companyId: string): void {
 export function tickServerBatch(key: string, ok: boolean, companyId?: string): void {
   const b = registry.get(key);
   if (!b) return;
+  // 先算"是否新增"再写入集合——之前先 push 再检查 includes，导致 done 永远不 +1，
+  // 界面出现"批量完成：全部成功 0 条"但 generated 实际涨了 58 条的状态不一致。
+  let isNew = true;
   if (companyId) {
     b.activeIds = b.activeIds.filter((id) => id !== companyId);
     if (ok) {
-      if (!b.processedIds.includes(companyId)) b.processedIds.push(companyId);
+      isNew = !b.processedIds.includes(companyId);
+      if (isNew) b.processedIds.push(companyId);
     } else {
       // 失败也记录：**同一批里不再重复处理**（否则每轮重跑都从同一批失败项开始，
       // 反复调 AI 烧 token，计数还会超过 total 显示成 101%）。
-      if (!b.failedIds.includes(companyId)) b.failedIds.push(companyId);
+      isNew = !b.failedIds.includes(companyId);
+      if (isNew) b.failedIds.push(companyId);
     }
   }
-  // 计数不重复累加：同一 companyId 失败多次也只计一次（否则 done+failed 会超过 total）
-  if (ok) {
-    if (!companyId || !b.processedIds.includes(companyId)) b.done += 1;
-  } else if (!companyId || !b.failedIds.includes(companyId)) {
-    b.failed += 1;
+  // 计数不重复累加：同一 companyId 多次只计一次（否则 done+failed 会超过 total）
+  if (isNew) {
+    if (ok) b.done += 1;
+    else b.failed += 1;
   }
   b.updatedAt = new Date().toISOString();
   persist(b);
@@ -284,6 +292,17 @@ export function getServerBatches(
         (b.projectId ?? null) === (projectId ?? null) &&
         new Date(b.startedAt).getTime() > cutoff,
     )
+    .map((b) => {
+      // 读取时同样自愈（覆盖已完成、不在 init 恢复列表里的记录）
+      const realDone = b.processedIds.length;
+      const realFailed = b.failedIds.length;
+      if (b.done !== realDone || b.failed !== realFailed) {
+        b.done = realDone;
+        b.failed = realFailed;
+        persist(b);
+      }
+      return b;
+    })
     .sort((a, b) => b.startedAt.localeCompare(a.startedAt));
 }
 

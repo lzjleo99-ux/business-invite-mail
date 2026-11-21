@@ -413,6 +413,10 @@ export interface ServerBatchProgress {
   total: number;
   done: number;
   failed: number;
+  /** 已成功处理的公司 id（真实完成数，用于自愈计数异常） */
+  processedIds?: string[];
+  /** 已失败的公司 id */
+  failedIds?: string[];
   startedAt: string;
   finishedAt: string | null;
 }

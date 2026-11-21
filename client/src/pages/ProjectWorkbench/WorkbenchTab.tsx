@@ -602,13 +602,25 @@ const WorkbenchTab: React.FC<WorkbenchTabProps> = ({
               }
             })();
           }
-          if (cur.failed > 0) {
+          // 用 processedIds/active 推导真实完成数，避免 DB 计数异常时显示"全部成功 0 条"
+          const okCount =
+            Array.isArray(cur.processedIds)
+              ? cur.processedIds.length
+              : cur.done;
+          const badCount =
+            Array.isArray(cur.failedIds)
+              ? cur.failedIds.length
+              : cur.failed;
+          if (badCount > 0) {
             toast.warning(
-              t('后台批量完成：成功 {s} 条，失败 {f} 条', { s: cur.done, f: cur.failed }),
+              t('后台批量完成：成功 {s} 条，失败 {f} 条', { s: okCount, f: badCount }),
               { duration: 12000 },
             );
+          } else if (okCount > 0) {
+            toast.success(t('后台批量完成：{s} 条全部成功', { s: okCount }));
           } else {
-            toast.success(t('后台批量完成：{s} 条全部成功', { s: cur.done }));
+            // 0 成功 0 失败：说明任务被停止/熔断，没有完成任何一条
+            toast.info(t('批量任务已结束，但没有完成任何一条（可能已被停止或中断）'));
           }
           setServerBatch(null);
           setServerProgress(null);
