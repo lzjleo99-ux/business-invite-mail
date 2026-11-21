@@ -39,7 +39,7 @@ const RETRY_MAX_WAIT_MS = 5 * 60_000;
 /** 永久性错误（余额不足、鉴权失败、无效模型）——立即停止，不浪费 5 分钟 */
 function permanentReason(status: number | undefined, message: string): string | null {
   const m = message.toLowerCase();
-  if (/insufficient(_| )?(quota|balance|credit)|quota exceeded|out of credit|余额不足|额度不足|无可用额度|token.*(exceeded|used up)|payment required/.test(m)) {
+  if (/insufficient(_| )?(quota|balance|credit)|quota (is )?(exhausted|exceeded)|token.*quota.*exhausted|out of credit|余额不足|额度不足|无可用额度|token.*(exceeded|used up)|payment required/.test(m)) {
     return '模型账户余额不足或额度已用完，请充值后再试';
   }
   if (status === 402) return '模型账户余额不足（HTTP 402），请充值后再试';
