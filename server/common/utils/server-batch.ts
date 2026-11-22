@@ -211,7 +211,24 @@ export function startServerBatch(
 ): void {
   const existing = registry.get(key);
   if (existing && !existing.finishedAt) {
-    // 断点续跑：更新 total（可能因范围变化），保留 done/processedIds
+    // 区分「断点续跑（同一批）」与「用户重新点 Generate all（新批）」：
+    // targets 变了就是新批次，必须重置计数，否则 done+failed 会超过新的 total
+    // （实测 53+96=149 > total 133）。同一批则保留进度继续。
+    const targetsChanged =
+      !!targets &&
+      (targets.length !== existing.targets.length ||
+        targets.some((id, i) => id !== existing.targets[i]));
+    if (targetsChanged) {
+      logger.warn(
+        `批量 ${key} 目标列表变化（${existing.targets.length}→${targets!.length}），按新批次重置进度`,
+      );
+      existing.done = 0;
+      existing.failed = 0;
+      existing.processedIds = [];
+      existing.failedIds = [];
+      existing.activeIds = [];
+      existing.startedAt = new Date().toISOString();
+    }
     existing.total = total;
     if (targets) existing.targets = targets;
     existing.updatedAt = new Date().toISOString();
@@ -397,4 +414,40 @@ export function findServerBatchKey(
 ): string | null {
   const key = `${kind}:${userId}:${projectId ?? 'selected'}`;
   return registry.has(key) ? key : null;
+}
+
+
+/** 停滞判定阈值：10 分钟无进展视为结束（AI 单次最长 5 分钟，留 2 倍余量） */
+const STALL_MS = 10 * 60 * 1000;
+
+/** 扫描并标记停滞批次；返回被标记的数量 */
+export function reapStalledBatches(): number {
+  let n = 0;
+  const now = Date.now();
+  for (const b of registry.values()) {
+    if (b.finishedAt) continue;
+    if (now - new Date(b.updatedAt).getTime() > STALL_MS) {
+      b.finishedAt = new Date().toISOString();
+      b.activeIds = [];
+      b.updatedAt = b.finishedAt;
+      persist(b);
+      n += 1;
+      logger.warn(
+        `停滞批次已标记结束 ${b.key}（进度 ${b.processedIds.length + b.failedIds.length}/${b.total}）`,
+      );
+    }
+  }
+  return n;
+}
+
+/** 启动定时清理（每 2 分钟一次），由 AppModule 调用一次 */
+export function startBatchReaper(): void {
+  const timer = setInterval(() => {
+    try {
+      reapStalledBatches();
+    } catch (err: unknown) {
+      logger.warn(`批量清理异常: ${err instanceof Error ? err.message : String(err)}`);
+    }
+  }, 2 * 60 * 1000);
+  timer.unref?.(); // 不阻止进程退出
 }

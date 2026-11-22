@@ -6,7 +6,7 @@ import { Inject, Injectable, Logger, Module, OnModuleInit } from '@nestjs/common
 import { PlatformModule, DRIZZLE_DATABASE, type PostgresJsDatabase } from '@lark-apaas/fullstack-nestjs-core';
 import {
   initServerBatchStore,
-  listUnfinishedBatches,
+  startBatchReaper,
 } from './common/utils/server-batch';
 
 /** 批量进度持久化：启动时注入 DB 并在下次请求时续跑（续跑由各 service 触发） */
@@ -19,6 +19,8 @@ class ServerBatchBootstrap implements OnModuleInit {
 
   async onModuleInit(): Promise<void> {
     const count = await initServerBatchStore(this.db);
+    // 定时清理停滞批次（不依赖用户打开页面来触发自愈）
+    startBatchReaper();
     if (count > 0) {
       // 有未完成批量：记录日志，具体续跑在各 service 的首次 getBatchStatus/batch 触发时完成
       new Logger('ServerBatch').log(
