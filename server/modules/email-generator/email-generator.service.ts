@@ -1622,6 +1622,33 @@ export class EmailGeneratorService {
     );
   }
 
+  /**
+   * 通用：从模型响应里取文本正文。
+   * 推理模型（Qwen3.6/GLM-5.2/DeepSeek-R1 等）常把内容放在 reasoning_content，
+   * content 为空或只有片段；聚合中转也可能返回 markdown 代码块包裹的 JSON。
+   * 这里兜底：reasoning_content → content，并剥掉 ```json ... ``` 围栏。
+   */
+  private extractModelContent(message: Record<string, unknown> | undefined): string {
+    if (!message) return '';
+    const pick = (v: unknown): string =>
+      typeof v === 'string' ? v : Array.isArray(v) ? v.map(pick).join('') : '';
+    const direct = pick(message.content);
+    if (direct.trim()) return this.stripCodeFence(direct);
+    const reasoning = pick(message.reasoning_content) || pick(message.reasoning);
+    if (reasoning.trim()) {
+      // reasoning 里通常是思考过程，但有些中转把最终答案也放这里——尝试抽取 JSON
+      return this.stripCodeFence(reasoning);
+    }
+    return '';
+  }
+
+  /** 剥掉 ```json / ``` 围栏；没有围栏原样返回 */
+  private stripCodeFence(text: string): string {
+    const t = text.trim();
+    const m = t.match(/^```(?:json|JSON)?\s*([\s\S]*?)\s*```$/);
+    return m ? m[1].trim() : t;
+  }
+
   private async callBilingualEmailModel(params: {
     company: typeof restaurants.$inferSelect;
     projectContext: { project: { name: string; description: string; website: string | null } | null; materials: string[] };
@@ -1816,13 +1843,15 @@ Return ONLY a JSON object with these exact keys:
         + `输出tokens=${usage?.completion_tokens ?? '-'} 模型=${config.modelName}`,
     );
 
-    const contentStr = response.data?.choices?.[0]?.message?.content;
+    const contentStr = this.extractModelContent(response.data?.choices?.[0]?.message);
     if (!contentStr) {
       throw new Error('模型返回内容为空');
     }
 
     try {
-      const parsed = JSON.parse(contentStr) as BilingualEmailResult & {
+      // 统一清洗后再 parse：推理模型常返回 ```json 围栏、单引号、尾逗号，
+      // 之前这里直接 JSON.parse 原始 content → 大量"无法解析 JSON"失败。
+      const parsed = JSON.parse(this.sanitizeJsonString(contentStr)) as BilingualEmailResult & {
         relevance_points?: string[];
         subject_local?: string;
         body_local?: string;
@@ -1998,7 +2027,7 @@ Return ONLY a JSON object with these exact keys:
 
     const response = await this.callModelWithRetry(config, body);
 
-    const contentStr = response.data?.choices?.[0]?.message?.content;
+    const contentStr = this.extractModelContent(response.data?.choices?.[0]?.message);
     if (!contentStr) {
       throw new Error('模型返回内容为空');
     }
