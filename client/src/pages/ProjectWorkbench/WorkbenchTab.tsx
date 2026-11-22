@@ -2820,20 +2820,25 @@ const WorkbenchTab: React.FC<WorkbenchTabProps> = ({
         {serverBatch && serverProgress ? (
           /* 服务端批量（断网保护）：进度来自服务器轮询，关页/断网不影响执行 */
           <div className="mb-4">
-            <div className="h-1.5 w-full bg-slate-100 rounded-full overflow-hidden">
+            {/*
+              进度条分两段：绿色=成功、红色=失败、灰底=未完成。
+              旧版只有一条蓝条 + "Processed 84/84 (100%)"，用户误以为 84 封全成功，
+              实际可能 36 成功/61 失败——数字对不上就是这么来的。
+            */}
+            <div className="h-2 w-full bg-slate-100 rounded-full overflow-hidden flex">
               <div
-                className="h-full bg-primary transition-all duration-300"
+                className="h-full bg-green-500 transition-all duration-300"
                 style={{
-                  width: `${
-                    serverProgress.total === 0
-                      ? 100
-                      : Math.round(
-                          ((serverProgress.done + serverProgress.failed) /
-                            serverProgress.total) *
-                            100,
-                        )
-                  }%`,
+                  width: `${serverProgress.total === 0 ? 0 : Math.min(100, (serverProgress.done / Math.max(serverProgress.total, serverProgress.done + serverProgress.failed)) * 100)}%`,
                 }}
+                title={t('成功 {s} 条', { s: serverProgress.done })}
+              />
+              <div
+                className="h-full bg-red-500 transition-all duration-300"
+                style={{
+                  width: `${serverProgress.total === 0 ? 0 : Math.min(100, (serverProgress.failed / Math.max(serverProgress.total, serverProgress.done + serverProgress.failed)) * 100)}%`,
+                }}
+                title={t('失败 {f} 条', { f: serverProgress.failed })}
               />
             </div>
             <div className="flex items-center justify-between mt-1.5 text-xs text-slate-500">
@@ -2843,25 +2848,23 @@ const WorkbenchTab: React.FC<WorkbenchTabProps> = ({
                   ? t('服务器正在分析网站...')
                   : t('服务器正在生成邮件...')}
               </span>
-              <span className="flex items-center gap-2">
-                {t('已处理 {p}/{t}（{percent}%）', {
-                  p: Math.min(
-                    serverProgress.total,
-                    serverProgress.done + serverProgress.failed,
-                  ),
-                  t: serverProgress.total,
-                  percent:
-                    serverProgress.total === 0
-                      ? 100
-                      : Math.min(
-                          100,
-                          Math.round(
-                            ((serverProgress.done + serverProgress.failed) /
-                              serverProgress.total) *
-                              100,
-                          ),
-                        ),
-                })}
+              <span className="flex items-center gap-2.5">
+                <span className="text-green-600 font-medium">
+                  ✓ {serverProgress.done} {t('成功')}
+                </span>
+                {serverProgress.failed > 0 && (
+                  <span className="text-red-600 font-medium">
+                    ✗ {serverProgress.failed} {t('失败')}
+                  </span>
+                )}
+                <span>
+                  {t('共 {t} 条', {
+                    t: Math.max(
+                      serverProgress.total,
+                      serverProgress.done + serverProgress.failed,
+                    ),
+                  })}
+                </span>
                 <Button
                   variant="outline"
                   size="sm"
