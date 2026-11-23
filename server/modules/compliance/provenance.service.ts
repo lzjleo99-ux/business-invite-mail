@@ -177,14 +177,24 @@ export class ProvenanceService {
   }
 
   /** 按邮箱反查（数据主体询问"你从哪拿到我邮箱"时用） */
-  async listByEmail(emailRaw: string): Promise<ProvenanceRow[]> {
+  async listByEmail(emailRaw: string): Promise<
+    Array<{ email: string; source: string; sourceUrl: string | null; details: unknown; capturedAt: string }>
+  > {
     await this.ensureTable();
     const email = emailRaw.trim().toLowerCase();
-    return (await this.db.execute(sql`
+    const rows = (await this.db.execute(sql`
       SELECT email, source, source_url, details, captured_at
       FROM email_provenance WHERE lower(email) = ${email}
       ORDER BY captured_at ASC
     `)) as unknown as ProvenanceRow[];
+    // 与 listByCompany 保持一致（驼峰 + ISO 时间），否则前端按邮箱查时字段是 undefined
+    return rows.map((r) => ({
+      email: r.email,
+      source: r.source,
+      sourceUrl: r.source_url,
+      details: r.details,
+      capturedAt: new Date(r.captured_at).toISOString(),
+    }));
   }
 
   /** 项目级统计：各来源数量（合规看板用） */
