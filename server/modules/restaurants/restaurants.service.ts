@@ -1,4 +1,5 @@
 import type { UserRole } from '@shared/api.interface';
+import { ProvenanceService } from '@server/modules/compliance/provenance.service';
 import {
   Injectable,
   Inject,
@@ -162,6 +163,7 @@ export class RestaurantsService {
 
   constructor(
     @Inject(DRIZZLE_DATABASE) private readonly db: PostgresJsDatabase,
+    private readonly provenance: ProvenanceService,
   ) {}
 
   /**
@@ -711,12 +713,37 @@ export class RestaurantsService {
         await this.db.transaction(async (tx) => {
           await tx.delete(restaurants).where(eq(restaurants.projectId, projectId));
           if (insertValues.length > 0) {
-            await tx.insert(restaurants).values(insertValues);
+            const inserted = await tx.insert(restaurants).values(insertValues)
+              .returning({ id: restaurants.id, email: restaurants.email });
+            // GDPR 举证：记录每个邮箱来自哪个文件
+            await this.provenance.recordMany(
+              inserted
+                .filter((r) => r.email?.trim())
+                .map((r) => ({
+                  companyId: r.id,
+                  projectId,
+                  email: r.email!,
+                  source: 'file_import' as const,
+                  details: { fileName, mode },
+                })),
+            );
           }
         });
       } else {
         if (insertValues.length > 0) {
-          await this.db.insert(restaurants).values(insertValues);
+          const inserted = await this.db.insert(restaurants).values(insertValues)
+            .returning({ id: restaurants.id, email: restaurants.email });
+          await this.provenance.recordMany(
+            inserted
+              .filter((r) => r.email?.trim())
+              .map((r) => ({
+                companyId: r.id,
+                projectId,
+                email: r.email!,
+                source: 'file_import' as const,
+                details: { fileName, mode },
+              })),
+          );
         }
       }
     } catch (err) {
@@ -965,6 +992,19 @@ export class RestaurantsService {
       .insert(restaurants)
       .values(insertValue)
       .returning();
+
+    // GDPR 举证：机器人 API 导入的邮箱，记录来源标识和提示词
+    if (inserted[0]?.email?.trim()) {
+      await this.provenance.record({
+        companyId: inserted[0].id,
+        projectId,
+        email: inserted[0].email,
+        source: 'api_import',
+        details: {
+          source: leadData.source || null,
+        },
+      });
+    }
 
     return this.mapRowToCompany(inserted[0]);
   }

@@ -86,8 +86,24 @@ review RFC 5322 specifications ... gsmtp
 DKIM 由服务商签名，无法控制是否覆盖 → 部分邮件客户端可能不显示"一键退订"按钮，
 但 HTTPS 退订链接始终有效，用户点链接即可退订（满足 CAN-SPAM "有效退订机制"）。
 
-**仍待办**：收件人同意（opt-in）证据记录——需在当前导入流程里保存
-"邮箱来源/获取时间/来源 URL"，用于 GDPR 审计。
+## 七、来源证据链（2026-11-23 已实现）
+
+GDPR Art.7(1) 举证 / Art.14 告知义务支持：
+
+- **email_provenance 表**：company_id + email + source + source_url + details + captured_at，
+  幂等记录（同一公司+邮箱+来源只记一次）
+- **三条来源路径自动记录**：
+  - Excel/CSV 上传 → `file_import`（details 含文件名）
+  - 机器人 API 导入 → `api_import`（details 含 lead source）
+  - 官网公开页面抓取 → `website_public`（source_url = 公司官网，details 含抓取方式）
+- **查询端点**（管理员）：按公司 / 按邮箱反查 / 项目来源统计
+- **管理 UI**：设置 → 发信服务 → 邮箱来源证据，输入邮箱即可查来源
+
+**诚实边界**：记录的是"来源证据"(provenance)，不是"用户明确同意"(opt-in consent)。
+这些 B2B 邮箱大多来自公开渠道，法律基础是 legitimate interest (Art.6(1)(f))，
+而非 consent。证据链服务于"告知来源"和"合法利益论证"，不虚构不存在的同意。
+如果将来有真正的 opt-in 表单（用户主动勾选同意），需要单独记录同意文本版本、
+勾选时间、IP，并明确标注为 `consent` 来源。
 
 ## 五、验证
 

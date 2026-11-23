@@ -1,4 +1,5 @@
 import type { UserRole } from '@shared/api.interface';
+import { ProvenanceService } from '@server/modules/compliance/provenance.service';
 import { buildChatBody } from '@shared/model-catalog';
 import { Injectable, Inject, Logger, BadRequestException } from '@nestjs/common';
 import {
@@ -71,6 +72,7 @@ export class WebsiteAnalyzerService {
 
   constructor(
     @Inject(DRIZZLE_DATABASE) private readonly db: PostgresJsDatabase,
+    private readonly provenance: ProvenanceService,
   ) {
     this.httpClient = axios.create({
       timeout: 8000,
@@ -170,6 +172,19 @@ export class WebsiteAnalyzerService {
         status: 'analyzed' as CompanyStatus,
         analyzeError: null,
       };
+      // GDPR 举证：官网公开页面抓取到的邮箱，记录来源 URL + 抓取方式
+      if (allEmails.length > 0) {
+        await this.provenance.recordMany(
+          allEmails.map((addr) => ({
+            companyId,
+            projectId: company.projectId,
+            email: addr,
+            source: 'website_public' as const,
+            sourceUrl: company.website || null,
+            details: { method: fetchResult.method, siteHost },
+          })),
+        );
+      }
       this.logger.log(
         `网站分析耗时 company=${String(company.name || '').slice(0, 30)} `
           + `抓取=${fetchMs}ms 模型=${Date.now() - modelStart}ms 方式=${fetchResult.method}`,

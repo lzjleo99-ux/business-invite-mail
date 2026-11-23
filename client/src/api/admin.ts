@@ -221,3 +221,17 @@ export async function listSuppressedEmails(): Promise<SuppressedEmail[]> {
 export async function removeSuppressedEmail(email: string): Promise<void> {
   await axiosForBackend.post('/api/unsubscribe/remove', { email });
 }
+
+
+/** 邮箱来源证据（GDPR 举证） */
+export interface EmailProvenance {
+  email: string;
+  source: string;
+  sourceUrl: string | null;
+  details: unknown;
+  capturedAt: string;
+}
+export async function getEmailProvenance(email: string): Promise<EmailProvenance[]> {
+  const r = await axiosForBackend.get('/api/compliance/provenance/email', { params: { email } });
+  return r.data.items ?? [];
+}

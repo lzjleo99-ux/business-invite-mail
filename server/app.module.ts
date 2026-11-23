@@ -50,6 +50,7 @@ import { EmailThreadsModule } from './modules/email-threads/email-threads.module
 import { AuthModule } from './modules/auth/auth.module';
 import { AdminModule } from './modules/admin/admin.module';
 import { UnsubscribeModule } from './modules/unsubscribe/unsubscribe.module';
+import { ComplianceModule } from './modules/compliance/compliance.module';
 
 @Module({
   imports: [
@@ -69,6 +70,7 @@ import { UnsubscribeModule } from './modules/unsubscribe/unsubscribe.module';
     AuthModule,
     AdminModule,
     UnsubscribeModule,
+    ComplianceModule,
     // ====== @route-section: business-modules END ======
 
     ViewModule,

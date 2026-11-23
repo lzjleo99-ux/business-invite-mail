@@ -20,6 +20,12 @@ export const enMessages: Record<string, string> = {
   '第 {page} / {totalPages} 页': 'Page {page} of {totalPages}',
 
   // ---- antd table locale ----
+  '邮箱来源证据': 'Email provenance',
+  '合规留痕：查看某个邮箱是从哪里获取的（上传文件 / 机器人导入 / 官网公开页面）。': 'Compliance trail: see where an email address came from (file upload / API import / public website).',
+  '输入邮箱查询来源': 'Enter email to trace',
+  '查询': 'Trace',
+  '查询来源失败': 'Failed to trace provenance',
+  '未找到该邮箱的来源记录': 'No provenance record found for this email',
   '退订名单': 'Unsubscribed list',
   '通过邮件底部退订链接或一键退订提交的邮箱，系统将永久停止向其发送。': 'Emails submitted via the unsubscribe link or one-click will never receive messages again.',
   '暂无退订邮箱': 'No unsubscribed emails',

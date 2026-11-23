@@ -119,6 +119,23 @@ const SettingsPage = () => {
     queryFn: adminApi.listSuppressedEmails,
     enabled: isAdmin,
   });
+  // GDPR 来源证据查询（客服收到"你从哪拿到我邮箱"时用）
+  const [provenanceEmail, setProvenanceEmail] = useState('');
+  const [provenanceItems, setProvenanceItems] = useState<adminApi.EmailProvenance[] | null>(null);
+  const [provenanceLoading, setProvenanceLoading] = useState(false);
+  const queryProvenance = useCallback(async (): Promise<void> => {
+    if (!provenanceEmail.trim()) return;
+    setProvenanceLoading(true);
+    try {
+      setProvenanceItems(await adminApi.getEmailProvenance(provenanceEmail.trim()));
+    } catch {
+      toast.error(t('查询来源失败'));
+      setProvenanceItems(null);
+    } finally {
+      setProvenanceLoading(false);
+    }
+  }, [provenanceEmail, t]);
+
   const removeSuppressedMutation = useMutation({
     mutationFn: (email: string) => adminApi.removeSuppressedEmail(email),
     onSuccess: () => {
@@ -1633,6 +1650,41 @@ const SettingsPage = () => {
                       </li>
                     ))}
                   </ul>
+                )}
+              </div>
+
+              {/* GDPR 来源证据查询 */}
+              <div className="mt-4 rounded-md border border-slate-200 p-3">
+                <p className="text-sm font-semibold text-slate-800">{t('邮箱来源证据')}</p>
+                <p className="mt-0.5 text-xs text-slate-500">
+                  {t('合规留痕：查看某个邮箱是从哪里获取的（上传文件 / 机器人导入 / 官网公开页面）。')}
+                </p>
+                <div className="mt-2 flex gap-2">
+                  <input
+                    className="h-8 flex-1 rounded-md border border-slate-200 px-2 text-sm"
+                    placeholder={t('输入邮箱查询来源')}
+                    value={provenanceEmail}
+                    onChange={(e) => setProvenanceEmail(e.target.value)}
+                    onKeyDown={(e) => { if (e.key === 'Enter') void queryProvenance(); }}
+                  />
+                  <Button size="sm" onClick={() => void queryProvenance()} disabled={provenanceLoading}>
+                    {provenanceLoading ? <Loader2 size={14} className="animate-spin" /> : t('查询')}
+                  </Button>
+                </div>
+                {provenanceItems !== null && (
+                  <div className="mt-2 rounded bg-slate-50 p-2 text-xs">
+                    {provenanceItems.length === 0 ? (
+                      <span className="text-slate-500">{t('未找到该邮箱的来源记录')}</span>
+                    ) : (
+                      provenanceItems.map((row, i) => (
+                        <div key={i} className="flex flex-wrap gap-2 py-1 text-slate-600">
+                          <span className="font-medium">{row.source}</span>
+                          {row.sourceUrl && <span className="break-all text-blue-600">{row.sourceUrl}</span>}
+                          <span className="text-slate-400">{new Date(row.capturedAt).toLocaleString()}</span>
+                        </div>
+                      ))
+                    )}
+                  </div>
                 )}
               </div>
 
