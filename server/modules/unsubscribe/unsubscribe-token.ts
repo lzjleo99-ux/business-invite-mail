@@ -50,3 +50,10 @@ export function buildUnsubscribeUrl(token: string): string {
   const base = (process.env.PUBLIC_BASE_URL || 'https://shanghaitrade.cn').replace(/\/+$/, '');
   return `${base}/openapi/unsubscribe/one-click?token=${encodeURIComponent(token)}`;
 }
+
+
+/** 给用户点击的退订页 URL（GET，显示确认页）；与 EML 头里的 one-click POST URL 区分 */
+export function buildUnsubscribePageUrl(token: string): string {
+  const base = (process.env.PUBLIC_BASE_URL || 'https://shanghaitrade.cn').replace(/\/+$/, '');
+  return `${base}/openapi/unsubscribe?token=${encodeURIComponent(token)}`;
+}

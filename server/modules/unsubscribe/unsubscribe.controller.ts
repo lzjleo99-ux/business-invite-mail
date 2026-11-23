@@ -21,7 +21,7 @@ import type { Request, Response } from 'express';
 import { JwtAuthGuard } from '@server/modules/auth/jwt-auth.guard';
 import { AdminGuard } from '@server/common/guards/admin.guard';
 import { SuppressionService } from './suppression.service';
-import { parseUnsubscribeToken, makeUnsubscribeToken, buildUnsubscribeUrl } from './unsubscribe-token';
+import { parseUnsubscribeToken, makeUnsubscribeToken, buildUnsubscribePageUrl } from './unsubscribe-token';
 
 class RemoveDto {
   email!: string;
@@ -119,6 +119,6 @@ export class UnsubscribeAdminController {
   @Get('mint-link')
   async mintLink(@Query('email') email: string): Promise<{ url: string }> {
     if (!email?.includes('@')) throw new BadRequestException('valid email required');
-    return { url: buildUnsubscribeUrl(makeUnsubscribeToken(email)) };
+    return { url: buildUnsubscribePageUrl(makeUnsubscribeToken(email)) };
   }
 }
