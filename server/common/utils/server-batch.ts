@@ -20,6 +20,19 @@ import { runIdempotentMigration } from './ddl-runner';
 
 const logger = new Logger('ServerBatch');
 
+/**
+ * 临时失败才值得重试；永久失败（额度/key/模型错误）重试只是白烧钱。
+ * 与 ai-chat 的 permanentReason 口径一致。
+ */
+export function isRetryableFailure(message: string): boolean {
+  const m = message.toLowerCase();
+  if (/quota|余额不足|额度|invalid api key|unauthorized|authentication|模型不存在|not found|payment required/.test(m)) {
+    return false;
+  }
+  // 网络中断、JSON 解析失败、内容为空、超时 → 可重试
+  return /network|econnreset|etimedout|timeout|json|parse|内容为空|empty|socket|429|500|502|503|504/i.test(m);
+}
+
 export interface ServerBatchProgress {
   /** 格式：`${kind}:${userId}:${projectId ?? 'selected'}` */
   key: string;
@@ -35,6 +48,10 @@ export interface ServerBatchProgress {
   targets: string[];
   /** 本批已尝试但失败的公司 id（不再自动重跑，避免反复烧 token） */
   failedIds: string[];
+  /** 失败原因（id → 错误信息（截断）），用于挑选可重试项 */
+  failedReasons: Record<string, string>;
+  /** 该批已自动重试过几轮 */
+  retryRound: number;
   /** 正在处理中、尚未完成的 company id（崩溃后视为断点，需重跑） */
   activeIds: string[];
   startedAt: string;
@@ -52,6 +69,8 @@ interface BatchRow {
   failed: number;
   processed_ids: string[] | null;
   failed_ids: string[] | null;
+  failed_reasons: Record<string, string> | null;
+  retry_round: number | null;
   targets: string[] | null;
   active_ids: string[] | null;
   started_at: Date | string;
@@ -90,6 +109,8 @@ function ensureTable(): Promise<void> {
         try {
           await run('ALTER TABLE server_batches ADD COLUMN IF NOT EXISTS targets jsonb NOT NULL DEFAULT \'[]\'::jsonb');
           await run('ALTER TABLE server_batches ADD COLUMN IF NOT EXISTS failed_ids jsonb NOT NULL DEFAULT \'[]\'::jsonb');
+          await run('ALTER TABLE server_batches ADD COLUMN IF NOT EXISTS failed_reasons jsonb NOT NULL DEFAULT \'{}\'::jsonb');
+          await run('ALTER TABLE server_batches ADD COLUMN IF NOT EXISTS retry_round integer NOT NULL DEFAULT 0');
         } catch { /* 忽略 */ }
         await run(
           'CREATE INDEX IF NOT EXISTS idx_server_batches_scope ON server_batches (user_id, kind, project_id)',
@@ -123,6 +144,8 @@ function toProgress(r: BatchRow): ServerBatchProgress {
     failed: r.failed,
     processedIds: Array.isArray(r.processed_ids) ? r.processed_ids : [],
     failedIds: Array.isArray(r.failed_ids) ? r.failed_ids : [],
+    failedReasons: r.failed_reasons ?? {},
+    retryRound: r.retry_round ?? 0,
     targets: Array.isArray(r.targets) ? r.targets : [],
     activeIds: Array.isArray(r.active_ids) ? r.active_ids : [],
     startedAt: new Date(r.started_at).toISOString(),
@@ -140,11 +163,13 @@ function persist(b: ServerBatchProgress): void {
       await dbRef!.execute(sql`
         INSERT INTO server_batches (
           batch_key, kind, user_id, project_id, total, done, failed,
-          processed_ids, failed_ids, targets, active_ids, started_at, updated_at, finished_at
+          processed_ids, failed_ids, failed_reasons, retry_round, targets, active_ids, started_at, updated_at, finished_at
         ) VALUES (
           ${b.key}, ${b.kind}, ${b.userId}, ${b.projectId}, ${b.total}, ${b.done}, ${b.failed},
           ${JSON.stringify(b.processedIds)}::jsonb,
           ${JSON.stringify(b.failedIds)}::jsonb,
+          ${JSON.stringify(b.failedReasons)}::jsonb,
+          ${b.retryRound},
           ${JSON.stringify(b.targets)}::jsonb,
           ${JSON.stringify(b.activeIds)}::jsonb,
           ${b.startedAt}, ${b.updatedAt}, ${b.finishedAt}
@@ -155,6 +180,8 @@ function persist(b: ServerBatchProgress): void {
           failed = EXCLUDED.failed,
           processed_ids = EXCLUDED.processed_ids,
           failed_ids = EXCLUDED.failed_ids,
+          failed_reasons = EXCLUDED.failed_reasons,
+          retry_round = EXCLUDED.retry_round,
           targets = EXCLUDED.targets,
           active_ids = EXCLUDED.active_ids,
           updated_at = EXCLUDED.updated_at,
@@ -237,7 +264,7 @@ export function startServerBatch(
   }
   const b: ServerBatchProgress = {
     key, kind, userId, projectId, total,
-    done: 0, failed: 0, processedIds: [], failedIds: [], targets: targets ?? [], activeIds: [],
+    done: 0, failed: 0, processedIds: [], failedIds: [], failedReasons: {}, retryRound: 0, targets: targets ?? [], activeIds: [],
     startedAt: new Date().toISOString(),
     updatedAt: new Date().toISOString(),
     finishedAt: null,
@@ -256,7 +283,7 @@ export function beginServerBatchItem(key: string, companyId: string): void {
 }
 
 /** 某条处理完成：从 activeIds 移除并加入 processedIds，done/failed +1 */
-export function tickServerBatch(key: string, ok: boolean, companyId?: string): void {
+export function tickServerBatch(key: string, ok: boolean, companyId?: string, reason?: string): void {
   const b = registry.get(key);
   if (!b) return;
   // 先算"是否新增"再写入集合——之前先 push 再检查 includes，导致 done 永远不 +1，
@@ -272,6 +299,7 @@ export function tickServerBatch(key: string, ok: boolean, companyId?: string): v
       // 反复调 AI 烧 token，计数还会超过 total 显示成 101%）。
       isNew = !b.failedIds.includes(companyId);
       if (isNew) b.failedIds.push(companyId);
+      if (reason) b.failedReasons[companyId] = reason.slice(0, 200);
     }
   }
   // 计数不重复累加：同一 companyId 多次只计一次（否则 done+failed 会超过 total）
@@ -450,4 +478,32 @@ export function startBatchReaper(): void {
     }
   }, 2 * 60 * 1000);
   timer.unref?.(); // 不阻止进程退出
+}
+
+
+/** 取该批中「临时失败」的 id（供自动重试） */
+export function getRetryableFailedIds(key: string): string[] {
+  const b = registry.get(key);
+  if (!b) return [];
+  return b.failedIds.filter((id) =>
+    isRetryableFailure(b.failedReasons[id] ?? ''),
+  );
+}
+
+/** 开始新一轮重试：清除这些 id 的失败记录，轮次 +1 */
+export function prepareRetry(key: string, ids: string[]): void {
+  const b = registry.get(key);
+  if (!b) return;
+  const idSet = new Set(ids);
+  b.failedIds = b.failedIds.filter((id) => !idSet.has(id));
+  for (const id of ids) delete b.failedReasons[id];
+  b.retryRound += 1;
+  b.finishedAt = null; // 重新进入运行状态
+  b.updatedAt = new Date().toISOString();
+  persist(b);
+}
+
+/** 该批重试轮次（UI 可显示"重试第 N 轮"） */
+export function getRetryRound(key: string): number {
+  return registry.get(key)?.retryRound ?? 0;
 }

@@ -20,6 +20,7 @@ export const enMessages: Record<string, string> = {
   '第 {page} / {totalPages} 页': 'Page {page} of {totalPages}',
 
   // ---- antd table locale ----
+  '自动重试第 {n} 轮': 'Auto-retry round {n}',
   '成功 {s} 条': 'Success: {s}',
   '失败 {f} 条': 'Failed: {f}',
   '共 {t} 条': 'of {t} total',

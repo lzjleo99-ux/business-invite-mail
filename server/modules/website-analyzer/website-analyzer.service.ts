@@ -14,7 +14,7 @@ import { randomUUID } from 'crypto';
 import * as fs from 'fs/promises';
 import { restaurants, modelConfig, projects, companyContacts } from '@server/database/schema';
 import { runIdempotentMigration } from '@server/common/utils/ddl-runner';
-import { startServerBatch, tickServerBatch, finishServerBatch, getServerBatches, type ServerBatchProgress , beginServerBatchItem, getProcessedIds, claimResume, releaseResume, getFailedIds, isServerBatchCancelled, clearServerBatchCancel, cancelServerBatch, findServerBatchKey} from '@server/common/utils/server-batch';
+import { startServerBatch, tickServerBatch, finishServerBatch, getServerBatches, type ServerBatchProgress , beginServerBatchItem, getProcessedIds, claimResume, releaseResume, getFailedIds, isServerBatchCancelled, clearServerBatchCancel, cancelServerBatch, findServerBatchKey, getRetryableFailedIds, prepareRetry, getRetryRound} from '@server/common/utils/server-batch';
 import type { Company, CompanyStatus } from '@shared/api.interface';
 
 const execFileAsync = promisify(execFile);
@@ -299,7 +299,10 @@ export class WebsiteAnalyzerService {
     // 服务端后台执行 + 进度跟踪：断网/关页不再中断批量
     const key = `analyze:${userId}:${projectId ?? 'selected'}`;
     startServerBatch(key, 'analyze', userId, projectId ?? null, total, targetIds);
-    void this.processBatch(targetIds, userId, key).then(() => finishServerBatch(key));
+    void this.processBatch(targetIds, userId, key).then(() => {
+      const pendingRetry = getRetryableFailedIds(key).length > 0 && getRetryRound(key) === 0;
+      if (!pendingRetry) finishServerBatch(key);
+    });
     return { total };
   }
   /** 查询该用户某项目的批量分析进度（前端轮询用） */
@@ -402,7 +405,7 @@ export class WebsiteAnalyzerService {
           })
           .catch((err: unknown) => {
             const msg = err instanceof Error ? err.message : String(err);
-            if (batchKey) tickServerBatch(batchKey, false, id);
+            if (batchKey) tickServerBatch(batchKey, false, id, msg);
             this.logger.error(
               `分析公司失败 ${id}`,
               err instanceof Error ? err.stack : String(err),
@@ -424,6 +427,25 @@ export class WebsiteAnalyzerService {
     };
 
     await Promise.all(groups.map((group) => runGroup(group)));
+
+    // 自动重试：仅临时失败（网络/解析/内容为空），最多 1 轮，延迟 30 秒等模型恢复。
+    // 永久失败（额度/key/模型不存在）不重试——重试只是白烧钱。
+    if (batchKey && !tripped) {
+      const retryable = getRetryableFailedIds(batchKey);
+      if (retryable.length > 0 && getRetryRound(batchKey) < 1) {
+        this.logger.warn(
+          `批量 ${batchKey} 有 ${retryable.length} 条临时失败，30 秒后自动重试（第 1 轮）`,
+        );
+        void (async () => {
+          await new Promise<void>((r) => setTimeout(r, 30_000));
+          // 重新检查：批次可能已被用户停止
+          if (isServerBatchCancelled(batchKey)) return;
+          prepareRetry(batchKey, retryable);
+          await this.processBatch(retryable, userId, batchKey);
+          finishServerBatch(batchKey);
+        })();
+      }
+    }
   }
 
   private async fetchWebsiteContent(

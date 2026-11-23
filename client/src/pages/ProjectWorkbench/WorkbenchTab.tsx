@@ -549,6 +549,7 @@ const WorkbenchTab: React.FC<WorkbenchTabProps> = ({
     failed: number;
     total: number;
     finishedAt: string | null;
+    retryRound?: number;
   } | null>(null);
   const serverBatchRef = useRef<{ kind: 'analyze' | 'generate'; projectId: string; total: number } | null>(null);
 
@@ -595,6 +596,7 @@ const WorkbenchTab: React.FC<WorkbenchTabProps> = ({
           failed: cur.failed,
           total: cur.total,
           finishedAt: cur.finishedAt,
+          retryRound: cur.retryRound ?? 0,
         });
         // 实时同步：每轮轮询都刷新表格与统计卡——后台每处理一家就写库，
         // 用户能在表里立刻看到已跑过的公司状态变化（不再等整批结束）。
@@ -2855,6 +2857,11 @@ const WorkbenchTab: React.FC<WorkbenchTabProps> = ({
                 {serverProgress.failed > 0 && (
                   <span className="text-red-600 font-medium">
                     ✗ {serverProgress.failed} {t('失败')}
+                  </span>
+                )}
+                {(serverProgress.retryRound ?? 0) > 0 && (
+                  <span className="rounded bg-amber-50 px-1.5 py-0.5 text-amber-700">
+                    {t('自动重试第 {n} 轮', { n: serverProgress.retryRound })}
                   </span>
                 )}
                 <span>

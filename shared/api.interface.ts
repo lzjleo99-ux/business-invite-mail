@@ -417,6 +417,8 @@ export interface ServerBatchProgress {
   processedIds?: string[];
   /** 已失败的公司 id */
   failedIds?: string[];
+  /** 自动重试轮次（0=首次，1=重试中） */
+  retryRound?: number;
   startedAt: string;
   finishedAt: string | null;
 }

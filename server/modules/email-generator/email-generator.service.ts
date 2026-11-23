@@ -29,7 +29,7 @@ import { ensureOwnSenderRow } from '@server/modules/sender-config/sender-config.
 import { SenderProfilesService } from '@server/modules/sender-profiles/sender-profiles.service';
 import { runIdempotentMigration } from '@server/common/utils/ddl-runner';
 import { postChatCompletions } from '@server/common/utils/ai-chat';
-import { startServerBatch, tickServerBatch, finishServerBatch, getServerBatches, type ServerBatchProgress , beginServerBatchItem, getProcessedIds, claimResume, releaseResume, getFailedIds, isServerBatchCancelled, clearServerBatchCancel, cancelServerBatch, findServerBatchKey} from '@server/common/utils/server-batch';
+import { startServerBatch, tickServerBatch, finishServerBatch, getServerBatches, type ServerBatchProgress , beginServerBatchItem, getProcessedIds, claimResume, releaseResume, getFailedIds, isServerBatchCancelled, clearServerBatchCancel, cancelServerBatch, findServerBatchKey, getRetryableFailedIds, prepareRetry, getRetryRound} from '@server/common/utils/server-batch';
 import {
   companyContacts,
   emailAttachmentsTable,
@@ -368,7 +368,12 @@ export class EmailGeneratorService {
     // 服务端后台执行 + 进度跟踪：断网/关页不再中断批量
     const key = `generate:${userId}:${projectId ?? 'selected'}`;
     startServerBatch(key, 'generate', userId, projectId ?? null, total, targetIds);
-    void this.processBatch(targetIds, userId, key).then(() => finishServerBatch(key));
+    // 注意：不在主链无条件 finishServerBatch——processBatch 内部若有临时失败项
+    // 会调度自动重试并重新打开批次，主链提前结束会让 UI 闪一下"完成"又变"重试中"。
+    void this.processBatch(targetIds, userId, key).then(() => {
+      const pendingRetry = getRetryableFailedIds(key).length > 0 && getRetryRound(key) === 0;
+      if (!pendingRetry) finishServerBatch(key);
+    });
     return { total };
   }
   /** 查询该用户某项目的批量生成进度（前端轮询用） */
@@ -1450,7 +1455,7 @@ export class EmailGeneratorService {
           })
           .catch((err: unknown) => {
             const msg = err instanceof Error ? err.message : String(err);
-            if (batchKey) tickServerBatch(batchKey, false, id);
+            if (batchKey) tickServerBatch(batchKey, false, id, msg);
             this.logger.error(
               `生成邮件失败 ${id}`,
               err instanceof Error ? err.stack : String(err),
@@ -1473,6 +1478,25 @@ export class EmailGeneratorService {
     };
 
     await Promise.all(groups.map((group) => runGroup(group)));
+
+    // 自动重试：仅临时失败（网络/解析/内容为空），最多 1 轮，延迟 30 秒等模型恢复。
+    // 永久失败（额度/key/模型不存在）不重试——重试只是白烧钱。
+    if (batchKey && !tripped) {
+      const retryable = getRetryableFailedIds(batchKey);
+      if (retryable.length > 0 && getRetryRound(batchKey) < 1) {
+        this.logger.warn(
+          `批量 ${batchKey} 有 ${retryable.length} 条临时失败，30 秒后自动重试（第 1 轮）`,
+        );
+        void (async () => {
+          await new Promise<void>((r) => setTimeout(r, 30_000));
+          // 重新检查：批次可能已被用户停止
+          if (isServerBatchCancelled(batchKey)) return;
+          prepareRetry(batchKey, retryable);
+          await this.processBatch(retryable, userId, batchKey);
+          finishServerBatch(batchKey);
+        })();
+      }
+    }
   }
 
   private async getCompanyById(id: string): Promise<typeof restaurants.$inferSelect | null> {
