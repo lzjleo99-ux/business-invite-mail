@@ -21,7 +21,7 @@ import type { Request, Response } from 'express';
 import { JwtAuthGuard } from '@server/modules/auth/jwt-auth.guard';
 import { AdminGuard } from '@server/common/guards/admin.guard';
 import { SuppressionService } from './suppression.service';
-import { parseUnsubscribeToken } from './unsubscribe-token';
+import { parseUnsubscribeToken, makeUnsubscribeToken, buildUnsubscribeUrl } from './unsubscribe-token';
 
 class RemoveDto {
   email!: string;
@@ -112,5 +112,13 @@ export class UnsubscribeAdminController {
   async remove(@Body() dto: RemoveDto): Promise<{ ok: boolean }> {
     if (!dto?.email) throw new BadRequestException('email required');
     return { ok: await this.suppression.remove(dto.email) };
+  }
+
+  /** 客服用途：为指定邮箱生成退订链接（用服务器密钥签名） */
+  @UseGuards(JwtAuthGuard, AdminGuard)
+  @Get('mint-link')
+  async mintLink(@Query('email') email: string): Promise<{ url: string }> {
+    if (!email?.includes('@')) throw new BadRequestException('valid email required');
+    return { url: buildUnsubscribeUrl(makeUnsubscribeToken(email)) };
   }
 }
