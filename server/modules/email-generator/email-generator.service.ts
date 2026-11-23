@@ -484,6 +484,10 @@ export class EmailGeneratorService {
       company.emailBody,
       fromLine,
       inlineImages,
+      // 下载的 .eml 与实际发送保持一致，也带退订头（用户用自己的客户端发时同样合规）
+      toEmail.includes('@')
+        ? { unsubscribeUrl: buildUnsubscribeUrl(makeUnsubscribeToken(toEmail)) }
+        : undefined,
     );
 
     const safeName = company.name.replace(/[^a-zA-Z0-9_-]/g, '_').slice(0, 50);
