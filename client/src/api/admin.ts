@@ -205,3 +205,19 @@ export async function setSuperAdmin(userId: string): Promise<{ ok: true }> {
   const response = await axiosForBackend.post(`/api/admin/super-admin/${userId}`, {});
   return response.data;
 }
+
+
+/** 退订名单（CAN-SPAM/GDPR） */
+export interface SuppressedEmail {
+  email: string;
+  reason: string;
+  note: string | null;
+  createdAt: string;
+}
+export async function listSuppressedEmails(): Promise<SuppressedEmail[]> {
+  const r = await axiosForBackend.get('/api/unsubscribe/list');
+  return r.data.items ?? [];
+}
+export async function removeSuppressedEmail(email: string): Promise<void> {
+  await axiosForBackend.post('/api/unsubscribe/remove', { email });
+}

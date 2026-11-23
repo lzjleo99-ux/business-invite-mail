@@ -13,6 +13,7 @@ import {
   Loader2,
   Mail,
   Plus,
+  RefreshCw,
   User,
 } from 'lucide-react';
 import { resolveAppUrl } from '@lark-apaas/client-toolkit/utils/resolveAppUrl';
@@ -112,6 +113,21 @@ const SettingsPage = () => {
   const [accountBusy, setAccountBusy] = useState(false);
   /** 正在验证的邮箱账号 id + 每个账号的验证结果 */
   const [verifyingAccount, setVerifyingAccount] = useState<string | null>(null);
+  // 退订名单（CAN-SPAM/GDPR）：已退订的邮箱永不发送
+  const suppressedQuery = useQuery({
+    queryKey: ['suppressed-emails'],
+    queryFn: adminApi.listSuppressedEmails,
+    enabled: isAdmin,
+  });
+  const removeSuppressedMutation = useMutation({
+    mutationFn: (email: string) => adminApi.removeSuppressedEmail(email),
+    onSuccess: () => {
+      toast.success(t('已从退订名单移除'));
+      void suppressedQuery.refetch();
+    },
+    onError: () => toast.error(t('移除失败')),
+  });
+
   const [accountVerifyResults, setAccountVerifyResults] = useState<Record<string, { ok: boolean; message: string }>>({});
   const handleVerifyAccount = useCallback(async (id: string): Promise<void> => {
     if (verifyingAccount) return;
@@ -1574,6 +1590,49 @@ const SettingsPage = () => {
                       </Button>
                     </div>
                   </div>
+                )}
+              </div>
+
+              {/* 退订名单：CAN-SPAM/GDPR 合规，已退订邮箱不再收到任何营销邮件 */}
+              <div className="mt-6 rounded-md border border-slate-200 p-3">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <p className="text-sm font-semibold text-slate-800">{t('退订名单')}</p>
+                    <p className="mt-0.5 text-xs text-slate-500">
+                      {t('通过邮件底部退订链接或一键退订提交的邮箱，系统将永久停止向其发送。')}
+                    </p>
+                  </div>
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    onClick={() => void suppressedQuery.refetch()}
+                    disabled={suppressedQuery.isFetching}
+                  >
+                    <RefreshCw size={14} className={suppressedQuery.isFetching ? 'animate-spin' : ''} />
+                  </Button>
+                </div>
+                {suppressedQuery.isLoading ? (
+                  <p className="mt-2 text-xs text-slate-400">{t('读取中...')}</p>
+                ) : (suppressedQuery.data?.length ?? 0) === 0 ? (
+                  <p className="mt-2 text-xs text-slate-400">{t('暂无退订邮箱')}</p>
+                ) : (
+                  <ul className="mt-2 max-h-56 space-y-1 overflow-y-auto">
+                    {suppressedQuery.data?.map((row) => (
+                      <li key={row.email} className="flex items-center gap-2 rounded bg-slate-50 px-2 py-1.5 text-xs">
+                        <span className="flex-1 break-all text-slate-700">{row.email}</span>
+                        <span className="text-slate-400">{row.reason}</span>
+                        <button
+                          type="button"
+                          className="text-red-500 hover:underline"
+                          disabled={removeSuppressedMutation.isPending}
+                          onClick={() => void removeSuppressedMutation.mutate(row.email)}
+                          title={t('重新允许发送')}
+                        >
+                          {t('移除')}
+                        </button>
+                      </li>
+                    ))}
+                  </ul>
                 )}
               </div>
 

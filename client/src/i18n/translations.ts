@@ -20,6 +20,13 @@ export const enMessages: Record<string, string> = {
   '第 {page} / {totalPages} 页': 'Page {page} of {totalPages}',
 
   // ---- antd table locale ----
+  '退订名单': 'Unsubscribed list',
+  '通过邮件底部退订链接或一键退订提交的邮箱，系统将永久停止向其发送。': 'Emails submitted via the unsubscribe link or one-click will never receive messages again.',
+  '暂无退订邮箱': 'No unsubscribed emails',
+  '移除': 'Remove',
+  '重新允许发送': 'Allow sending again',
+  '已从退订名单移除': 'Removed from unsubscribe list',
+  '移除失败': 'Failed to remove',
   '测试邮箱': 'Test email',
   '✓ 可用': '✓ Works',
   '✗ 不可用': '✗ Not working',

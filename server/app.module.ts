@@ -49,6 +49,7 @@ import { AutoImportModule } from './modules/auto-import/auto-import.module';
 import { EmailThreadsModule } from './modules/email-threads/email-threads.module';
 import { AuthModule } from './modules/auth/auth.module';
 import { AdminModule } from './modules/admin/admin.module';
+import { UnsubscribeModule } from './modules/unsubscribe/unsubscribe.module';
 
 @Module({
   imports: [
@@ -67,6 +68,7 @@ import { AdminModule } from './modules/admin/admin.module';
     EmailThreadsModule,
     AuthModule,
     AdminModule,
+    UnsubscribeModule,
     // ====== @route-section: business-modules END ======
 
     ViewModule,

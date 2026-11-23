@@ -48,6 +48,12 @@ export function generateEml(
   if (opts?.cc && opts.cc.length > 0) lines.push(`Cc: ${opts.cc.join(', ')}`);
   if (opts?.bcc && opts.bcc.length > 0) lines.push(`Bcc: ${opts.bcc.join(', ')}`);
   lines.push(`Subject: ${encodedSubject}`);
+  // 一键退订头（RFC 8058）：HTTPS 退订 URL + 固定 POST 信号。
+  // 由调用方按收件人生成带签名 token 的 URL；没有 URL 就不写（避免无效头）。
+  if (opts?.unsubscribeUrl) {
+    lines.push(`List-Unsubscribe: <${opts.unsubscribeUrl}>`);
+    lines.push('List-Unsubscribe-Post: List-Unsubscribe=One-Click');
+  }
   lines.push('MIME-Version: 1.0');
   lines.push('Content-Type: text/plain; charset=UTF-8');
   lines.push('Content-Transfer-Encoding: 8bit');
@@ -122,6 +128,8 @@ export interface EmlSendOptions {
   signatureText?: string;
   /** 随邮件附上的文件（multipart/mixed 包装） */
   attachments?: EmlAttachment[];
+  /** 退订链接（CAN-SPAM/GDPR 合规；由调用方按收件人生成含 token 的 HTTPS URL） */
+  unsubscribeUrl?: string;
   /** 抄送/密送地址（写入 Cc/Bcc 头；信封收件人由调用方补充） */
   cc?: string[];
   bcc?: string[];
@@ -172,6 +180,12 @@ export function generateEmlWithImages(
   if (opts?.cc && opts.cc.length > 0) lines.push(`Cc: ${opts.cc.join(', ')}`);
   if (opts?.bcc && opts.bcc.length > 0) lines.push(`Bcc: ${opts.bcc.join(', ')}`);
   lines.push(`Subject: ${encodedSubject}`);
+  // 一键退订头（RFC 8058）：HTTPS 退订 URL + 固定 POST 信号。
+  // 由调用方按收件人生成带签名 token 的 URL；没有 URL 就不写（避免无效头）。
+  if (opts?.unsubscribeUrl) {
+    lines.push(`List-Unsubscribe: <${opts.unsubscribeUrl}>`);
+    lines.push('List-Unsubscribe-Post: List-Unsubscribe=One-Click');
+  }
   lines.push('MIME-Version: 1.0');
   lines.push(`Content-Type: multipart/related; boundary="${relatedBoundary}"; type="multipart/alternative"`);
   lines.push('');

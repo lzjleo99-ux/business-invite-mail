@@ -66,9 +66,28 @@ review RFC 5322 specifications ... gsmtp
 指向发件人邮箱的退订请求无人处理，是**虚假退订机制**，比不加更糟
 （法律上仍不合规）。要做就必须做完整：独立退订端点 + 抑制列表 + 每封唯一 token。
 
-**结论**：当前修复解决的是"邮件被退回"（技术合规）；
-"法律合规"（退订/同意/删除权）是独立功能，建议单独立项实现，
-否则后果不是退信，而是法律风险（CAN-SPAM 罚款、GDPR 处罚）。
+## 六、退订系统（2026-11-23 已实现）
+
+按 RFC 8058 + CAN-SPAM + GDPR 实现：
+
+- **email_suppressions 表**：邮箱唯一，原因（user/bounce/manual），即时生效
+- **HMAC 签名 token**：`base64url(email).hmac`，不含明文邮箱，不可伪造，
+  timingSafeEqual 验证（与忘记密码同一防御）
+- **两个公开端点**：
+  - `GET /api/unsubscribe?token=...` —— 邮件链接点进来直接退订 + 中文确认页
+  - `POST /api/unsubscribe/one-click?token=...` —— RFC 8058 一键退订
+    body 固定 `List-Unsubscribe=One-Click`，无登录/cookie 要求，不重定向
+- **EML 头**：每封按收件人生成唯一 token 的 HTTPS 退订 URL，
+  写入 `List-Unsubscribe` + `List-Unsubscribe-Post`
+- **发送拦截**：batchSend 一次查完抑制名单；单封发送也检查——退订的绝不发送
+- **管理 UI**：设置 → 发信服务 → 退订名单，可查看/移除（重新订阅）
+
+**限制（坦诚说明）**：RFC 8058 要求 DKIM 签名覆盖这两个头。我们用第三方 SMTP，
+DKIM 由服务商签名，无法控制是否覆盖 → 部分邮件客户端可能不显示"一键退订"按钮，
+但 HTTPS 退订链接始终有效，用户点链接即可退订（满足 CAN-SPAM "有效退订机制"）。
+
+**仍待办**：收件人同意（opt-in）证据记录——需在当前导入流程里保存
+"邮箱来源/获取时间/来源 URL"，用于 GDPR 审计。
 
 ## 五、验证
 

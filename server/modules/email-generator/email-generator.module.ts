@@ -9,9 +9,10 @@ import { EmailInboxService } from './email-inbox.service';
 import { WeComNotifyService } from './wecom-notify.service';
 import { SenderProfilesModule } from '@server/modules/sender-profiles/sender-profiles.module';
 import { MessengerService } from './messenger.service';
+import { UnsubscribeModule } from '@server/modules/unsubscribe/unsubscribe.module';
 
 @Module({
-  imports: [ProjectsModule, SharedMailModule, SenderProfilesModule],
+  imports: [ProjectsModule, SharedMailModule, SenderProfilesModule, UnsubscribeModule],
   controllers: [EmailGeneratorController],
   providers: [
     EmailGeneratorService,

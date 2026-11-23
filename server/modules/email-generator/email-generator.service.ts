@@ -1,4 +1,6 @@
 import type { UserRole } from '@shared/api.interface';
+import { makeUnsubscribeToken, buildUnsubscribeUrl } from '@server/modules/unsubscribe/unsubscribe-token';
+import { SuppressionService } from '@server/modules/unsubscribe/suppression.service';
 import { buildChatBody } from '@shared/model-catalog';
 import {
   resolveCountryLanguage,
@@ -101,6 +103,7 @@ export class EmailGeneratorService {
     private readonly mailService: MailService,
     private readonly emailHistory: EmailHistoryService,
     private readonly senderProfiles: SenderProfilesService,
+    private readonly suppression: SuppressionService,
   ) {}
 
   /**
@@ -654,6 +657,10 @@ export class EmailGeneratorService {
       attachments,
       cc,
       bcc,
+      // 每封按收件人生成不可伪造的退订 token（CAN-SPAM/GDPR + RFC 8058）
+      unsubscribeUrl: to.includes('@')
+        ? buildUnsubscribeUrl(makeUnsubscribeToken(to))
+        : undefined,
     });
     // envelope.from 用 SMTP 发件地址（服务器必须以该地址登录），回退到配置里的登录账号
     return {
@@ -1029,6 +1036,10 @@ export class EmailGeneratorService {
     if (!to) {
       throw new BadRequestException('该公司没有邮箱地址，无法发送');
     }
+    // CAN-SPAM/GDPR：该邮箱已退订则拒绝发送（单封路径）
+    if (await this.suppression.isSuppressed(to)) {
+      throw new BadRequestException('该邮箱已退订，不能再次发送');
+    }
 
     const { raw, to: recipient, cc: ccList, bcc: bccList, subject, from, accountId: acctId } =
       await this.buildCampaignRaw(company, lang, accountId, userId, profileId);
@@ -1139,6 +1150,20 @@ export class EmailGeneratorService {
       }
       eligible.push(c);
     }
+    // 退订抑制名单（CAN-SPAM/GDPR）：一次性查完，已退订的绝不发送。
+    const suppressSet = await this.suppression.filterSuppressed(
+      eligible.map((c) => (c.websiteContactEmail || c.email || '').trim()),
+    );
+    const allowed = eligible.filter((c) => {
+      const addr = (c.websiteContactEmail || c.email || '').trim().toLowerCase();
+      if (suppressSet.has(addr)) {
+        summary.skippedAlreadySent += 1; // 归入跳过（不新增 summary 字段，兼容前端）
+        return false;
+      }
+      return true;
+    });
+    eligible.length = 0;
+    eligible.push(...allowed);
     summary.eligible = eligible.length;
 
     let cursor = 0;
