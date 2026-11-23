@@ -20,6 +20,8 @@ export const enMessages: Record<string, string> = {
   '第 {page} / {totalPages} 页': 'Page {page} of {totalPages}',
 
   // ---- antd table locale ----
+  '发送中 {s}/{t}...': 'Sending {s}/{t}...',
+  '邮件逐封通过 SMTP 真实发出，数量大时可能需要较长时间；发送中按钮会显示实时进度，请勿关闭页面。': 'Emails are sent one by one over SMTP - large batches take a while. The button shows live progress; please keep this page open.',
   '自动重试第 {n} 轮': 'Auto-retry round {n}',
   '成功 {s} 条': 'Success: {s}',
   '失败 {f} 条': 'Failed: {f}',

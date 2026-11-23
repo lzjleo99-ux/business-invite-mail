@@ -46,7 +46,7 @@ import EmailBodyPreview from '@client/src/components/EmailBodyPreview';
 import EmailChipInput from '@client/src/components/EmailChipInput';
 import { getSendOptions, saveSendOptions, uploadAttachment } from '@client/src/api/sender-profiles';
 import type { SenderProfile } from '@client/src/api/sender-profiles';
-import { getCompanies } from '@client/src/api/restaurants';
+import { getCompanies, getCompanyStats } from '@client/src/api/restaurants';
 import EmailBodyView from './EmailBodyView';
 import { hasImageMarkers } from '@client/src/utils/email-body';
 import { Button } from '@client/src/components/ui/button';
@@ -926,6 +926,35 @@ const WorkbenchTab: React.FC<WorkbenchTabProps> = ({
   // --- 一键发送（SMTP 直发） ---
   // 服务端圈定目标：已生成邮件 + 有邮箱 + 未发送过（emailContactedAt 为空）。
   const [sendAllRunning, setSendAllRunning] = useState(false);
+
+  // 批量发送进度：发送是同步长任务（1344 封逐封走 SMTP，可能 1-2 小时）。
+  // 期间定时刷新统计卡，"未联系"数下降 = 已发出的封数，让用户看到它在动。
+  const [sendProgress, setSendProgress] = useState<{ sent: number; total: number } | null>(null);
+  useEffect(() => {
+    if (!sendAllRunning || !projectId) {
+      setSendProgress(null);
+      return;
+    }
+    let alive = true;
+    const tick = async (): Promise<void> => {
+      try {
+        const st = await getCompanyStats(projectId);
+        if (!alive) return;
+        setSendProgress({ sent: st.total - st.notContacted, total: st.total });
+        void qc.invalidateQueries({ queryKey: ['company-stats', projectId] });
+        void qc.invalidateQueries({ queryKey: ['companies'] });
+      } catch {
+        /* 静默 */
+      }
+    };
+    void tick();
+    const timer = setInterval(() => void tick(), 15_000);
+    return () => {
+      alive = false;
+      clearInterval(timer);
+    };
+  }, [sendAllRunning, projectId, qc]);
+
   const [sendConfirmOpen, setSendConfirmOpen] = useState(false);
   // 发信账号（多邮箱后缀）：'' = 用默认账号
   const [sendAccountId, setSendAccountId] = useState('');
@@ -2711,7 +2740,11 @@ const WorkbenchTab: React.FC<WorkbenchTabProps> = ({
                 ) : (
                   <Send size={16} />
                 )}
-                {sendAllRunning ? t('发送中...') : t('一键发送')}
+                {sendAllRunning
+                  ? sendProgress
+                    ? t('发送中 {s}/{t}...', { s: sendProgress.sent, t: sendProgress.total })
+                    : t('发送中...')
+                  : t('一键发送')}
               </Button>
               <DropdownMenu>
                 <DropdownMenuTrigger asChild>
@@ -2797,6 +2830,9 @@ const WorkbenchTab: React.FC<WorkbenchTabProps> = ({
               {t('发送内容与「邮件内容」里预览的版本一致（默认 {lang}，个别行手动切换过语言则以该行为准）', {
                 lang: sendLang === 'en' ? 'English' : t('本地语言'),
               })}
+            </p>
+            <p className="rounded-md bg-amber-50 p-2 text-xs text-amber-700">
+              {t('邮件逐封通过 SMTP 真实发出，数量大时可能需要较长时间；发送中按钮会显示实时进度，请勿关闭页面。')}
             </p>
             <DialogFooter>
               <Button variant="outline" size="sm" onClick={() => setSendConfirmOpen(false)} disabled={sendAllRunning}>
