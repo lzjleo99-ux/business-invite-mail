@@ -1,3 +1,4 @@
+import { randomBytes } from 'node:crypto';
 /**
  * Generate a standard RFC822 .eml file content string.
  *
@@ -7,6 +8,26 @@
  * @param from - Optional sender in "Display Name <email>" format.
  * @returns Complete .eml file content as a string.
  */
+/**
+ * 生成 RFC 5322 合规的 Message-ID（nodemailer 同款格式）：
+ *   <hex-hex-hex-hex@发件域名>
+ *
+ * 背景：Gmail（及多数大厂邮服）会拒收缺 Message-ID 或域名与 From 不一致的邮件：
+ *   550-5.7.1 Messages missing a valid Message-ID header are not accepted.
+ * 我们用 raw 模式发信（sendMail({raw})），nodemailer 不自动生成该头，必须自己写。
+ *
+ * @param fromAddr 发件邮箱（用于取 @ 后的域名，必须与 From 头一致）
+ */
+export function generateMessageId(fromAddr?: string): string {
+  const rand = [4, 2, 2, 2, 6]
+    .map((n) => randomBytes(n).toString('hex'))
+    .join('-');
+  // 从 From 取纯邮箱再取域名（From 可能是 "名字 <a@b.com>" 格式，要剥掉尖括号和引号）
+  const pure = (fromAddr || '').match(/<([^>]+)>/)?.[1] ?? (fromAddr || '').trim();
+  const domain = pure.split('@').pop()?.replace(/[>'"\s]/g, '') || 'localhost.localdomain';
+  return `<${rand}@${domain}>`;
+}
+
 export function generateEml(
   to: string,
   subject: string,
@@ -21,6 +42,8 @@ export function generateEml(
   if (from) {
     lines.push(`From: ${from}`);
   }
+  lines.push(`Message-ID: ${generateMessageId(from)}`);
+  lines.push(`Date: ${new Date().toUTCString()}`);
   lines.push(`To: ${to}`);
   if (opts?.cc && opts.cc.length > 0) lines.push(`Cc: ${opts.cc.join(', ')}`);
   if (opts?.bcc && opts.bcc.length > 0) lines.push(`Bcc: ${opts.bcc.join(', ')}`);
@@ -143,6 +166,8 @@ export function generateEmlWithImages(
 
   const lines: string[] = [];
   if (from) lines.push(`From: ${from}`);
+  lines.push(`Message-ID: ${generateMessageId(from)}`);
+  lines.push(`Date: ${new Date().toUTCString()}`);
   lines.push(`To: ${to}`);
   if (opts?.cc && opts.cc.length > 0) lines.push(`Cc: ${opts.cc.join(', ')}`);
   if (opts?.bcc && opts.bcc.length > 0) lines.push(`Bcc: ${opts.bcc.join(', ')}`);
