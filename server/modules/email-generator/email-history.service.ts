@@ -57,7 +57,20 @@ export interface BounceInfo {
 }
 
 const BOUNCE_REASON_RULES: { re: RegExp; zh: string }[] = [
-  // 腾讯企业邮箱 / 国内网关常见措辞（放在最前，匹配更具体）
+  // ===== RFC 合规类（Gmail 2024-2025 强制，放最前，优先于泛化的 5.7. 匹配）=====
+  { re: /missing a valid Message-ID|Message-ID header.*not.*accepted|RfcMessageNonCompliant/i,
+    zh: '邮件缺少合规 Message-ID 头（违反 RFC 5322）——系统已修复，重发即可' },
+  { re: /not aligned|DMARC.*(fail|reject|policy)|From.*(SPF|DKIM).*domain/i,
+    zh: '发件域名与 SPF/DKIM 认证域名不一致（DMARC 对齐失败）——需用与发信账号同域的 From' },
+  { re: /SPF.*(fail|未通过)|4\.7\.27/i,
+    zh: '发件域名未配置 SPF 或 SPF 校验失败——需在域名 DNS 添加 SPF 记录' },
+  { re: /DKIM.*(fail|未通过)|4\.7\.30/i,
+    zh: 'DKIM 签名校验失败——需在发信服务商处配置 DKIM' },
+  { re: /one-click unsubscribe|List-Unsubscribe.*required/i,
+    zh: '群发邮件缺少一键退订头——需加 List-Unsubscribe 头（Gmail 5000+/天强制）' },
+  { re: /PTR record|reverse DNS|4\.7\.23/i,
+    zh: '发信 IP 缺少反向 DNS（PTR）记录——需找发信服务商配置' },
+  // 腾讯企业邮箱 / 国内网关常见措辞
   { re: /收件人地址不存在|用户不存在|邮箱地址不存在|邮件地址不存在/, zh: '收件邮箱不存在（地址写错或已停用）' },
   { re: /域名不存在|域名无法解析|邮件域不存在/, zh: '收件域名不存在（对方可能已换域名）' },
   { re: /被拒收|拒收|黑名单|反垃圾/, zh: '被对方拒收（多为反垃圾策略）' },
@@ -67,7 +80,8 @@ const BOUNCE_REASON_RULES: { re: RegExp; zh: string }[] = [
   { re: /user unknown|recipient address rejected|no such user|mailbox not found|does not exist/i, zh: '该邮箱账号不存在' },
   { re: /mailbox unavailable|mailbox full|quota exceeded/i, zh: '对方邮箱不可用或已满' },
   { re: /blocked|blacklist|spam|policy|rejected by recipient/i, zh: '被对方服务器/反垃圾策略拒收' },
-  { re: /authentication|auth failed|5\.7\./i, zh: '认证失败或被 SPF/DKIM 拒收' },
+  { re: /invalid login|535|authentication failed|auth failed/i, zh: '发信账号密码/授权码错误或登录被拒（535）——请重新填写授权码' },
+  { re: /5\.7\./i, zh: '被对方服务器策略拒收（5.7.x）——通常是发件信誉或认证问题' },
   { re: /timed? ?out|connection (timed out|refused)|try again later/i, zh: '对方服务器超时或拒连（临时性，可稍后重试）' },
   { re: /too many|rate limit|throttl/i, zh: '触发对方频率限制' },
   { re: /message too large|size limit/i, zh: '邮件超出对方大小限制（附件过大）' },

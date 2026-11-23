@@ -1,3 +1,4 @@
+import { validateRawEmail } from '@server/common/utils/eml-generator';
 import { Injectable, Logger, BadRequestException } from '@nestjs/common';
 import { Inject } from '@nestjs/common';
 import { DRIZZLE_DATABASE, type PostgresJsDatabase } from '@lark-apaas/fullstack-nestjs-core';
@@ -949,6 +950,12 @@ export class MailService {
     /** 调用者角色：super_admin 可代用团队账号 */
     callerRole?: string,
   ): Promise<{ messageId: string | null }> {
+    // 发信前合规自检：raw 模式 nodemailer 不校验头，缺 Message-ID/Date 等
+    // 会被 Gmail 550-5.7.1 拒收。宁可本地快速失败，也不要浪费一次 SMTP 往返和退信。
+    const issues = validateRawEmail(raw);
+    if (issues.length > 0) {
+      throw new BadRequestException(`邮件未通过发信前合规检查：${issues.join('；')}`);
+    }
     const sender = accountId
       ? await this.resolveSender(accountId, undefined, userId, callerRole)
       : userId

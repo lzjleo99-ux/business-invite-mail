@@ -359,3 +359,44 @@ function encodeRfc2047(value: string): string {
   const base64 = Buffer.from(value, 'utf-8').toString('base64');
   return `=?UTF-8?B?${base64}?=`;
 }
+
+
+/**
+ * 发信前合规自检（规避 Gmail 550-5.7.1 等退信）。
+ * raw 模式下 nodemailer 不做任何校验，必须我们自己保证 RFC 5322 必需头存在、
+ * 单实例头不重复、Message-ID 格式合法且与 From 同域。
+ * 返回问题列表；为空表示合规。
+ */
+export function validateRawEmail(raw: string): string[] {
+  const issues: string[] = [];
+  // 只取头部区域（空行之前），正文里可能有 "From:" 字样不能算
+  const headerPart = raw.split(/\r?\n\r?\n/)[0] ?? '';
+  const headerLines = headerPart.split(/\r?\n/);
+  const count = (name: string): number =>
+    headerLines.filter((l) => new RegExp(`^${name}:`, 'i').test(l)).length;
+
+  // 单实例头：RFC 5322 规定这些头只能出现一次，重复会被 Gmail 拒
+  for (const h of ['From', 'To', 'Subject', 'Date', 'Message-ID']) {
+    const n = count(h);
+    if (n === 0) issues.push(`缺少必需头 ${h}`);
+    else if (n > 1) issues.push(`${h} 头重复 ${n} 次（RFC 5322 要求只出现一次）`);
+  }
+  const mid = headerLines.find((l) => /^Message-ID:/i.test(l))?.slice(11).trim() ?? '';
+  if (mid && !/^<[^@\s]+@[^@\s]+>$/.test(mid)) {
+    issues.push(`Message-ID 格式不合法（应为 <id@domain>）：${mid.slice(0, 60)}`);
+  }
+  // Message-ID 域名必须与 From 域名一致（DMARC 对齐 / Gmail 5.7.32）
+  const fromLine = headerLines.find((l) => /^From:/i.test(l)) ?? '';
+  const fromDomain = (fromLine.match(/<([^>]+)>/)?.[1] ?? fromLine.slice(5).trim())
+    .split('@').pop()?.replace(/[>\s]/g, '').toLowerCase();
+  const midDomain = mid.split('@').pop()?.replace(/>$/, '').toLowerCase();
+  if (fromDomain && midDomain && fromDomain !== midDomain) {
+    issues.push(`Message-ID 域名(${midDomain})与 From 域名(${fromDomain})不一致`);
+  }
+  // 占位符邮箱绝不能发（之前有 4 封发到 [email protected]）
+  const toLine = headerLines.find((l) => /^To:/i.test(l)) ?? '';
+  if (/\[email[^\]]*\]|example\.(com|org|net)|@localhost/i.test(toLine)) {
+    issues.push('收件人是占位符/示例邮箱，已阻止发送');
+  }
+  return issues;
+}
