@@ -1,9 +1,9 @@
 import { Module } from '@nestjs/common';
 import { SuppressionService } from './suppression.service';
-import { UnsubscribeController } from './unsubscribe.controller';
+import { UnsubscribeController, UnsubscribeAdminController } from './unsubscribe.controller';
 
 @Module({
-  controllers: [UnsubscribeController],
+  controllers: [UnsubscribeController, UnsubscribeAdminController],
   providers: [SuppressionService],
   exports: [SuppressionService],
 })

@@ -48,5 +48,5 @@ export function parseUnsubscribeToken(token: string): string | null {
 /** 构造消息里用的 HTTPS 退订链接（ PUBLIC_BASE_URL 必填，否则给相对路径） */
 export function buildUnsubscribeUrl(token: string): string {
   const base = (process.env.PUBLIC_BASE_URL || 'https://shanghaitrade.cn').replace(/\/+$/, '');
-  return `${base}/api/unsubscribe/one-click?token=${encodeURIComponent(token)}`;
+  return `${base}/openapi/unsubscribe/one-click?token=${encodeURIComponent(token)}`;
 }

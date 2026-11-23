@@ -27,7 +27,7 @@ class RemoveDto {
   email!: string;
 }
 
-@Controller('api/unsubscribe')
+@Controller('openapi/unsubscribe')
 export class UnsubscribeController {
   constructor(private readonly suppression: SuppressionService) {}
 
@@ -77,20 +77,6 @@ export class UnsubscribeController {
     return { ok: true };
   }
 
-  /** 管理端：列出退订名单 */
-  @UseGuards(JwtAuthGuard, AdminGuard)
-  @Get('list')
-  async list(): Promise<{ items: Awaited<ReturnType<SuppressionService['list']>> }> {
-    return { items: await this.suppression.list() };
-  }
-
-  /** 管理端：移除（用户主动重新订阅） */
-  @UseGuards(JwtAuthGuard, AdminGuard)
-  @Post('remove')
-  async remove(@Body() dto: RemoveDto): Promise<{ ok: boolean }> {
-    if (!dto?.email) throw new BadRequestException('email required');
-    return { ok: await this.suppression.remove(dto.email) };
-  }
 
   private escapeHtml(s: string): string {
     return s.replace(/[&<>"']/g, (c) =>
@@ -106,5 +92,25 @@ export class UnsubscribeController {
 .card{background:#fff;border:1px solid #e2e8f0;border-radius:12px;padding:28px;box-shadow:0 1px 3px rgba(0,0,0,.05)}
 h1{font-size:20px;margin:0 0 12px;color:#0f172a}</style></head>
 <body><div class="card"><h1>${title}</h1><p>${bodyHtml}</p></div></body></html>`;
+  }
+}
+
+
+/** 管理端：退订名单管理（走 /api/ 需要登录+CSRF，正好安全） */
+@Controller('api/unsubscribe')
+export class UnsubscribeAdminController {
+  constructor(private readonly suppression: SuppressionService) {}
+
+  @UseGuards(JwtAuthGuard, AdminGuard)
+  @Get('list')
+  async list(): Promise<{ items: Awaited<ReturnType<SuppressionService['list']>> }> {
+    return { items: await this.suppression.list() };
+  }
+
+  @UseGuards(JwtAuthGuard, AdminGuard)
+  @Post('remove')
+  async remove(@Body() dto: RemoveDto): Promise<{ ok: boolean }> {
+    if (!dto?.email) throw new BadRequestException('email required');
+    return { ok: await this.suppression.remove(dto.email) };
   }
 }
