@@ -406,6 +406,12 @@ export class AdminController {
       GROUP BY left(generate_error, 220)
       ORDER BY count DESC LIMIT 8
     `);
+    // 各用户模型配置（诊断"用了谁的模型"）：base_url + 模型名 + key 指纹（不外泄密钥）
+    const modelRows = await this.db.execute(sql`
+      SELECT (created_by).user_id AS user_id, api_base_url, model_name,
+             length(api_key) AS key_len, left(api_key, 6) AS key_head
+      FROM model_config ORDER BY model_name
+    `);
     let statusCounts: unknown = null;
     if (projectId) {
       const rows = await this.db.execute(sql`
@@ -414,7 +420,7 @@ export class AdminController {
       `);
       statusCounts = rows;
     }
-    return { batches, errors, statusCounts, note: 'server_batches 持久化进度 + 项目状态分布' };
+    return { batches, errors, modelRows, statusCounts, note: 'server_batches 持久化进度 + 项目状态分布' };
   }
 
   @Get('netcheck')
