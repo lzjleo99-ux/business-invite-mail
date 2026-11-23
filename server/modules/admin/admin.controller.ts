@@ -14,6 +14,7 @@ import {
 } from '@nestjs/common';
 import { DRIZZLE_DATABASE, type PostgresJsDatabase } from '@lark-apaas/fullstack-nestjs-core';
 import { sql } from 'drizzle-orm';
+import { modelConfig } from '@server/database/schema';
 import { AdminService } from './admin.service';
 import { AuthService } from '@server/modules/auth/auth.service';
 import { MailService } from '@server/common/services/mail.service';
@@ -407,11 +408,21 @@ export class AdminController {
       ORDER BY count DESC LIMIT 8
     `);
     // 各用户模型配置（诊断"用了谁的模型"）：base_url + 模型名 + key 指纹（不外泄密钥）
-    const modelRows = await this.db.execute(sql`
-      SELECT (created_by).user_id AS user_id, api_base_url, model_name,
-             length(api_key) AS key_len, left(api_key, 6) AS key_head
-      FROM model_config ORDER BY model_name
-    `);
+    const cfgRows = await this.db
+      .select({
+        createdBy: modelConfig.createdBy,
+        apiBaseUrl: modelConfig.apiBaseUrl,
+        modelName: modelConfig.modelName,
+        apiKey: modelConfig.apiKey,
+      })
+      .from(modelConfig);
+    const modelRows = cfgRows.map((r: { createdBy: unknown; apiBaseUrl: string | null; modelName: string | null; apiKey: string | null }) => ({
+      user_id: r.createdBy ? String(JSON.stringify(r.createdBy)) : null,
+      api_base_url: r.apiBaseUrl,
+      model_name: r.modelName,
+      key_head: (r.apiKey || '').slice(0, 6),
+      key_len: (r.apiKey || '').length,
+    }));
     let statusCounts: unknown = null;
     if (projectId) {
       const rows = await this.db.execute(sql`
