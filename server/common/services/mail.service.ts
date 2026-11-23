@@ -966,6 +966,46 @@ export class MailService {
     }
   }
 
+  /**
+   * 验证某个发信账号能否正常登录（只做 SMTP verify，不真发邮件）。
+   * 用于设置页每个邮箱旁的「测试」按钮——避免测试一次就发一封垃圾邮件。
+   */
+  async verifySmtpAccount(
+    accountId: string,
+    userId?: string,
+  ): Promise<{ ok: boolean; message: string }> {
+    await this.ensureOwnerColumn();
+    const rows = await this.db
+      .select()
+      .from(smtpAccounts)
+      .where(eq(smtpAccounts.id, accountId))
+      .limit(1);
+    const row = rows[0];
+    if (!row) return { ok: false, message: '发信账号不存在' };
+    // 归属校验：非本用户的账号不能测（防跨用户探测）
+    if (userId && row.ownerId && row.ownerId !== userId) {
+      return { ok: false, message: '无权测试此账号' };
+    }
+    try {
+      const transporter = nodemailer.createTransport({
+        host: row.host,
+        port: row.port,
+        secure: row.secure,
+        auth: { user: row.email, pass: row.password },
+        connectionTimeout: 10_000,
+        greetingTimeout: 10_000,
+        socketTimeout: 10_000,
+      });
+      await transporter.verify();
+      transporter.close();
+      return { ok: true, message: `SMTP 登录成功（${row.email}）` };
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      this.logger.warn(`SMTP verify 失败 ${row.email}: ${msg}`);
+      return { ok: false, message: msg.slice(0, 300) };
+    }
+  }
+
   /** 管理员点「测试发信」 */
   async sendTestMail(to: string): Promise<void> {
     const stamp = new Date().toLocaleString('zh-CN');

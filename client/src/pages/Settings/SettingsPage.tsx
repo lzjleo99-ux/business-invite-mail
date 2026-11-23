@@ -110,6 +110,25 @@ const SettingsPage = () => {
     inboxPollSeconds: '180',
   });
   const [accountBusy, setAccountBusy] = useState(false);
+  /** 正在验证的邮箱账号 id + 每个账号的验证结果 */
+  const [verifyingAccount, setVerifyingAccount] = useState<string | null>(null);
+  const [accountVerifyResults, setAccountVerifyResults] = useState<Record<string, { ok: boolean; message: string }>>({});
+  const handleVerifyAccount = useCallback(async (id: string): Promise<void> => {
+    if (verifyingAccount) return;
+    setVerifyingAccount(id);
+    try {
+      const r = await adminApi.verifySmtpAccount(id);
+      setAccountVerifyResults((prev) => ({ ...prev, [id]: r }));
+      if (r.ok) toast.success(t('邮箱配置可用：{msg}', { msg: r.message }));
+      else toast.error(t('邮箱配置不可用：{msg}', { msg: r.message }), { duration: 10000 });
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      setAccountVerifyResults((prev) => ({ ...prev, [id]: { ok: false, message: msg } }));
+      toast.error(t('测试失败：{msg}', { msg }), { duration: 10000 });
+    } finally {
+      setVerifyingAccount(null);
+    }
+  }, [verifyingAccount, t]);
   /** 默认收发邮箱：发送不选账号时用它，后台收取也读它的 IMAP 配置 */
   const defaultAccount = accounts.find((a) => a.isDefault) ?? accounts[0];
   const refreshAccounts = useCallback(async () => {
@@ -1261,6 +1280,28 @@ const SettingsPage = () => {
                             {editingAccount === a.id ? t('收起') : t('编辑')}
                           </span>
                         </button>
+
+                        {/* 每个邮箱下面单独一行：测试该邮箱的 SMTP 配置能否登录 */}
+                        <div className="mt-1 flex items-center gap-2 pl-3">
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            className="h-6 px-2 text-xs"
+                            disabled={!!verifyingAccount}
+                            onClick={() => void handleVerifyAccount(a.id)}
+                          >
+                            {verifyingAccount === a.id
+                              ? t('测试中...')
+                              : t('测试邮箱')}
+                          </Button>
+                          {accountVerifyResults[a.id] && (
+                            <span
+                              className={`text-xs ${accountVerifyResults[a.id].ok ? 'text-green-600' : 'text-red-600'}`}
+                            >
+                              {accountVerifyResults[a.id].ok ? t('✓ 可用') : t('✗ 不可用')}
+                            </span>
+                          )}
+                        </div>
 
                         {/* 展开：编辑表单 */}
                         {editingAccount === a.id && (

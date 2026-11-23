@@ -80,6 +80,14 @@ export async function saveSmtpConfig(params: {
   return response.data;
 }
 
+/** 验证指定发信账号能否登录（不真发邮件） */
+export async function verifySmtpAccount(
+  id: string,
+): Promise<{ ok: boolean; message: string }> {
+  const response = await axiosForBackend.post(`/api/admin/smtp-accounts/${id}/verify`);
+  return response.data;
+}
+
 export async function testSmtp(to: string): Promise<{ success: boolean }> {
   const response = await axiosForBackend.post('/api/admin/smtp-test', { to });
   return response.data;

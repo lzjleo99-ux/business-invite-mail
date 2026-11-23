@@ -348,6 +348,16 @@ export class AdminController {
     return { success: true };
   }
 
+  /** 验证指定发信账号能否登录（只 SMTP verify，不真发邮件） */
+  @UseGuards(JwtAuthGuard)
+  @Post('smtp-accounts/:id/verify')
+  async verifySmtpAccount(
+    @Param('id') id: string,
+    @CurrentUser() user: JwtPayload,
+  ): Promise<{ ok: boolean; message: string }> {
+    return this.mailService.verifySmtpAccount(id, user.userId);
+  }
+
   /** 管理员创建账号（公开注册已关闭，账号统一由这里发放） */
   @Post('users')
   async createUser(@Body() dto: CreateUserDto): Promise<{
