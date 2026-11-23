@@ -1174,6 +1174,8 @@ ${content}`;
         .update(restaurants)
         .set({ websiteContactEmail: best })
         .where(eq(restaurants.id, company.id));
+      // GDPR 举证：邮箱核验替换的邮箱也要记录来源（官网公开页面）
+      await this.recordRescanEvidence(company.id, siteUrl, found);
       return { id: company.id, name: company.name, from: stored || null, to: best, action: 'updated' };
     }
     // 没有邮箱 → 新增
@@ -1183,7 +1185,25 @@ ${content}`;
       .update(restaurants)
       .set(updateData)
       .where(eq(restaurants.id, company.id));
+    await this.recordRescanEvidence(company.id, siteUrl, found);
     return { id: company.id, name: company.name, from: null, to: best, action: 'added' };
+  }
+
+  /** 邮箱核验时记录的来源证据（官网公开页面） */
+  private async recordRescanEvidence(
+    companyId: string,
+    siteUrl: string,
+    emails: string[],
+  ): Promise<void> {
+    await this.provenance.recordMany(
+      emails.map((addr) => ({
+        companyId,
+        email: addr,
+        source: 'website_public' as const,
+        sourceUrl: siteUrl,
+        details: { method: 'rescan', pages: 'homepage+contact' },
+      })),
+    );
   }
 
   /** 轻量抓取：纯 HTTP、2MB 上限、8s 超时；任何失败返回 null（不抛）。 */

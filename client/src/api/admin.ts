@@ -171,7 +171,16 @@ export async function updateSmtpAccount(
 }
 
 export async function listSmtpAccounts(): Promise<SmtpAccount[]> {
-  const response = await axiosForBackend.get('/api/admin/smtp-accounts');
+  // 首屏加载时 AuthContext 的请求拦截器可能还没注册（子 effect 先于父 effect），
+  // 导致 GET 缺 CSRF 头被 403——这里直接从 cookie 取一次作为兜底。
+  const csrf = document.cookie
+    .split(';')
+    .map((c) => c.trim())
+    .find((c) => c.startsWith('suda-csrf-token='))
+    ?.split('=')[1];
+  const response = await axiosForBackend.get('/api/admin/smtp-accounts', {
+    headers: csrf ? { 'X-Suda-Csrf-Token': csrf } : undefined,
+  });
   return (response.data?.items ?? []) as SmtpAccount[];
 }
 

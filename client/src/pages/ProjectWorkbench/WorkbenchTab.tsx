@@ -992,14 +992,31 @@ const WorkbenchTab: React.FC<WorkbenchTabProps> = ({
   const [sendProfiles, setSendProfiles] = useState<SenderProfile[]>([]);
   const [sendProfileId, setSendProfileId] = useState('');
   useEffect(() => {
-    void adminApi
-      .listSmtpAccounts()
-      .then(setSendAccounts)
-      .catch(() => setSendAccounts([]));
+    let alive = true;
+    // 首屏加载时 __platform__ 的 CSRF token 可能还没注入完成，
+    // 此时请求 /api/admin/* 会 403 Forbidden——之前被 .catch 静默吞掉，
+    // 用户看到"没有可用邮箱"，其实是请求失败不是真的没有。重试 2 次。
+    const loadAccounts = async (attempt = 0): Promise<void> => {
+      try {
+        const list = await adminApi.listSmtpAccounts();
+        if (alive) setSendAccounts(list);
+      } catch (err: unknown) {
+        if (attempt < 2) {
+          setTimeout(() => void loadAccounts(attempt + 1), 600 * (attempt + 1));
+        } else {
+          if (alive) {
+            setSendAccounts([]);
+            logger.warn('发信账号列表加载失败（重试后）', err);
+          }
+        }
+      }
+    };
+    void loadAccounts();
     void senderProfilesApi
       .listProfiles()
-      .then(setSendProfiles)
-      .catch(() => setSendProfiles([]));
+      .then((list) => { if (alive) setSendProfiles(list); })
+      .catch((err: unknown) => { if (alive) { setSendProfiles([]); logger.warn('发信人档案加载失败', err); } });
+    return () => { alive = false; };
   }, []);
   const handleSendAll = useCallback(async () => {
     setSendAllRunning(true);
