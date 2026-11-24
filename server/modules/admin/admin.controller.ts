@@ -158,6 +158,13 @@ export class AdminController {
 
   // 每用户独立的设置：只需登录，不需要管理员
   @UseGuards(JwtAuthGuard)
+  @UseGuards(JwtAuthGuard, AdminGuard)
+  @Post('smtp-accounts/force-repair-defaults')
+  async forceRepairDefaults(): Promise<{ ok: true }> {
+    await this.mailService.repairDuplicateDefaults();
+    return { ok: true };
+  }
+
   @Get('smtp-accounts')
   async listSmtpAccounts(@CurrentUser() user: JwtPayload): Promise<{ items: Awaited<ReturnType<MailService['listAccounts']>> }> {
     // super_admin 看全部账号（发信邮箱是团队资源，管理员代发）；

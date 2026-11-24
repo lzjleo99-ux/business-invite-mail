@@ -608,7 +608,7 @@ export class MailService {
    * 发送端 resolveSender 同步校验归属，普通用户即便拿到他人账号 id 也会被拒。
    */
   /** 修正同一 owner 多个 default 的历史脏数据（幂等，无则秒返回） */
-  private async repairDuplicateDefaults(): Promise<void> {
+  async repairDuplicateDefaults(): Promise<void> {
     // 5 分钟内只检查一次（避免每次 listAccounts 都跑两条 SQL）
     if (Date.now() - this.lastDefaultRepair < 5 * 60 * 1000) return;
     this.lastDefaultRepair = Date.now();
