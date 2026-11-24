@@ -419,6 +419,10 @@ export class AdminController {
     `);
     // 各用户模型配置（诊断"用了谁的模型"）：base_url + 模型名 + key 指纹（不外泄密钥）
     // SMTP 账号配置摘要（不含密码）——诊断"设置正常但发信失败"
+    const projRows = await this.db.execute(sql`
+      SELECT id, (owner_id)::text AS owner_id, name FROM projects WHERE id = ${projectId} LIMIT 1
+    `);
+    const projectOwner = projRows[0] ?? null;
     const smtpRows = await this.db.execute(sql`
       SELECT id, (owner_id)::text AS owner_id, email, host, port, secure, from_name, is_default,
              length(password) AS password_len, imap_host, imap_port
@@ -448,7 +452,7 @@ export class AdminController {
       `);
       statusCounts = rows;
     }
-    return { batches, errors, modelRows, smtpSummary, statusCounts, note: 'server_batches 持久化进度 + 项目状态分布' };
+    return { batches, errors, modelRows, smtpSummary, projectOwner, statusCounts, note: 'server_batches 持久化进度 + 项目状态分布' };
   }
 
   @Get('netcheck')
