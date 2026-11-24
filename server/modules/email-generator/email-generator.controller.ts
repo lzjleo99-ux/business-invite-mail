@@ -387,6 +387,17 @@ export class EmailGeneratorController {
    * 一键发送：项目内所有「已生成 + 有邮箱 + 未发送」的公司逐家经 SMTP 发出。
    * 耗时与公司数成正比（每封 1-2s），客户端超时给足。
    */
+  /** 诊断：生成某公司的 raw 并跑发信前合规自检（不发送） */
+  @UseGuards(JwtAuthGuard)
+  @Get('debug-raw/:companyId')
+  async debugRaw(
+    @Param('companyId') companyId: string,
+    @CurrentUser() user: JwtPayload,
+  ): Promise<{ headers: string[]; issues: string[] }> {
+    const r = await this.emailGeneratorService.debugRawForCompany(companyId, user.userId);
+    return r;
+  }
+
   @Post('batch-send')
   async batchSend(
     @CurrentUser() user: JwtPayload,

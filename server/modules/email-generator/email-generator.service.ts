@@ -678,6 +678,21 @@ export class EmailGeneratorService {
     };
   }
 
+  /** 诊断辅助：生成 raw 的前 20 行 + 合规自检结果（不发送） */
+  async debugRawForCompany(
+    companyId: string,
+    userId: string,
+  ): Promise<{ headers: string[]; issues: string[] }> {
+    const company = await this.getCompanyById(companyId);
+    if (!company) throw new BadRequestException('公司不存在');
+    const { raw } = await this.buildCampaignRaw(company, 'local', undefined, userId);
+    const { validateRawEmail } = await import('@server/common/utils/eml-generator');
+    return {
+      headers: raw.split(/\r?\n/).slice(0, 14),
+      issues: validateRawEmail(raw),
+    };
+  }
+
   /** 上传每公司邮件附件（compose 里选文件） */
   async addCompanyAttachment(
     companyId: string,
