@@ -355,7 +355,9 @@ export class AdminController {
     @Param('id') id: string,
     @CurrentUser() user: JwtPayload,
   ): Promise<{ ok: boolean; message: string }> {
-    return this.mailService.verifySmtpAccount(id, user.userId);
+    // super_admin 可测团队所有账号（发信账号是团队资源）
+    const owner = user.role === 'super_admin' ? undefined : user.userId;
+    return this.mailService.verifySmtpAccount(id, owner);
   }
 
   /** 管理员创建账号（公开注册已关闭，账号统一由这里发放） */
