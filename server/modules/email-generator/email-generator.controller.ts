@@ -388,15 +388,13 @@ export class EmailGeneratorController {
    * 耗时与公司数成正比（每封 1-2s），客户端超时给足。
    */
   /** 诊断：生成某公司的 raw 并跑发信前合规自检（不发送） */
+  @UseGuards(JwtAuthGuard)
   @Get('debug-raw/:companyId')
   async debugRaw(
     @Param('companyId') companyId: string,
     @CurrentUser() user: JwtPayload,
-    @Query('asUserId') asUserId?: string,
   ): Promise<{ headers: string[]; issues: string[] }> {
-    // 仅 super_admin 可模拟其他用户的配置（诊断用）
-    const target = user.role === 'super_admin' && asUserId ? asUserId : user.userId;
-    return this.emailGeneratorService.debugRawForCompany(companyId, target);
+    return this.emailGeneratorService.debugRawForCompany(companyId, user.userId);
   }
 
   @Post('batch-send')

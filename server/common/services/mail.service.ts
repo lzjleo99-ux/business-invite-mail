@@ -39,7 +39,6 @@ export class MailService {
   private transporterKey = '';
   private inboxTablePromise: Promise<void> | null = null;
   private accountsTablePromise: Promise<void> | null = null;
-  private lastDefaultRepair = 0;
   private ownerColumnPromise: Promise<void> | null = null;
   private inboxOwnerColumnPromise: Promise<void> | null = null;
 
@@ -607,39 +606,6 @@ export class MailService {
    * - 普通用户：自己的 + 全局（owner_id IS NULL，旧部署遗留的共享账号）。
    * 发送端 resolveSender 同步校验归属，普通用户即便拿到他人账号 id 也会被拒。
    */
-  /** 修正同一 owner 多个 default 的历史脏数据（幂等，无则秒返回） */
-  async repairDuplicateDefaults(): Promise<void> {
-    // 5 分钟内只检查一次（避免每次 listAccounts 都跑两条 SQL）
-    if (Date.now() - this.lastDefaultRepair < 5 * 60 * 1000) return;
-    this.lastDefaultRepair = Date.now();
-    try {
-      const dupes = (await this.db.execute(sql`
-        SELECT (owner_id)::text AS owner_key, count(*)::int AS n
-        FROM smtp_accounts WHERE is_default = true
-        GROUP BY owner_id HAVING count(*) > 1
-      `)) as unknown as Array<{ owner_key: string | null; n: number }>;
-      for (const d of dupes) {
-        const ownerKey = d.owner_key;
-        // 保留最早创建的一条，其余清掉 default
-        await this.db.execute(sql`
-          UPDATE smtp_accounts SET is_default = false
-          WHERE is_default = true
-            AND (owner_id)::text IS NOT DISTINCT FROM ${ownerKey}
-            AND id NOT IN (
-              SELECT id FROM smtp_accounts
-              WHERE is_default = true
-                AND (owner_id)::text IS NOT DISTINCT FROM ${ownerKey}
-              ORDER BY created_at ASC LIMIT 1
-            )
-        `);
-        this.logger.warn(`修复了重复默认发信账号: owner=${ownerKey ?? 'global'}`);
-      }
-    } catch (err: unknown) {
-      // 自愈失败不影响主流程
-      this.logger.warn(`默认账号自愈跳过: ${err instanceof Error ? err.message : String(err)}`);
-    }
-  }
-
   async listAccounts(
     ownerId?: string,
     opts?: { includeAll?: boolean },
@@ -656,11 +622,6 @@ export class MailService {
       : isNull(smtpAccounts.ownerId);
     try {
       await this.ensureAccountsTable();
-      // 数据自愈：历史 bug 导致同一 owner 出现多个 is_default=true，
-      // getSettings 取 desc(isDefault),asc(createdAt) 第一个 → 可能用到意料之外的账号
-      // （症状："设置里显示正常，发信却用了别的邮箱/失败"）。这里幂等修正：
-      // 每个 owner 只保留最早创建的那条为默认。
-      await this.repairDuplicateDefaults();
       const rows = opts?.includeAll
         ? await this.db.select().from(smtpAccounts)
             .orderBy(desc(smtpAccounts.isDefault), asc(smtpAccounts.createdAt))
