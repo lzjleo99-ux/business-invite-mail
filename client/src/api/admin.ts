@@ -134,8 +134,8 @@ export async function testWecomNotify(
 export interface SmtpAccount {
   id: string;
   email: string;
-  /** 授权码明文（设置页要能直接看并改，见 MailService.listAccounts 注释） */
-  password: string;
+  /** 是否已配置授权码（密钥只写不读，前端拿不到明文） */
+  passwordSet: boolean;
   host: string;
   port: number;
   secure: boolean;

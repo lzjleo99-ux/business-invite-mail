@@ -188,7 +188,7 @@ const SettingsPage = () => {
   const openAccountEditor = (a: adminApi.SmtpAccount) => {
     setAccountForm({
       email: a.email,
-      password: a.password,
+      password: '', // 密钥只写不读：留空 = 不修改，填了才覆盖
       host: a.host,
       port: String(a.port),
       secure: a.secure,
@@ -237,17 +237,20 @@ const SettingsPage = () => {
       .catch(() => undefined);
   }, [isAdmin]);
 
-  /** 保存（新增或编辑同一个入口）：所有字段直接提交，不搞"留空表示不修改" */
+  /** 保存（新增或编辑同一个入口）：编辑时授权码留空 = 不修改（密钥只写不读） */
   const handleSaveAccount = async () => {
-    if (!accountForm.email.trim() || !accountForm.password || !accountForm.host.trim()) {
-      toast.error(t('邮箱、授权码/密码、SMTP 服务器都不能为空'));
+    const isNew = editingAccount === 'new';
+    if (!accountForm.email.trim() || !accountForm.host.trim()
+        || (isNew && !accountForm.password)) {
+      toast.error(t(isNew
+        ? '邮箱、授权码/密码、SMTP 服务器都不能为空'
+        : '邮箱和 SMTP 服务器不能为空（授权码留空表示不修改）'));
       return;
     }
     setAccountBusy(true);
     try {
-      const payload = {
+      const payload: Record<string, unknown> = {
         email: accountForm.email.trim(),
-        password: accountForm.password,
         host: accountForm.host.trim(),
         port: Number(accountForm.port) || 465,
         secure: accountForm.secure,
@@ -258,8 +261,11 @@ const SettingsPage = () => {
         inboxPollEnabled: accountForm.inboxPollEnabled,
         inboxPollSeconds: Number(accountForm.inboxPollSeconds) || 180,
       };
+      // 授权码留空 = 不覆盖已有密钥（后端只改收到的字段）
+      if (accountForm.password.trim()) payload.password = accountForm.password;
       if (editingAccount === 'new') {
-        await adminApi.addSmtpAccount(payload);
+        // 新建必须带授权码（上面校验已保证非空）
+        await adminApi.addSmtpAccount({ ...payload, password: accountForm.password } as Parameters<typeof adminApi.addSmtpAccount>[0]);
         toast.success(t('邮箱已添加'));
       } else if (editingAccount) {
         await adminApi.updateSmtpAccount(editingAccount, payload);
@@ -1353,6 +1359,8 @@ const SettingsPage = () => {
                                 <Label htmlFor={`acc-pwd-${a.id}`}>{t('授权码 / 密码')}</Label>
                                 <Input
                                   id={`acc-pwd-${a.id}`}
+                                  type="password"
+                                  placeholder={t('留空表示不修改（密钥不会回显）')}
                                   value={accountForm.password}
                                   onChange={(e) => setAccountForm({ ...accountForm, password: e.target.value })}
                                 />
@@ -1504,6 +1512,7 @@ const SettingsPage = () => {
                         <Label htmlFor="acc-pwd-new">{t('授权码 / 密码')}</Label>
                         <Input
                           id="acc-pwd-new"
+                          type="password"
                           value={accountForm.password}
                           onChange={(e) => setAccountForm({ ...accountForm, password: e.target.value })}
                         />

@@ -1049,7 +1049,14 @@ const WorkbenchTab: React.FC<WorkbenchTabProps> = ({
       }
     } catch (err: unknown) {
       logger.error('批量发送失败', err);
-      toast.error(t('批量发送失败，请检查发信服务配置后重试'));
+      // 显示后端真实错误（axios 的 error.response.data.message），
+      // 而不是笼统的"请检查 SMTP 配置"——之前就是这样把根因藏起来的。
+      const axiosErr = err as { response?: { data?: { message?: string | unknown; error?: { message?: string } } }; message?: string };
+      const raw = axiosErr?.response?.data?.message ?? axiosErr?.response?.data?.error?.message;
+      const detail = typeof raw === 'string'
+        ? raw
+        : Array.isArray(raw) ? raw.join('；') : axiosErr?.message;
+      toast.error(t('批量发送失败'), { description: detail ? String(detail).slice(0, 300) : t('请检查发信服务配置后重试') });
     } finally {
       setSendAllRunning(false);
     }

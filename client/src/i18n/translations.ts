@@ -20,6 +20,9 @@ export const enMessages: Record<string, string> = {
   '第 {page} / {totalPages} 页': 'Page {page} of {totalPages}',
 
   // ---- antd table locale ----
+  '请检查发信服务配置后重试': 'Check your mail settings and try again',
+  '留空表示不修改（密钥不会回显）': 'Leave blank to keep current (key is never echoed)',
+  '邮箱和 SMTP 服务器不能为空（授权码留空表示不修改）': 'Email and SMTP host are required (leave auth code blank to keep current)',
   '邮箱来源证据': 'Email provenance',
   '合规留痕：查看某个邮箱是从哪里获取的（上传文件 / 机器人导入 / 官网公开页面）。': 'Compliance trail: see where an email address came from (file upload / API import / public website).',
   '输入邮箱查询来源': 'Enter email to trace',
