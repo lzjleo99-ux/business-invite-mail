@@ -349,12 +349,6 @@ export class AdminController {
   }
 
   /** 验证指定发信账号能否登录（只 SMTP verify，不真发邮件） */
-  @UseGuards(JwtAuthGuard, AdminGuard)
-  @Get('admin-verify-smtp/:id')
-  async adminVerifySmtp(@Param('id') id: string): Promise<{ ok: boolean; message: string }> {
-    return this.mailService.verifySmtpAccount(id);
-  }
-
   @UseGuards(JwtAuthGuard)
   @Post('smtp-accounts/:id/verify')
   async verifySmtpAccount(
