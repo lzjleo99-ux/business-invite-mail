@@ -1170,9 +1170,16 @@ export class EmailGeneratorService {
       eligible.push(c);
     }
     // 退订抑制名单（CAN-SPAM/GDPR）：一次性查完，已退订的绝不发送。
-    const suppressSet = await this.suppression.filterSuppressed(
-      eligible.map((c) => (c.websiteContactEmail || c.email || '').trim()),
-    );
+    let suppressSet: Set<string>;
+    try {
+      suppressSet = await this.suppression.filterSuppressed(
+        eligible.map((c) => (c.websiteContactEmail || c.email || '').trim()),
+      );
+    } catch (err: unknown) {
+      throw new BadRequestException(
+        `退订名单查询失败（发送已中止）: ${err instanceof Error ? err.message : String(err)}`,
+      );
+    }
     const allowed = eligible.filter((c) => {
       const addr = (c.websiteContactEmail || c.email || '').trim().toLowerCase();
       if (suppressSet.has(addr)) {
@@ -1189,7 +1196,13 @@ export class EmailGeneratorService {
     // 每封之间随机 sleep 3~5 秒，模仿人工，降低被反垃圾风控的概率。
     const effectTargetIds = eligible.map((c) => c.id);
     const key = `send:${user.userId}:${projectId}`;
-    startServerBatch(key, 'send', user.userId, projectId, effectTargetIds.length, effectTargetIds);
+    try {
+      startServerBatch(key, 'send', user.userId, projectId, effectTargetIds.length, effectTargetIds);
+    } catch (err: unknown) {
+      throw new BadRequestException(
+        `启动后台发送任务失败: ${err instanceof Error ? err.message : String(err)}`,
+      );
+    }
     void this.processSendBatch(
       eligible,
       user,
