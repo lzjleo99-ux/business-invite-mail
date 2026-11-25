@@ -1050,8 +1050,10 @@ const WorkbenchTab: React.FC<WorkbenchTabProps> = ({
     } catch (err: unknown) {
       setSendAllRunning(false);
       logger.error('批量发送启动失败', err);
-      const axiosErr = err as { response?: { data?: { message?: string | unknown; error?: { message?: string } } }; message?: string };
-      const raw = axiosErr?.response?.data?.message ?? axiosErr?.response?.data?.error?.message;
+      const axiosErr = err as { response?: { data?: { message?: string | unknown; error?: { message?: string; detail?: string } } }; message?: string };
+      const raw = axiosErr?.response?.data?.error?.detail
+        ?? axiosErr?.response?.data?.message
+        ?? axiosErr?.response?.data?.error?.message;
       const detail = typeof raw === 'string'
         ? raw
         : Array.isArray(raw) ? raw.join('；') : axiosErr?.message;

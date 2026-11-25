@@ -143,6 +143,11 @@ export class GlobalExceptionFilter implements ExceptionFilter {
         error: {
           code: ResponseCode.INTERNAL_ERROR,
           message: '服务器内部错误，请稍后重试',
+          // 把真实错误原因透出（不含 stack/SQL/路径），否则用户和开发都只看到
+          // "服务器内部错误" 完全无法定位。密钥类信息由各 service 自己保证不进 message。
+          ...(err?.message
+            ? { detail: String(err.message).slice(0, 500) }
+            : {}),
           ...(isDev
             ? { stack: err?.stack, cause: err?.cause as string }
             : {}),
