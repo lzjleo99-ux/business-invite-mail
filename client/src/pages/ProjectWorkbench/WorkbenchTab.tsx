@@ -927,33 +927,44 @@ const WorkbenchTab: React.FC<WorkbenchTabProps> = ({
   // 服务端圈定目标：已生成邮件 + 有邮箱 + 未发送过（emailContactedAt 为空）。
   const [sendAllRunning, setSendAllRunning] = useState(false);
 
-  // 批量发送进度：发送是同步长任务（1344 封逐封走 SMTP，可能 1-2 小时）。
-  // 期间定时刷新统计卡，"未联系"数下降 = 已发出的封数，让用户看到它在动。
+  // 批量发送进度：后台任务（每封随机 3-5 秒），轮询服务端批次状态。
   const [sendProgress, setSendProgress] = useState<{ sent: number; total: number } | null>(null);
+  const [sendStopping, setSendStopping] = useState(false);
   useEffect(() => {
     if (!sendAllRunning || !projectId) {
       setSendProgress(null);
       return;
     }
     let alive = true;
+    let timer: ReturnType<typeof setInterval> | undefined;
     const tick = async (): Promise<void> => {
       try {
-        const st = await getCompanyStats(projectId);
+        const batches = await emailGeneratorApi.getSendBatchStatuses(projectId);
         if (!alive) return;
-        setSendProgress({ sent: st.total - st.notContacted, total: st.total });
+        const b = batches[0];
+        if (!b) return;
+        setSendProgress({ sent: b.done + b.failed, total: b.total });
         void qc.invalidateQueries({ queryKey: ['company-stats', projectId] });
         void qc.invalidateQueries({ queryKey: ['companies'] });
+        // 批次结束后停止轮询并把 running 置回（后台任务已完成）
+        if (b.finishedAt) {
+          setSendAllRunning(false);
+          toast.info(t('批量发送任务已结束：成功 {s} 封，失败 {f} 封', {
+            s: b.done, f: b.failed,
+          }));
+          if (timer) clearInterval(timer);
+        }
       } catch {
         /* 静默 */
       }
     };
     void tick();
-    const timer = setInterval(() => void tick(), 15_000);
+    timer = setInterval(() => void tick(), 4000);
     return () => {
       alive = false;
-      clearInterval(timer);
+      if (timer) clearInterval(timer);
     };
-  }, [sendAllRunning, projectId, qc]);
+  }, [sendAllRunning, projectId, qc, t]);
 
   const [sendConfirmOpen, setSendConfirmOpen] = useState(false);
   // 发信账号（多邮箱后缀）：'' = 用默认账号
@@ -1029,38 +1040,36 @@ const WorkbenchTab: React.FC<WorkbenchTabProps> = ({
         sendAccountId || undefined,
         sendProfileId || undefined,
       );
-      void qc.invalidateQueries({ queryKey: ['companies'] });
-      void qc.invalidateQueries({ queryKey: ['company-stats'] });
+      // 后台任务已启动：进度由 sendProgress 轮询显示，完成/失败在轮询里 toast
       if (summary.eligible === 0) {
+        setSendAllRunning(false);
         toast.info(t('没有可发送的邮件（需要已生成、有邮箱且未发送过）'));
-      } else if (summary.failed > 0) {
-        toast.warning(
-          t('批量发送完成：成功 {s} 封，失败 {f} 封', { s: summary.sent, f: summary.failed }),
-        );
-        if (summary.errors.length > 0) {
-          toast.error(
-            t('发送失败详情：{list}', {
-              list: summary.errors.slice(0, 3).map((e) => `${e.name}: ${e.error}`).join('；'),
-            }),
-          );
-        }
       } else {
-        toast.success(t('批量发送完成：{s} 封全部发送成功', { s: summary.sent }));
+        toast.success(t('已在后台开始发送 {n} 封（每封间隔 3-5 秒，模仿人工）', { n: summary.eligible }));
       }
     } catch (err: unknown) {
-      logger.error('批量发送失败', err);
-      // 显示后端真实错误（axios 的 error.response.data.message），
-      // 而不是笼统的"请检查 SMTP 配置"——之前就是这样把根因藏起来的。
+      setSendAllRunning(false);
+      logger.error('批量发送启动失败', err);
       const axiosErr = err as { response?: { data?: { message?: string | unknown; error?: { message?: string } } }; message?: string };
       const raw = axiosErr?.response?.data?.message ?? axiosErr?.response?.data?.error?.message;
       const detail = typeof raw === 'string'
         ? raw
         : Array.isArray(raw) ? raw.join('；') : axiosErr?.message;
       toast.error(t('批量发送失败'), { description: detail ? String(detail).slice(0, 300) : t('请检查发信服务配置后重试') });
-    } finally {
-      setSendAllRunning(false);
     }
-  }, [projectId, t, qc, sendLang, emailDisplayLang, selectedIds, sendAccountId, sendProfileId]);
+  }, [projectId, t, sendLang, emailDisplayLang, selectedIds, sendAccountId, sendProfileId]);
+
+  const handleStopSendAll = useCallback(async () => {
+    setSendStopping(true);
+    try {
+      await emailGeneratorApi.stopSendBatch(projectId);
+      toast.info(t('已发送停止指令，当前这封完成后会停下'));
+    } catch {
+      toast.error(t('停止失败'));
+    } finally {
+      setSendStopping(false);
+    }
+  }, [projectId, t]);
 
   const STATUS_OPTIONS: { value: StatusFilterValue; label: string }[] = [
     { value: 'all', label: t('全部') },
@@ -2877,6 +2886,39 @@ const WorkbenchTab: React.FC<WorkbenchTabProps> = ({
             </DialogFooter>
           </DialogContent>
         </Dialog>
+
+        {/* 批量发送进度（后台任务）：绿=成功 / 红=失败，每封随机 3-5 秒 */}
+        {sendAllRunning && sendProgress && (
+          <div className="mb-4 rounded-md border border-blue-100 bg-blue-50/40 p-3">
+            <div className="h-2 w-full overflow-hidden rounded-full bg-slate-100">
+              <div
+                className="h-full bg-green-500 transition-all duration-300"
+                style={{ width: `${sendProgress.total ? (sendProgress.sent / sendProgress.total) * 100 : 0}%` }}
+              />
+            </div>
+            <div className="mt-1.5 flex items-center justify-between text-xs text-slate-600">
+              <span className="flex items-center gap-1.5">
+                <Loader2 className="animate-spin" size={12} />
+                {t('后台逐封发送中（每封间隔 3-5 秒，模仿人工）...')}
+              </span>
+              <span className="flex items-center gap-2.5">
+                <span className="font-medium text-slate-700">
+                  {sendProgress.sent}/{sendProgress.total}
+                </span>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="h-6 px-2 text-xs text-red-600"
+                  disabled={sendStopping}
+                  onClick={() => void handleStopSendAll()}
+                >
+                  {sendStopping ? <Loader2 className="animate-spin" size={12} /> : <Square size={11} />}
+                  {t('停止发送')}
+                </Button>
+              </span>
+            </div>
+          </div>
+        )}
 
         {/* Batch progress bar */}
         {serverBatch && serverProgress ? (

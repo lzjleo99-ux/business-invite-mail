@@ -20,6 +20,12 @@ export const enMessages: Record<string, string> = {
   '第 {page} / {totalPages} 页': 'Page {page} of {totalPages}',
 
   // ---- antd table locale ----
+  '后台逐封发送中（每封间隔 3-5 秒，模仿人工）...': 'Sending in background (3-5s random delay between each, human-like)...',
+  '停止发送': 'Stop sending',
+  '已发送停止指令，当前这封完成后会停下': 'Stop requested - will halt after the current email',
+  '停止失败': 'Failed to stop',
+  '已在后台开始发送 {n} 封（每封间隔 3-5 秒，模仿人工）': 'Started sending {n} emails in background (3-5s random delay)',
+  '批量发送任务已结束：成功 {s} 封，失败 {f} 封': 'Send finished: {s} sent, {f} failed',
   '请检查发信服务配置后重试': 'Check your mail settings and try again',
   '留空表示不修改（密钥不会回显）': 'Leave blank to keep current (key is never echoed)',
   '邮箱和 SMTP 服务器不能为空（授权码留空表示不修改）': 'Email and SMTP host are required (leave auth code blank to keep current)',

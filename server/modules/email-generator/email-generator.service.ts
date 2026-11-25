@@ -386,7 +386,7 @@ export class EmailGeneratorService {
    * generating 的僵尸公司（否则它们永远进不了下一次批量）。
    */
   async stopBatch(
-    kind: 'analyze' | 'generate',
+    kind: 'analyze' | 'generate' | 'send',
     userId: string,
     projectId: string | null,
   ): Promise<{ stopped: boolean; recovered: number }> {
@@ -1185,26 +1185,75 @@ export class EmailGeneratorService {
     eligible.push(...allowed);
     summary.eligible = eligible.length;
 
-    let cursor = 0;
-    const worker = async (): Promise<void> => {
-      while (cursor < eligible.length) {
-        const company = eligible[cursor];
-        cursor += 1;
+    // 服务端后台执行（同步长请求会被网关超时掐断 → 500「服务器内部错误」）。
+    // 每封之间随机 sleep 3~5 秒，模仿人工，降低被反垃圾风控的概率。
+    const effectTargetIds = eligible.map((c) => c.id);
+    const key = `send:${user.userId}:${projectId}`;
+    startServerBatch(key, 'send', user.userId, projectId, effectTargetIds.length, effectTargetIds);
+    void this.processSendBatch(
+      eligible,
+      user,
+      langFor,
+      params,
+      key,
+    ).then(() => finishServerBatch(key));
+    // 立即返回：真正的进度走 send-batch-status 轮询
+    return summary;
+  }
+
+  /** 后台批量发送：单线程顺序 + 每封随机 3~5 秒（模仿人工） */
+  private async processSendBatch(
+    eligible: Array<typeof restaurants.$inferSelect>,
+    user: { userId: string; role: UserRole },
+    langFor: (id: string) => 'local' | 'en',
+    params: { companyIds?: string[]; accountId?: string; profileId?: string | null },
+    key: string,
+  ): Promise<void> {
+    for (const company of eligible) {
+      if (isServerBatchCancelled(key)) {
+        this.logger.warn(`批量发送 ${key} 已被用户停止`);
+        break;
+      }
+      beginServerBatchItem(key, company.id);
+      try {
+        const { raw, to, cc: ccList, bcc: bccList, from, subject, accountId: acctId } =
+          await this.buildCampaignRaw(
+            company,
+            langFor(company.id),
+            params.accountId,
+            user.userId,
+            params.profileId,
+          );
+        const { messageId } = await this.mailService.sendRaw(
+          raw,
+          { from, to: [to, ...ccList, ...bccList] },
+          acctId,
+          user.userId,
+          user.role,
+        );
+        await this.emailHistory.recordOutbound({
+          companyId: company.id,
+          projectId: company.projectId,
+          fromAddr: from,
+          toAddr: to,
+          subject,
+          bodyText: company.emailBodyLocal || company.emailBody || '',
+          messageId,
+          status: 'sent',
+        });
+        await this.markEmailContacted(company.id);
+        tickServerBatch(key, true, company.id);
+      } catch (err: unknown) {
+        const msg = err instanceof Error ? err.message : String(err);
+        this.logger.warn(`批量发送失败 ${company.name}: ${msg.split('\n')[0]}`);
+        tickServerBatch(key, false, company.id, msg);
         try {
-          const { raw, to, cc: ccList, bcc: bccList, from, subject, accountId: acctId } =
-            await this.buildCampaignRaw(
-              company,
-              langFor(company.id),
-              params.accountId,
-              user.userId,
-              params.profileId,
-            );
-          const { messageId } = await this.mailService.sendRaw(
-            raw,
-            { from, to: [to, ...ccList, ...bccList] },
-            acctId,
-            senderUserId,
-            user.role,
+          const { to, from, subject } = await this.buildCampaignRaw(
+            company,
+            langFor(company.id),
+            params.accountId,
+            user.userId,
+            params.profileId,
           );
           await this.emailHistory.recordOutbound({
             companyId: company.id,
@@ -1213,43 +1262,27 @@ export class EmailGeneratorService {
             toAddr: to,
             subject,
             bodyText: company.emailBodyLocal || company.emailBody || '',
-            messageId,
-            status: 'sent',
+            status: 'failed',
+            error: msg.slice(0, 500),
           });
-          await this.markEmailContacted(company.id);
-          summary.sent += 1;
-        } catch (err: unknown) {
-          summary.failed += 1;
-          const msg = err instanceof Error ? err.message : String(err);
-          summary.errors.push({ name: company.name, error: msg.slice(0, 200) });
-          this.logger.warn(`批量发送失败 ${company.name}: ${msg.split('\n')[0]}`);
-          try {
-            const { to, from, subject } = await this.buildCampaignRaw(
-              company,
-              langFor(company.id),
-              params.accountId,
-              user.userId,
-              params.profileId,
-            );
-            await this.emailHistory.recordOutbound({
-              companyId: company.id,
-              projectId: company.projectId,
-              fromAddr: from,
-              toAddr: to,
-              subject,
-              bodyText: company.emailBodyLocal || company.emailBody || '',
-              status: 'failed',
-              error: msg.slice(0, 500),
-            });
-          } catch {
-            // 记录失败不阻断
-          }
+        } catch {
+          // 记录失败不阻断
         }
       }
-    };
-    await Promise.all(Array.from({ length: Math.min(2, eligible.length) }, worker));
+      // 模仿人工：每封后随机等 3~5 秒（最后一封不必等）
+      if (company !== eligible[eligible.length - 1]) {
+        const delay = 3000 + Math.floor(Math.random() * 2001);
+        await new Promise<void>((resolve) => setTimeout(resolve, delay));
+      }
+    }
+  }
 
-    return summary;
+  /** 查询某用户某项目的批量发送进度（前端轮询） */
+  async getSendBatchStatuses(
+    userId: string,
+    projectId: string | null,
+  ): Promise<ServerBatchProgress[]> {
+    return getServerBatches(userId, projectId, 'send');
   }
 
   /** 发送成功后标记「已邮件联系」（与手动标记同字段）。 */

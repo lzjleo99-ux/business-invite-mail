@@ -22,6 +22,7 @@ import type { Response } from 'express';
 import { JwtAuthGuard, type JwtPayload } from '../auth/jwt-auth.guard';
 import { CurrentUser } from '../auth/current-user.decorator';
 import { EmailGeneratorService, type BatchSendSummary } from './email-generator.service';
+import { cancelServerBatch } from '@server/common/utils/server-batch';
 import type { ServerBatchProgress } from '@server/common/utils/server-batch';
 import { MessengerService } from './messenger.service';
 import { EmailHistoryService, type EmailHistoryRow, type EmailHistoryDetail } from './email-history.service';
@@ -190,6 +191,27 @@ export class EmailGeneratorController {
     return this.emailGeneratorService.stopBatch(
       'generate', user.userId, dto.projectId ?? null,
     );
+  }
+
+  /** 服务端批量发送进度（前端轮询） */
+  @UseGuards(JwtAuthGuard)
+  @Get('send-batch-status')
+  async sendBatchStatus(
+    @CurrentUser() user: JwtPayload,
+    @Query('projectId') projectId: string | undefined,
+  ): Promise<ServerBatchProgress[]> {
+    return this.emailGeneratorService.getSendBatchStatuses(user.userId, projectId ?? null);
+  }
+
+  /** 停止批量发送（复用取消机制） */
+  @UseGuards(JwtAuthGuard)
+  @Post('send-batch-stop')
+  async stopSendBatch(
+    @CurrentUser() user: JwtPayload,
+    @Body() dto: { projectId?: string },
+  ): Promise<{ stopped: boolean }> {
+    const key = `send:${user.userId}:${dto.projectId ?? 'selected'}`;
+    return { stopped: cancelServerBatch(key) };
   }
 
   /** 服务端批量生成进度（前端轮询） */

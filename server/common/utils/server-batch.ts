@@ -36,7 +36,7 @@ export function isRetryableFailure(message: string): boolean {
 export interface ServerBatchProgress {
   /** 格式：`${kind}:${userId}:${projectId ?? 'selected'}` */
   key: string;
-  kind: 'analyze' | 'generate';
+  kind: 'analyze' | 'generate' | 'send';
   userId: string;
   projectId: string | null;
   total: number;
@@ -136,7 +136,7 @@ function ensureTable(): Promise<void> {
 function toProgress(r: BatchRow): ServerBatchProgress {
   return {
     key: r.batch_key,
-    kind: r.kind as 'analyze' | 'generate',
+    kind: r.kind as 'analyze' | 'generate' | 'send',
     userId: r.user_id,
     projectId: r.project_id ?? null,
     total: r.total,
@@ -230,7 +230,7 @@ export async function initServerBatchStore(db: PostgresJsDatabase): Promise<numb
  */
 export function startServerBatch(
   key: string,
-  kind: 'analyze' | 'generate',
+  kind: 'analyze' | 'generate' | 'send',
   userId: string,
   projectId: string | null,
   total: number,
@@ -326,7 +326,7 @@ export function finishServerBatch(key: string): void {
 export function getServerBatches(
   userId: string,
   projectId: string | null,
-  kind: 'analyze' | 'generate',
+  kind: 'analyze' | 'generate' | 'send',
 ): ServerBatchProgress[] {
   const cutoff = Date.now() - 24 * 60 * 60 * 1000;
   return [...registry.values()]
@@ -438,7 +438,7 @@ export function clearServerBatchCancel(key: string): void {
 export function findServerBatchKey(
   userId: string,
   projectId: string | null,
-  kind: 'analyze' | 'generate',
+  kind: 'analyze' | 'generate' | 'send',
 ): string | null {
   const key = `${kind}:${userId}:${projectId ?? 'selected'}`;
   return registry.has(key) ? key : null;

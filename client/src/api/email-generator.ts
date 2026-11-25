@@ -174,7 +174,6 @@ export async function batchSendEmails(
   const response = await axiosForBackend.post(
     '/api/email-generator/batch-send',
     { projectId, lang, langOverrides, companyIds, accountId, profileId },
-    { timeout: 600_000 },
   );
   return response.data;
 }
@@ -346,4 +345,19 @@ export async function stopGenerateBatch(projectId: string): Promise<{ stopped: b
     { projectId },
   );
   return response.data;
+}
+
+
+/** 批量发送进度（服务端后台任务，前端轮询） */
+export async function getSendBatchStatuses(projectId: string): Promise<Array<{
+  key: string; kind: string; total: number; done: number; failed: number; finishedAt: string | null; retryRound?: number;
+}>> {
+  const r = await axiosForBackend.get(`/api/email-generator/send-batch-status?projectId=${projectId}`);
+  return r.data ?? [];
+}
+
+/** 停止批量发送 */
+export async function stopSendBatch(projectId: string): Promise<{ stopped: boolean }> {
+  const r = await axiosForBackend.post('/api/email-generator/send-batch-stop', { projectId });
+  return r.data;
 }
