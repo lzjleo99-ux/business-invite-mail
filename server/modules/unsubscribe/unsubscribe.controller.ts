@@ -21,6 +21,9 @@ import type { Request, Response } from 'express';
 import { JwtAuthGuard } from '@server/modules/auth/jwt-auth.guard';
 import { AdminGuard } from '@server/common/guards/admin.guard';
 import { SuppressionService } from './suppression.service';
+import { sql } from 'drizzle-orm';
+import { Inject } from '@nestjs/common';
+import { DRIZZLE_DATABASE, type PostgresJsDatabase } from '@lark-apaas/fullstack-nestjs-core';
 import { parseUnsubscribeToken, makeUnsubscribeToken, buildUnsubscribePageUrl } from './unsubscribe-token';
 
 class RemoveDto {
@@ -99,7 +102,10 @@ h1{font-size:20px;margin:0 0 12px;color:#0f172a}</style></head>
 /** 管理端：退订名单管理（走 /api/ 需要登录+CSRF，正好安全） */
 @Controller('api/unsubscribe')
 export class UnsubscribeAdminController {
-  constructor(private readonly suppression: SuppressionService) {}
+  constructor(
+    private readonly suppression: SuppressionService,
+    @Inject(DRIZZLE_DATABASE) private readonly db: PostgresJsDatabase,
+  ) {}
 
   @UseGuards(JwtAuthGuard, AdminGuard)
   @Get('list')
@@ -112,6 +118,22 @@ export class UnsubscribeAdminController {
   async remove(@Body() dto: RemoveDto): Promise<{ ok: boolean }> {
     if (!dto?.email) throw new BadRequestException('email required');
     return { ok: await this.suppression.remove(dto.email) };
+  }
+
+  /** 诊断：验证大批邮箱的抑制过滤（不发送） */
+  @UseGuards(JwtAuthGuard, AdminGuard)
+  @Get('debug-filter')
+  async debugFilter(@Query('projectId') projectId: string): Promise<{ total: number; suppressed: number; error?: string }> {
+    const rows = await this.db.execute(sql`
+      SELECT email FROM restaurants WHERE project_id = ${projectId} AND email IS NOT NULL
+    `) as unknown as Array<{ email: string }>;
+    const emails = rows.map((r) => r.email);
+    try {
+      const set = await this.suppression.filterSuppressed(emails);
+      return { total: emails.length, suppressed: set.size };
+    } catch (err: unknown) {
+      return { total: emails.length, suppressed: 0, error: err instanceof Error ? err.message : String(err) };
+    }
   }
 
   /** 客服用途：为指定邮箱生成退订链接（用服务器密钥签名） */
