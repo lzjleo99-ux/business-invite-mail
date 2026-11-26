@@ -18,6 +18,8 @@ export interface EmailHistoryRow {
   snippet: string;
   messageId: string | null;
   error: string | null;
+  /** 仅退信：从正文解析出的真实失败收件人（列表主行显示用它） */
+  bounceFailedAddress: string | null;
   at: string; // 发信时间或收信时间
 }
 
@@ -713,7 +715,17 @@ try {
       fromAddr: r.fromAddr,
       toAddr: r.toAddr,
       subject: r.subject,
-      snippet: (r.bodyText || '').replace(/\s+/g, ' ').slice(0, 140),
+      // 退信的正文常是 GBK 编码（历史数据被 UTF-8 读成"锟斤拷"乱码），
+      // 不再当 snippet 展示；改用解析出的失败原因，干净且有用。
+      snippet: r.status === 'bounce'
+        ? (() => {
+            const b = this.parseBounce(r.bodyText || '', r.subject || '', r.fromAddr || '');
+            return b.reasonZh || b.reason || '';
+          })()
+        : (r.bodyText || '').replace(/\s+/g, ' ').slice(0, 140),
+      bounceFailedAddress: r.status === 'bounce'
+        ? this.parseBounce(r.bodyText || '', r.subject || '', r.fromAddr || '').failedAddress
+        : null,
       messageId: r.messageId,
       error: r.error,
       at: at.toISOString(),

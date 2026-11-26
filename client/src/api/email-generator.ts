@@ -193,6 +193,8 @@ export interface EmailHistoryItem {
   snippet: string;
   messageId: string | null;
   error: string | null;
+  /** 仅退信：真实失败收件人（列表主行显示用它） */
+  bounceFailedAddress: string | null;
   at: string;
 }
 

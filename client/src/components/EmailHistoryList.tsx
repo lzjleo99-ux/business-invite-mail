@@ -103,7 +103,11 @@ export const EmailHistoryList: React.FC<Props> = ({
                   {h.subject || t('（无主题）')}
                 </p>
                 <p className="text-slate-500 break-all">
-                  {`${h.fromAddr} → ${h.toAddr}`}
+                  {h.status === 'bounce'
+                    ? (h.bounceFailedAddress
+                        ? t('退信：{a}', { a: h.bounceFailedAddress })
+                        : t('退信通知：{a}', { a: h.toAddr }))
+                    : `${h.fromAddr} → ${h.toAddr}`}
                 </p>
                 {h.snippet && (
                   <p className="text-slate-600 line-clamp-2 break-all">{h.snippet}</p>

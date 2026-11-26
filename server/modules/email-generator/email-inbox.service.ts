@@ -306,8 +306,11 @@ export class EmailInboxService implements OnModuleInit, OnModuleDestroy {
             if (uid > maxUid) maxUid = uid;
             try {
               const msg = await client.fetchOne(`${uid}`, { uid: true, source: true }, { uid: true });
-              const source = msg.source?.toString('utf8') ?? '';
-              if (!source) continue;
+              // 关键：邮件原始字节必须作为 Buffer 交给 mailparser，由它按
+              // Content-Type 里的 charset（QQ/腾讯退信常是 GBK/GB2312/base64）
+              // 正确解码。之前 .toString('utf8') 强制按 UTF-8 读 → 全部乱码。
+              const source = msg.source ?? null;
+              if (!source || source.length === 0) continue;
               const parsed = await simpleParser(source);
               const messageId = parsed.messageId?.trim() || null;
               const inReplyTo = parsed.inReplyTo?.trim() || null;

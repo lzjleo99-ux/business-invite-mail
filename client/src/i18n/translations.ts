@@ -20,6 +20,8 @@ export const enMessages: Record<string, string> = {
   '第 {page} / {totalPages} 页': 'Page {page} of {totalPages}',
 
   // ---- antd table locale ----
+  '退信：{a}': 'Bounced: {a}',
+  '退信通知：{a}': 'Bounce notice: {a}',
   'DNS 认证测试': 'DNS authentication test',
   '发一封模拟群发的测试邮件到你的邮箱，验证 SPF / DKIM / DMARC 是否生效。收件箱收到即认证通过。': 'Send a test email (same path as bulk send) to verify SPF / DKIM / DMARC. Received in inbox = auth works.',
   '测试邮箱地址': 'Test email address',
