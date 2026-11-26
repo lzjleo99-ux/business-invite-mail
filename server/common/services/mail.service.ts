@@ -906,6 +906,17 @@ export class MailService {
     return { kind: 'legacy', email: s.fromEmail, fromName: s.fromName, transporter: await this.getTransporter() };
   }
 
+  /** 诊断：列出所有 SMTP 账号的收件轮询配置（不含密码） */
+  async debugPollAccounts(): Promise<unknown> {
+    await this.ensureAccountsTable();
+    return this.db.execute(sql`
+      SELECT id, email, (owner_id)::text AS owner_id,
+             inbox_poll_enabled, inbox_poll_seconds, inbox_last_uid,
+             imap_host, imap_port
+      FROM smtp_accounts ORDER BY email
+    `);
+  }
+
   async sendMail(opts: {
     to: string;
     subject: string;

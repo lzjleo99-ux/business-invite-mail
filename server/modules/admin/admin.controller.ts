@@ -158,6 +158,12 @@ export class AdminController {
 
   // 每用户独立的设置：只需登录，不需要管理员
   @UseGuards(JwtAuthGuard)
+  @UseGuards(JwtAuthGuard, AdminGuard)
+  @Get('debug-poll-accounts')
+  async debugPollAccounts(): Promise<unknown> {
+    return this.mailService.debugPollAccounts();
+  }
+
   @Get('smtp-accounts')
   async listSmtpAccounts(@CurrentUser() user: JwtPayload): Promise<{ items: Awaited<ReturnType<MailService['listAccounts']>> }> {
     // super_admin 看全部账号（发信邮箱是团队资源，管理员代发）；
