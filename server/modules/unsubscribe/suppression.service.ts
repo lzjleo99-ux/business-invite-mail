@@ -7,7 +7,7 @@
  *
  * 表由运行时幂等迁移创建（与其他自建表一致，无需手动 migration）。
  */
-import { sql, eq } from 'drizzle-orm';
+import { sql, eq, inArray } from 'drizzle-orm';
 import { pgTable, uuid, varchar, timestamp, text } from 'drizzle-orm/pg-core';
 import {
   runIdempotentMigration,
@@ -112,11 +112,13 @@ export class SuppressionService {
     const normalized = [...new Set(emails.map((e) => e.trim().toLowerCase()).filter(Boolean))];
     if (normalized.length === 0) return new Set();
     await this.ensureTable();
-    // 用 = ANY 一次查完（参数化，无注入风险）
-    const rows = (await this.db.execute(sql`
-      SELECT email FROM email_suppressions
-      WHERE email = ANY(${normalized}::varchar[])
-    `)) as unknown as Array<{ email: string }>;
+    // 用 drizzle 标准 inArray（参数化，无注入风险）。
+    // 之前用 `= ANY(${arr}::varchar[])` 原生 SQL，在 1187 个邮箱时
+    // drizzle/postgres-js 的数组参数序列化失败 → "Failed query" → 整个批量发送 500。
+    const rows = await this.db
+      .select({ email: emailSuppressions.email })
+      .from(emailSuppressions)
+      .where(inArray(emailSuppressions.email, normalized));
     return new Set(rows.map((r) => r.email.toLowerCase()));
   }
 
