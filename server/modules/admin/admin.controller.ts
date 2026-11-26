@@ -159,6 +159,12 @@ export class AdminController {
   // 每用户独立的设置：只需登录，不需要管理员
   @UseGuards(JwtAuthGuard)
   @UseGuards(JwtAuthGuard, AdminGuard)
+  @UseGuards(JwtAuthGuard, AdminGuard)
+  @Get('debug-bounce-summary')
+  async debugBounceSummary(): Promise<unknown> {
+    return this.mailService.debugBounceSummary();
+  }
+
   @Get('debug-poll-accounts')
   async debugPollAccounts(): Promise<unknown> {
     return this.mailService.debugPollAccounts();

@@ -906,6 +906,16 @@ export class MailService {
     return { kind: 'legacy', email: s.fromEmail, fromName: s.fromName, transporter: await this.getTransporter() };
   }
 
+  /** 诊断：退信按收件邮箱/日期汇总 */
+  async debugBounceSummary(): Promise<unknown> {
+    return this.db.execute(sql`
+      SELECT to_addr, (poll_owner)::text AS poll_owner,
+             count(*)::int AS n, max(created_at) AS latest
+      FROM email_histories WHERE status = 'bounce'
+      GROUP BY to_addr, poll_owner ORDER BY latest DESC LIMIT 20
+    `);
+  }
+
   /** 诊断：列出所有 SMTP 账号的收件轮询配置（不含密码） */
   async debugPollAccounts(): Promise<unknown> {
     await this.ensureAccountsTable();
