@@ -20,6 +20,7 @@ import { IsArray, IsIn, IsObject, IsOptional, IsString } from 'class-validator';
 import { Type } from 'class-transformer';
 import type { Response } from 'express';
 import { JwtAuthGuard, type JwtPayload } from '../auth/jwt-auth.guard';
+import { AdminGuard } from '@server/common/guards/admin.guard';
 import { CurrentUser } from '../auth/current-user.decorator';
 import { EmailGeneratorService, type BatchSendSummary } from './email-generator.service';
 import { cancelServerBatch } from '@server/common/utils/server-batch';
@@ -417,6 +418,15 @@ export class EmailGeneratorController {
     @CurrentUser() user: JwtPayload,
   ): Promise<{ headers: string[]; issues: string[] }> {
     return this.emailGeneratorService.debugRawForCompany(companyId, user.userId);
+  }
+
+  /** 退信公司重置为未联系：默认 dry-run，confirm=true 才真改 */
+  @UseGuards(JwtAuthGuard, AdminGuard)
+  @Post('reset-bounced-contacts')
+  async resetBouncedContacts(
+    @Body() body: { confirm?: boolean } = {},
+  ): Promise<{ matched: number; reset: number; companies: Array<{ id: string; name: string; email: string }> }> {
+    return this.emailHistoryService.resetBouncedContacts(body.confirm !== true);
   }
 
   @Post('batch-send')

@@ -1,7 +1,7 @@
 import type { UserRole } from '@shared/api.interface';
 import { Injectable, Inject, Logger, BadRequestException } from '@nestjs/common';
 import { DRIZZLE_DATABASE, type PostgresJsDatabase } from '@lark-apaas/fullstack-nestjs-core';
-import { and, isNotNull, desc, eq, ilike, inArray, or, sql } from 'drizzle-orm';
+import { and, isNotNull, isNull, desc, eq, ilike, inArray, or, sql } from 'drizzle-orm';
 import { emailHistories, projects, restaurants } from '@server/database/schema';
 import { runIdempotentMigration } from '@server/common/utils/ddl-runner';
 
@@ -550,6 +550,55 @@ try {
     );
   }
 
+  /**
+   * 把"收到退信"的公司重置为未联系（CAN-SPAM：退信 = 未送达，不该算已联系）。
+   * 只动 emailContactedAt，绝不碰 whatsapp/viber 状态。
+   *
+   * @param dryRun true = 只返回将要重置的公司，不写库（默认，安全）
+   * 用 SQL EXISTS 子查询匹配邮箱，避免把上千个邮箱当参数传（之前 ANY 大数组踩过坑）。
+   */
+  async resetBouncedContacts(
+    dryRun = true,
+  ): Promise<{ matched: number; reset: number; companies: Array<{ id: string; name: string; email: string }> }> {
+    await this.ensureTable();
+    // 匹配规则：公司 email / website_contact_email 出现在任意 bounce 记录的 to_addr
+    // （退信的 to_addr = 我们发出去的收件人地址）
+    const rows = await this.db.execute(sql`
+      SELECT r.id, r.name,
+             COALESCE(r.website_contact_email, r.email) AS email
+      FROM restaurants r
+      WHERE (r.email IS NOT NULL OR r.website_contact_email IS NOT NULL)
+        AND r.contact_status IS NOT NULL
+        AND r.contact_status->>'emailContactedAt' IS NOT NULL
+        AND EXISTS (
+          SELECT 1 FROM email_histories h
+          WHERE h.status = 'bounce'
+            AND (
+              lower(h.to_addr) = lower(COALESCE(r.website_contact_email, r.email))
+              OR (r.email IS NOT NULL AND lower(h.to_addr) = lower(r.email))
+            )
+        )
+      ORDER BY r.name
+      LIMIT 2000
+    `) as unknown as Array<{ id: string; name: string; email: string }>;
+
+    if (dryRun || rows.length === 0) {
+      return { matched: rows.length, reset: 0, companies: rows.slice(0, 50) };
+    }
+
+    // 真改：用 JSONB 操作把 emailContactedAt 键删掉（保留其他联系状态）
+    let reset = 0;
+    for (const row of rows) {
+      await this.db.execute(sql`
+        UPDATE restaurants
+        SET contact_status = (contact_status::jsonb - 'emailContactedAt')::json
+        WHERE id = ${row.id}
+      `);
+      reset += 1;
+    }
+    return { matched: rows.length, reset, companies: rows.slice(0, 50) };
+  }
+
   async list(query: EmailHistoryQuery): Promise<{ items: EmailHistoryRow[]; total: number }> {
     await this.assertCanRead(query, query.user);
     await this.ensureTable();
@@ -579,10 +628,15 @@ try {
             inArray(emailHistories.projectId, visible),
           ),
           ...(emails.length > 0 ? [this.emailMatchCondition(emails)] : []),
-          // 退信只看自己邮箱收到的（poll_owner = 我）
+          // 退信：自己邮箱收到的（poll_owner = 我）+ 历史遗留的 poll_owner 为空的退信。
+          // 早期版本入库没写 poll_owner，导致 75 条退信在 UI 全部消失——
+          // 这些老数据本就是本站收到的退信，展示给管理员合理。
           and(
             eq(emailHistories.status, 'bounce'),
-            eq(emailHistories.pollOwner, query.user!.userId),
+            or(
+              eq(emailHistories.pollOwner, query.user!.userId),
+              isNull(emailHistories.pollOwner),
+            ),
           ),
         ),
       );
