@@ -1,3 +1,4 @@
+import { SMTP_PROVIDER_PRESETS } from '@server/common/providers/smtp-presets';
 import type { UserRole } from '@shared/api.interface';
 import {
   Controller,
@@ -163,6 +164,13 @@ export class AdminController {
   async setInboxPoll(@Body() dto: { accountId: string; enabled: boolean }): Promise<{ ok: true }> {
     await this.mailService.adminSetInboxPoll(dto.accountId, dto.enabled);
     return { ok: true };
+  }
+
+  /** 发信服务商 SMTP 预设（静态数据，供设置页"快速添加"用） */
+  @UseGuards(JwtAuthGuard)
+  @Get('smtp-presets')
+  async smtpPresets(): Promise<{ items: typeof SMTP_PROVIDER_PRESETS }> {
+    return { items: SMTP_PROVIDER_PRESETS };
   }
 
   @Get('smtp-accounts')

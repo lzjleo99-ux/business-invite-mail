@@ -20,6 +20,10 @@ export const enMessages: Record<string, string> = {
   '第 {page} / {totalPages} 页': 'Page {page} of {totalPages}',
 
   // ---- antd table locale ----
+  '选择服务商后自动填好 SMTP 服务器和端口': 'Select a provider to auto-fill SMTP host and port',
+  '凭证说明': 'Credential',
+  '冷邮件提示': 'Cold email policy',
+  '查看官方文档': 'View official docs',
   '退信：{a}': 'Bounced: {a}',
   '退信通知：{a}': 'Bounce notice: {a}',
   'DNS 认证测试': 'DNS authentication test',

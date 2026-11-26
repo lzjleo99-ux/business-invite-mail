@@ -1,6 +1,7 @@
 import type { UserRole } from '@shared/api.interface';
 import { makeUnsubscribeToken, buildUnsubscribeUrl } from '@server/modules/unsubscribe/unsubscribe-token';
 import { SuppressionService } from '@server/modules/unsubscribe/suppression.service';
+import { classifySendError } from '@server/common/providers/smtp-presets';
 import { buildChatBody } from '@shared/model-catalog';
 import {
   resolveCountryLanguage,
@@ -1258,7 +1259,8 @@ export class EmailGeneratorService {
         tickServerBatch(key, true, company.id);
       } catch (err: unknown) {
         const msg = err instanceof Error ? err.message : String(err);
-        this.logger.warn(`批量发送失败 ${company.name}: ${msg.split('\n')[0]}`);
+        const classified = classifySendError(msg);
+        this.logger.warn(`批量发送失败 ${company.name} [${classified.category}]: ${msg.split('\n')[0]}`);
         tickServerBatch(key, false, company.id, msg);
         try {
           const { to, from, subject } = await this.buildCampaignRaw(
@@ -1276,7 +1278,10 @@ export class EmailGeneratorService {
             subject,
             bodyText: company.emailBodyLocal || company.emailBody || '',
             status: 'failed',
-            error: msg.slice(0, 500),
+            // 附可操作提示：内容审核/认证/频率/网络的根因不同，用户需要知道该怎么做
+            error: classified.hint
+              ? `${msg.slice(0, 300)}\n[诊断] ${classified.hint}`
+              : msg.slice(0, 500),
           });
         } catch {
           // 记录失败不阻断

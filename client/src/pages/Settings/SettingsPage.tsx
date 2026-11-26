@@ -119,6 +119,15 @@ const SettingsPage = () => {
     queryFn: adminApi.listSuppressedEmails,
     enabled: isAdmin,
   });
+  // 发信服务商预设（即插即用：选一个自动填好 SMTP host/port）
+  const presetsQuery = useQuery({
+    queryKey: ['smtp-presets'],
+    queryFn: adminApi.listSmtpPresets,
+    enabled: isAdmin,
+    staleTime: Infinity,
+  });
+  const [selectedPreset, setSelectedPreset] = useState('custom');
+
   // 认证测试邮箱（验证 SPF/DKIM/DMARC 是否生效）
   const [authTestEmail, setAuthTestEmail] = useState('');
   const [authTestBusy, setAuthTestBusy] = useState(false);
@@ -227,10 +236,19 @@ const SettingsPage = () => {
     setEditingAccount(a.id);
   };
 
-  const openNewAccount = () => {
+  const openNewAccount = (presetId?: string) => {
+    const preset = presetsQuery.data?.find((p) => p.id === (presetId ?? selectedPreset));
     setAccountForm({
-      email: '', password: '', host: '', port: '465', secure: true, fromName: '',
-      imapHost: '', imapPort: '993', imapSecure: true, inboxPollEnabled: false, inboxPollSeconds: '180',
+      email: '', password: '',
+      host: preset?.host ?? '',
+      port: String(preset?.port ?? 465),
+      secure: preset?.secure ?? true,
+      fromName: '',
+      imapHost: preset?.imapHost ?? '',
+      imapPort: String(preset?.imapPort ?? 993),
+      imapSecure: true,
+      inboxPollEnabled: false,
+      inboxPollSeconds: '180',
     });
     setEditingAccount('new');
   };
@@ -1292,10 +1310,22 @@ const SettingsPage = () => {
                       </p>
                     )}
                   </div>
-                  <Button size="sm" onClick={openNewAccount} disabled={accountBusy}>
-                    <Plus size={14} className="mr-1" />
-                    {t('添加邮箱')}
-                  </Button>
+                  <div className="flex items-center gap-1.5">
+                    <select
+                      className="h-8 rounded-md border border-slate-200 bg-white px-1.5 text-xs text-slate-600"
+                      value={selectedPreset}
+                      onChange={(e) => setSelectedPreset(e.target.value)}
+                      title={t('选择服务商后自动填好 SMTP 服务器和端口')}
+                    >
+                      {(presetsQuery.data ?? []).map((p) => (
+                        <option key={p.id} value={p.id}>{p.name}</option>
+                      ))}
+                    </select>
+                    <Button size="sm" onClick={() => openNewAccount()} disabled={accountBusy}>
+                      <Plus size={14} className="mr-1" />
+                      {t('添加邮箱')}
+                    </Button>
+                  </div>
                 </div>
 
                 {accountsLoading ? (
@@ -1540,8 +1570,27 @@ const SettingsPage = () => {
                           type="password"
                           value={accountForm.password}
                           onChange={(e) => setAccountForm({ ...accountForm, password: e.target.value })}
-                        />
-                      </div>
+                          />
+                          {(() => {
+                            const preset = presetsQuery.data?.find((x) => x.id === selectedPreset);
+                            if (!preset) return null;
+                            return (
+                              <div className="mt-1 space-y-1 rounded bg-slate-50 p-2 text-xs">
+                                <p className="text-slate-600">
+                                  <span className="font-medium">{t('凭证说明')}：</span>{preset.credentialHint}
+                                </p>
+                                <p className={preset.coldEmailPolicy === 'good' ? 'text-green-700' : 'text-amber-700'}>
+                                  <span className="font-medium">{t('冷邮件提示')}：</span>{preset.coldEmailNote}
+                                </p>
+                                {preset.docsUrl && (
+                                  <a href={preset.docsUrl} target="_blank" rel="noreferrer" className="text-blue-600 hover:underline">
+                                    {t('查看官方文档')} ↗
+                                  </a>
+                                )}
+                              </div>
+                            );
+                          })()}
+                        </div>
                       <div className="space-y-1">
                         <Label htmlFor="acc-host-new">{t('SMTP 服务器')}</Label>
                         <Input

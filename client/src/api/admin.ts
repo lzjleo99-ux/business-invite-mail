@@ -257,3 +257,25 @@ export async function sendRawAuthTest(to?: string): Promise<{ messageId: string 
   const r = await axiosForBackend.post('/api/admin/smtp-test-raw', to ? { to } : {});
   return r.data;
 }
+
+/** 发信服务商 SMTP 预设（host/port/说明） */
+export interface SmtpProviderPreset {
+  id: string;
+  name: string;
+  nameEn: string;
+  host: string;
+  port: number;
+  secure: boolean;
+  imapHost: string | null;
+  imapPort: number;
+  credentialHint: string;
+  credentialHintEn: string;
+  coldEmailNote: string;
+  coldEmailNoteEn: string;
+  coldEmailPolicy: 'good' | 'restricted' | 'prohibited';
+  docsUrl: string;
+}
+export async function listSmtpPresets(): Promise<SmtpProviderPreset[]> {
+  const r = await axiosForBackend.get('/api/admin/smtp-presets');
+  return r.data.items ?? [];
+}
