@@ -159,6 +159,12 @@ export class AdminController {
   // 每用户独立的设置：只需登录，不需要管理员
   @UseGuards(JwtAuthGuard)
   @UseGuards(JwtAuthGuard, AdminGuard)
+  @UseGuards(JwtAuthGuard, AdminGuard)
+  @Post('admin-poll-all')
+  async adminPollAll(): Promise<unknown> {
+    return this.emailInboxService.pollAll();
+  }
+
   @Post('set-inbox-poll')
   async setInboxPoll(@Body() dto: { accountId: string; enabled: boolean }): Promise<{ ok: true }> {
     await this.mailService.adminSetInboxPoll(dto.accountId, dto.enabled);
