@@ -1853,7 +1853,11 @@ CORE RULES (non-negotiable):
 10. CTA: exactly one, at the end of the body (before the closing), phrased as a concrete, low-pressure next step.
 11. Subject line: short (under 50 chars), specific to this company. No clickbait. Mention their company name or one specific detail.
 12. Generate TWO complete, standalone versions: one in the local language, one in English. Both follow all the same rules.
-13. Output ONLY valid JSON. No markdown, no commentary.`;
+13. Output ONLY valid JSON. No markdown, no commentary.
+14. ANTI-MARKETING (critical): Do NOT stack value claims ("reduce risks", "improve outcomes", "ensure quality", "avoid costly mistakes", "trusted/vetted suppliers"). State what you do ONCE in plain words. No "AI-powered", "platform", or product name repeated — mention a product name at most once, or not at all.
+15. CTA: NEVER use "schedule a call", "Would you be open to a conversation", "I'd like to discuss", or "brief call". End with a simple, genuine question ("Is this something you handle in-house?", "Worth a short reply?", "Who handles sourcing at your end?"). No meeting-booking language.
+16. OPENERS: do NOT start with "I saw that", "I noticed your company", "Your focus on". Vary: start with a throwaway context line, a specific industry detail, or a plain "Quick note —". The first substantive sentence must differ across emails.
+17. LENGTH: 90-140 words total. Bulk-email content filters flag long, promotional, template-like messages. Short and specific passes more often.`;
 
     const companyInfo = this.buildCompanyInfo(company);
     const projectInfo = this.buildProjectInfo(projectContext);
@@ -1864,12 +1868,15 @@ CORE RULES (non-negotiable):
       ? `UK company note: You may naturally weave in one brief Cranfield University reference if it flows genuinely — the sender studied there. Keep it one short clause, not a paragraph. Never forced.`
       : `Do NOT mention Cranfield, UK study abroad, or any personal background story. No personal anecdotes at all.`;
 
+    // 2026-11-27：降低营销特征（应对腾讯企业邮 550 inappropriate content 内容指纹）。
+    // 之前 Style 3 "Lead with the value proposition" 直接产出广告腔；现在全部改成
+    // 真人式的短问询，禁止价值主张堆砌和"约个电话"套路 CTA。
     const styleVariants = [
-      'Start with a direct observation about their business, then explain the fit in one paragraph, close with a soft CTA. 2-3 short paragraphs total.',
-      'Open with a question or a specific detail you noticed about their company. Then introduce yourself and what you do. Keep it very tight.',
-      'Lead with the value proposition in the first sentence. No preamble. Then back it up with one specific reason it applies to them. Short paragraphs.',
-      "Start with context — who you are and why you're reaching out. Then zero in on one specific way your offering applies to their business. Casual-professional tone.",
-      "Open with a very specific, verifiable observation about their company (from the data you have). Then pivot to why you're writing. Keep it brief and confident.",
+      'Open with one concrete, verifiable detail about their business (one sentence). Then say in one plain sentence why you are writing. No pitch. End with a simple question, not a meeting request.',
+      'Start with a brief reason for the message (e.g. a sourcing/industry connection you noticed). One short paragraph about who you are, no product claims. Close with a low-pressure line like "worth a quick reply?" — never "schedule a call".',
+      "Keep it very short: one observation + one sentence about what you do + one casual question. 2 short paragraphs max. Sound like a note from a person, not a company brochure.",
+      "Lead with the specific thing you noticed about their company, not with your offering. Mention what you do only once, in plain words, no platform/product name repeated. End with an open question, no CTA template.",
+      "Write as if replying to a colleague's introduction: casual-professional, 90-130 words total. One detail about them, one line about you, one genuine question. No 'I'd like to schedule', no 'Would you be open to a conversation'.",
     ];
     const styleHint = styleVariants[Math.floor(seed * styleVariants.length)];
 
