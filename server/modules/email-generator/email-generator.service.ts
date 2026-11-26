@@ -1281,6 +1281,10 @@ export class EmailGeneratorService {
         } catch {
           // 记录失败不阻断
         }
+        // 关键：失败也标记"已处理"，否则下次 Send all 会反复重发同一批失败邮件。
+        // 反复重发相同内容会触发腾讯企业邮的"群发垃圾内容"内容指纹，越试越被拦。
+        // 需要重试的公司在工作台手动重置联系状态后再单独勾选发送。
+        await this.markEmailContacted(company.id);
       }
       // 模仿人工：每封后随机等 3~5 秒（最后一封不必等）
       if (company !== eligible[eligible.length - 1]) {
