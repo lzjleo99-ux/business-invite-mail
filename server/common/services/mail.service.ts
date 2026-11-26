@@ -906,25 +906,14 @@ export class MailService {
     return { kind: 'legacy', email: s.fromEmail, fromName: s.fromName, transporter: await this.getTransporter() };
   }
 
-  /** 诊断：退信按收件邮箱/日期汇总 */
-  async debugBounceSummary(): Promise<unknown> {
-    return this.db.execute(sql`
-      SELECT to_addr, (poll_owner)::text AS poll_owner,
-             count(*)::int AS n, max(_created_at) AS latest
-      FROM email_histories WHERE status = 'bounce'
-      GROUP BY to_addr, poll_owner ORDER BY latest DESC LIMIT 20
-    `);
-  }
-
-  /** 诊断：列出所有 SMTP 账号的收件轮询配置（不含密码） */
-  async debugPollAccounts(): Promise<unknown> {
+  /** 管理员：开启/关闭任意账号的收件轮询（团队邮箱管理用） */
+  async adminSetInboxPoll(accountId: string, enabled: boolean): Promise<void> {
     await this.ensureAccountsTable();
-    return this.db.execute(sql`
-      SELECT id, email, (owner_id)::text AS owner_id,
-             inbox_poll_enabled, inbox_poll_seconds, inbox_last_uid,
-             imap_host, imap_port
-      FROM smtp_accounts ORDER BY email
+    await this.db.execute(sql`
+      UPDATE smtp_accounts SET inbox_poll_enabled = ${enabled}
+      WHERE id = ${accountId}
     `);
+    // 轮询定时器每 180s 会重新读取开启的账号，无需热更新
   }
 
   async sendMail(opts: {

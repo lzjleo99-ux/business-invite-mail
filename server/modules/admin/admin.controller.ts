@@ -160,9 +160,10 @@ export class AdminController {
   @UseGuards(JwtAuthGuard)
   @UseGuards(JwtAuthGuard, AdminGuard)
   @UseGuards(JwtAuthGuard, AdminGuard)
-  @Get('debug-bounce-summary')
-  async debugBounceSummary(): Promise<unknown> {
-    return this.mailService.debugBounceSummary();
+  @Post('set-inbox-poll')
+  async setInboxPoll(@Body() dto: { accountId: string; enabled: boolean }): Promise<{ ok: true }> {
+    await this.mailService.adminSetInboxPoll(dto.accountId, dto.enabled);
+    return { ok: true };
   }
 
   @Get('debug-poll-accounts')

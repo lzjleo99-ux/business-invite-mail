@@ -630,15 +630,16 @@ try {
             inArray(emailHistories.projectId, visible),
           ),
           ...(emails.length > 0 ? [this.emailMatchCondition(emails)] : []),
-          // 退信：自己邮箱收到的（poll_owner = 我）+ 历史遗留的 poll_owner 为空的退信。
-          // 早期版本入库没写 poll_owner，导致 75 条退信在 UI 全部消失——
-          // 这些老数据本就是本站收到的退信，展示给管理员合理。
+          // 退信可见性：super_admin 看团队全部邮箱的退信（发信账号是团队资源）；
+          // 普通用户只看自己邮箱收到的 + 历史遗留 poll_owner 为空的退信。
           and(
             eq(emailHistories.status, 'bounce'),
-            or(
-              eq(emailHistories.pollOwner, query.user!.userId),
-              isNull(emailHistories.pollOwner),
-            ),
+            query.user?.role === 'super_admin'
+              ? sql`true`
+              : or(
+                  eq(emailHistories.pollOwner, query.user!.userId),
+                  isNull(emailHistories.pollOwner),
+                ),
           ),
         ),
       );
