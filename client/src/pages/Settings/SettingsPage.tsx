@@ -119,6 +119,31 @@ const SettingsPage = () => {
     queryFn: adminApi.listSuppressedEmails,
     enabled: isAdmin,
   });
+  // 认证测试邮箱（验证 SPF/DKIM/DMARC 是否生效）
+  const [authTestEmail, setAuthTestEmail] = useState('');
+  const [authTestBusy, setAuthTestBusy] = useState(false);
+  useEffect(() => {
+    if (!isAdmin) return;
+    void adminApi.getAuthTestEmail().then((v) => setAuthTestEmail(v ?? '')).catch(() => undefined);
+  }, [isAdmin]);
+  const saveAndSendAuthTest = useCallback(async (send: boolean): Promise<void> => {
+    if (!authTestEmail.trim()) { toast.error(t('请先填写测试邮箱')); return; }
+    setAuthTestBusy(true);
+    try {
+      await adminApi.setAuthTestEmail(authTestEmail.trim());
+      if (send) {
+        const r = await adminApi.sendRawAuthTest();
+        toast.success(t('认证测试邮件已发送，请检查收件箱和垃圾箱'), {
+          description: r.messageId ? `Message-ID: ${r.messageId.slice(0, 60)}` : undefined,
+        });
+      } else {
+        toast.success(t('测试邮箱已保存'));
+      }
+    } catch (err: unknown) {
+      toast.error(t('操作失败'), { description: err instanceof Error ? err.message : String(err) });
+    } finally { setAuthTestBusy(false); }
+  }, [authTestEmail, t]);
+
   // GDPR 来源证据查询（客服收到"你从哪拿到我邮箱"时用）
   const [provenanceEmail, setProvenanceEmail] = useState('');
   const [provenanceItems, setProvenanceItems] = useState<adminApi.EmailProvenance[] | null>(null);
@@ -1695,6 +1720,32 @@ const SettingsPage = () => {
                     )}
                   </div>
                 )}
+              </div>
+
+              {/* 认证测试邮箱：验证 SPF/DKIM/DMARC */}
+              <div className="mt-4 rounded-md border border-slate-200 p-3">
+                <p className="text-sm font-semibold text-slate-800">{t('DNS 认证测试')}</p>
+                <p className="mt-0.5 text-xs text-slate-500">
+                  {t('发一封模拟群发的测试邮件到你的邮箱，验证 SPF / DKIM / DMARC 是否生效。收件箱收到即认证通过。')}
+                </p>
+                <div className="mt-2 flex gap-2">
+                  <input
+                    type="email"
+                    className="h-8 flex-1 rounded-md border border-slate-200 px-2 text-sm"
+                    placeholder={t('测试邮箱地址')}
+                    value={authTestEmail}
+                    onChange={(e) => setAuthTestEmail(e.target.value)}
+                  />
+                  <Button size="sm" variant="outline" disabled={authTestBusy}
+                    onClick={() => void saveAndSendAuthTest(false)}>
+                    {t('保存')}
+                  </Button>
+                  <Button size="sm" disabled={authTestBusy}
+                    onClick={() => void saveAndSendAuthTest(true)}>
+                    {authTestBusy ? <Loader2 size={14} className="animate-spin" /> : <Mail size={14} />}
+                    {t('发送测试邮件')}
+                  </Button>
+                </div>
               </div>
 
               {/* 全局的「发信服务 / 收件服务」两块（连同它们的保存/测试邮件按钮）

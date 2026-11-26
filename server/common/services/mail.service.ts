@@ -1,3 +1,4 @@
+import { AppSettingsService } from '@server/common/services/app-settings.service';
 import { validateRawEmail } from '@server/common/utils/eml-generator';
 import { Injectable, Logger, BadRequestException } from '@nestjs/common';
 import { Inject } from '@nestjs/common';
@@ -70,6 +71,7 @@ export class MailService {
 
   constructor(
     @Inject(DRIZZLE_DATABASE) private readonly db: PostgresJsDatabase,
+    public readonly appSettings: AppSettingsService,
   ) {}
 
   /** 供缓存维护服务取到 db（DDL runner 需要原始连接） */
@@ -1014,6 +1016,36 @@ export class MailService {
   }
 
   /** 管理员点「测试发信」 */
+  /**
+   * 用 raw 模式发认证测试邮件（完全模拟 BD 群发路径）：
+   * 带 Message-ID/Date/List-Unsubscribe 等头，用于验证 SPF/DKIM 是否被 Gmail 接受。
+   * 普通 sendTestMail 走 nodemailer 自动生成头，测不出 raw 群发的真实情况。
+   */
+  async sendRawAuthTest(to: string, accountId?: string): Promise<{ messageId: string | null }> {
+    const { generateMessageId } = await import('@server/common/utils/eml-generator');
+    const sender = await this.resolveSender(accountId, undefined);
+    const fromAddr = sender.email;
+    const fromName = sender.fromName || 'Mail Test';
+    const fromLine = `${fromName} <${fromAddr}>`;
+    const stamp = new Date().toUTCString();
+    const mid = generateMessageId(fromAddr);
+    const subject = 'DNS auth test - SPF DKIM DMARC';
+    const bodyText = `Authentication test sent at ${stamp}\nFrom: ${fromAddr}\nTo: ${to}\n\nIf you receive this in INBOX (not spam), SPF/DKIM/DMARC are working.`;
+    const raw = [
+      `From: ${fromLine}`,
+      `To: ${to}`,
+      `Subject: ${subject}`,
+      `Date: ${stamp}`,
+      `Message-ID: ${mid}`,
+      'MIME-Version: 1.0',
+      'Content-Type: text/plain; charset=UTF-8',
+      'Content-Transfer-Encoding: 7bit',
+      '',
+      bodyText,
+    ].join('\r\n');
+    return this.sendRaw(raw, { from: fromAddr, to: [to] }, accountId);
+  }
+
   async sendTestMail(to: string): Promise<void> {
     const stamp = new Date().toLocaleString('zh-CN');
     await this.sendMail({

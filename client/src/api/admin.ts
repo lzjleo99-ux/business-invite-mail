@@ -244,3 +244,16 @@ export async function getEmailProvenance(email: string): Promise<EmailProvenance
   const r = await axiosForBackend.get('/api/compliance/provenance/email', { params: { email } });
   return r.data.items ?? [];
 }
+
+/** 认证测试邮箱（验证 SPF/DKIM/DMARC 是否生效） */
+export async function getAuthTestEmail(): Promise<string | null> {
+  const r = await axiosForBackend.get('/api/admin/test-email');
+  return r.data.email ?? null;
+}
+export async function setAuthTestEmail(email: string): Promise<void> {
+  await axiosForBackend.post('/api/admin/test-email', { email });
+}
+export async function sendRawAuthTest(to?: string): Promise<{ messageId: string | null }> {
+  const r = await axiosForBackend.post('/api/admin/smtp-test-raw', to ? { to } : {});
+  return r.data;
+}

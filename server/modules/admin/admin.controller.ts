@@ -340,6 +340,33 @@ export class AdminController {
     return { success: true };
   }
 
+  /** 读取/设置认证测试邮箱（管理员） */
+  @UseGuards(JwtAuthGuard, AdminGuard)
+  @Get('test-email')
+  async getTestEmail(): Promise<{ email: string | null }> {
+    return { email: await this.mailService.appSettings.get('authTestEmail') };
+  }
+
+  @UseGuards(JwtAuthGuard, AdminGuard)
+  @Post('test-email')
+  async setTestEmail(@Body() dto: { email: string }): Promise<{ ok: true }> {
+    if (!dto?.email || !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(dto.email.trim())) {
+      throw new BadRequestException('请输入有效邮箱');
+    }
+    await this.mailService.appSettings.set('authTestEmail', dto.email.trim());
+    return { ok: true };
+  }
+
+  /** 用 raw 模式（模拟群发）发认证测试邮件到测试邮箱 */
+  @UseGuards(JwtAuthGuard, AdminGuard)
+  @Post('smtp-test-raw')
+  async testSmtpRaw(@Body() dto: { to?: string; accountId?: string } = {}): Promise<{ ok: true; messageId: string | null }> {
+    const to = dto.to?.trim() || (await this.mailService.appSettings.get('authTestEmail'));
+    if (!to) throw new BadRequestException('请先设置测试邮箱');
+    const result = await this.mailService.sendRawAuthTest(to, dto.accountId);
+    return { ok: true, messageId: result.messageId };
+  }
+
   // 每用户独立的设置：只需登录，不需要管理员
   @UseGuards(JwtAuthGuard)
   @Post('smtp-test')

@@ -20,6 +20,12 @@ export const enMessages: Record<string, string> = {
   '第 {page} / {totalPages} 页': 'Page {page} of {totalPages}',
 
   // ---- antd table locale ----
+  'DNS 认证测试': 'DNS authentication test',
+  '发一封模拟群发的测试邮件到你的邮箱，验证 SPF / DKIM / DMARC 是否生效。收件箱收到即认证通过。': 'Send a test email (same path as bulk send) to verify SPF / DKIM / DMARC. Received in inbox = auth works.',
+  '测试邮箱地址': 'Test email address',
+  '请先填写测试邮箱': 'Enter a test email first',
+  '测试邮箱已保存': 'Test email saved',
+  '认证测试邮件已发送，请检查收件箱和垃圾箱': 'Auth test sent - check inbox and spam',
   '后台逐封发送中（每封间隔 3-5 秒，模仿人工）...': 'Sending in background (3-5s random delay between each, human-like)...',
   '停止发送': 'Stop sending',
   '已发送停止指令，当前这封完成后会停下': 'Stop requested - will halt after the current email',

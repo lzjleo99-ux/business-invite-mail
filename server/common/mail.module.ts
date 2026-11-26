@@ -1,5 +1,6 @@
 import { Module } from '@nestjs/common';
 import { MailService } from '@server/common/services/mail.service';
+import { AppSettingsService } from '@server/common/services/app-settings.service';
 
 /**
  * MailService 的唯一提供模块。
@@ -8,7 +9,7 @@ import { MailService } from '@server/common/services/mail.service';
  * 一个 module 里 provide —— 谁用谁 import 这个模块。
  */
 @Module({
-  providers: [MailService],
-  exports: [MailService],
+  providers: [MailService, AppSettingsService],
+  exports: [MailService, AppSettingsService],
 })
 export class SharedMailModule {}
