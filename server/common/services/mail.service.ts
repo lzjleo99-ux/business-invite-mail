@@ -910,7 +910,7 @@ export class MailService {
   async debugBounceSummary(): Promise<unknown> {
     return this.db.execute(sql`
       SELECT to_addr, (poll_owner)::text AS poll_owner,
-             count(*)::int AS n, max(created_at) AS latest
+             count(*)::int AS n, max(_created_at) AS latest
       FROM email_histories WHERE status = 'bounce'
       GROUP BY to_addr, poll_owner ORDER BY latest DESC LIMIT 20
     `);
