@@ -347,7 +347,23 @@ export class EmailInboxService implements OnModuleInit, OnModuleDestroy {
                 toAddr: toAddrs[0] || s.fromEmail,
                 ccAddr: ccAddrs.length > 0 ? ccAddrs.join(',') : null,
                 subject: parsed.subject ?? '',
-                bodyText: parsed.text ?? '',
+                // 退信通知常是 HTML-only（parsed.text 为空），导致 UI 里退信正文一片空白、
+                // 也无法从正文提取被退回的收件人。用 HTML 剥标签兜底。
+                bodyText: (parsed.text && parsed.text.trim())
+                  ? parsed.text
+                  : typeof parsed.html === 'string'
+                    ? parsed.html
+                        .replace(/<style[\s\S]*?<\/style>/gi, '')
+                        .replace(/<br\s*\/?>/gi, '\n')
+                        .replace(/<\/(p|div|tr)>/gi, '\n')
+                        .replace(/<[^>]+>/g, '')
+                        .replace(/&nbsp;/g, ' ')
+                        .replace(/&amp;/g, '&')
+                        .replace(/&lt;/g, '<')
+                        .replace(/&gt;/g, '>')
+                        .replace(/\n{3,}/g, '\n\n')
+                        .trim()
+                    : '',
                 bodyHtml: typeof parsed.html === 'string' ? parsed.html : null,
                 messageId,
                 inReplyTo,

@@ -576,6 +576,8 @@ try {
             AND (
               lower(h.to_addr) = lower(COALESCE(r.website_contact_email, r.email))
               OR (r.email IS NOT NULL AND lower(h.to_addr) = lower(r.email))
+              OR (r.email IS NOT NULL AND position(lower(r.email) in lower(h.body_text)) > 0)
+              OR position(lower(COALESCE(r.website_contact_email, r.email)) in lower(h.body_text)) > 0
             )
         )
       ORDER BY r.name
