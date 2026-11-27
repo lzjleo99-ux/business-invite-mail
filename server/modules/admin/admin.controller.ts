@@ -375,10 +375,10 @@ export class AdminController {
   /** 用 raw 模式（模拟群发）发认证测试邮件到测试邮箱 */
   @UseGuards(JwtAuthGuard, AdminGuard)
   @Post('smtp-test-raw')
-  async testSmtpRaw(@Body() dto: { to?: string; accountId?: string } = {}): Promise<{ ok: true; messageId: string | null }> {
+  async testSmtpRaw(@Body() dto: { to?: string; accountId?: string; content?: { subject: string; body: string } } = {}): Promise<{ ok: true; messageId: string | null }> {
     const to = dto.to?.trim() || (await this.mailService.appSettings.get('authTestEmail'));
     if (!to) throw new BadRequestException('请先设置测试邮箱');
-    const result = await this.mailService.sendRawAuthTest(to, dto.accountId);
+    const result = await this.mailService.sendRawAuthTest(to, dto.accountId, dto.content);
     return { ok: true, messageId: result.messageId };
   }
 

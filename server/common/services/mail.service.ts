@@ -1031,7 +1031,12 @@ export class MailService {
    * 带 Message-ID/Date/List-Unsubscribe 等头，用于验证 SPF/DKIM 是否被 Gmail 接受。
    * 普通 sendTestMail 走 nodemailer 自动生成头，测不出 raw 群发的真实情况。
    */
-  async sendRawAuthTest(to: string, accountId?: string): Promise<{ messageId: string | null }> {
+  async sendRawAuthTest(
+    to: string,
+    accountId?: string,
+    /** 可选：用真实邮件模板内容测试内容审核 */
+    content?: { subject: string; body: string },
+  ): Promise<{ messageId: string | null }> {
     const { generateMessageId } = await import('@server/common/utils/eml-generator');
     const sender = await this.resolveSender(accountId, undefined);
     const fromAddr = sender.email;
@@ -1039,8 +1044,9 @@ export class MailService {
     const fromLine = `${fromName} <${fromAddr}>`;
     const stamp = new Date().toUTCString();
     const mid = generateMessageId(fromAddr);
-    const subject = 'DNS auth test - SPF DKIM DMARC';
-    const bodyText = `Authentication test sent at ${stamp}\nFrom: ${fromAddr}\nTo: ${to}\n\nIf you receive this in INBOX (not spam), SPF/DKIM/DMARC are working.`;
+    const subject = content?.subject ?? 'DNS auth test - SPF DKIM DMARC';
+    const bodyText = content?.body
+      ?? `Authentication test sent at ${stamp}\nFrom: ${fromAddr}\nTo: ${to}\n\nIf you receive this in INBOX (not spam), SPF/DKIM/DMARC are working.`;
     const raw = [
       `From: ${fromLine}`,
       `To: ${to}`,
